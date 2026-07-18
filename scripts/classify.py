@@ -214,22 +214,22 @@ def flag_blobs(subdirectories: list[Any]) -> dict[str, list[dict[str, Any]]]:
     if not sizes:
         return {"flagged": []}
 
+    # A blob must clear the absolute floor and stand out from the median together.
     median = statistics.median(sizes)
     outlier_threshold = median * BLOB_OUTLIER_MEDIAN_FACTOR
     flagged = [
         {
             "path": subdir["path"],
-            "size_bytes": int(subdir["size_bytes"]),
+            "size_bytes": size,
             "reason": (
-                f"{int(subdir['size_bytes'])} bytes: at or above the "
-                f"{BLOB_ABSOLUTE_FLOOR_BYTES}-byte floor and at least "
-                f"{BLOB_OUTLIER_MEDIAN_FACTOR}x the {int(median)}-byte median "
-                "subdirectory"
+                f"{size} bytes: at or above the {BLOB_ABSOLUTE_FLOOR_BYTES}-byte "
+                f"floor and at least {BLOB_OUTLIER_MEDIAN_FACTOR}x the "
+                f"{int(median)}-byte median subdirectory"
             ),
         }
         for subdir in subdirectories
-        if int(subdir["size_bytes"]) >= BLOB_ABSOLUTE_FLOOR_BYTES
-        and int(subdir["size_bytes"]) >= outlier_threshold
+        if (size := int(subdir["size_bytes"])) >= BLOB_ABSOLUTE_FLOOR_BYTES
+        and size >= outlier_threshold
     ]
 
     return {"flagged": flagged}
