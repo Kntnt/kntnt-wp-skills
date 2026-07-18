@@ -24,10 +24,18 @@ import help as help_module
 
 # Repository layout. This test file sits at ``tests/``, one level below the
 # repository root, from which every other path is resolved.
-REPO_ROOT = Path(__file__).resolve().parents[1]
-MAN_DIR = REPO_ROOT / "docs" / "man"
-SKILLS_DIR = REPO_ROOT / "skills"
-README = REPO_ROOT / "README.md"
+REPO_ROOT: Path = Path(__file__).resolve().parents[1]
+MAN_DIR: Path = REPO_ROOT / "docs" / "man"
+SKILLS_DIR: Path = REPO_ROOT / "skills"
+README: Path = REPO_ROOT / "README.md"
+
+# The shape a manual page's NAME line must take: the skill's own name in
+# backticks, a spaced em dash, then a non-empty summary — e.g.
+# ``\`clone\` — create a fresh local DDEV copy``. The capture group is the
+# backticked name, checked against the skill it belongs to. Holding the line to
+# this shape is what lets the NAME-line test reject a blank or corrupted NAME
+# section instead of silently accepting whatever the parser fell through to.
+NAME_LINE_SHAPE: re.Pattern[str] = re.compile(r"^`([^`]+)` — \S")
 
 
 def _skill_names() -> list[str]:
@@ -75,9 +83,39 @@ def _readme_manpage_links() -> list[str]:
     return [target for target in targets if "docs/man/" in target]
 
 
+def _name_line(manpage: Path) -> str:
+    """Read a manual page's NAME line straight from disk, independently of the
+    ``help`` module under test.
+
+    Deliberately does *not* call ``help.name_line``: the overview is built with
+    that same function, so checking the overview against it is tautological — the
+    only way to fail is an empty return, never a NAME section that is blank or
+    corrupted (``help.name_line`` then falls through to the next ``## `` heading
+    and the overview embeds it verbatim, undetected). Parsing here yields an
+    independent witness whose shape the test can then hold to account.
+
+    Returns the first non-empty line after the ``## NAME`` heading, stripped, or
+    an empty string when the page has no NAME heading or nothing follows it.
+    """
+
+    lines = manpage.read_text(encoding="utf-8").splitlines()
+
+    # Find the NAME heading, then the first non-empty line beneath it — which for
+    # a blank NAME section is the next heading, caught by the shape check below.
+    start = next(
+        (i for i, line in enumerate(lines) if line.strip().lower() == "## name"), None
+    )
+    if start is None:
+        return ""
+    for line in lines[start + 1 :]:
+        if line.strip():
+            return line.strip()
+    return ""
+
+
 # Values fixed at collection time so each skill and link reports as its own case.
-SKILLS = _skill_names()
-README_MANPAGE_LINKS = _readme_manpage_links()
+SKILLS: list[str] = _skill_names()
+README_MANPAGE_LINKS: list[str] = _readme_manpage_links()
 
 
 @pytest.mark.parametrize("skill", SKILLS)
@@ -109,13 +147,36 @@ def test_every_registry_flag_is_documented(skill: str) -> None:
 
 @pytest.mark.parametrize("skill", SKILLS)
 def test_help_overview_carries_each_manpage_name_line(skill: str) -> None:
-    """The overview the ``help`` command renders carries each skill's NAME line."""
+    """The ``help`` overview carries each skill's NAME line, and that line is a
+    genuine summary — not a blank or corrupted NAME section the parser fell
+    through to.
 
-    name_line = help_module.name_line(REPO_ROOT, skill)
+    The NAME line is parsed independently of ``help.name_line`` (see
+    ``_name_line``) and then held to its shape, so the assertion reddens when a
+    manual page ships an empty or malformed NAME section — the very drift the
+    overview would otherwise carry unnoticed.
+    """
+
+    name_line = _name_line(MAN_DIR / f"{skill}.md")
+
+    # Reject a blank or removed NAME section: the parser then falls through to
+    # the next ``## `` heading (or returns nothing at all).
+    assert name_line and not name_line.startswith("## "), (
+        f"{skill}.md has no NAME-line body"
+    )
+
+    # Hold the NAME line to its shape — the backticked skill name and an em dash
+    # — so a corrupted summary is caught too, not merely an absent one.
+    shape = NAME_LINE_SHAPE.match(name_line)
+    assert shape and shape.group(1) == skill, (
+        f"{skill}.md NAME line is malformed: {name_line!r}"
+    )
+
+    # The binding AC #3 actually promises: the rendered overview carries this
+    # NAME line verbatim.
     overview = help_module.render_overview(
         REPO_ROOT, help_module.skill_names(REPO_ROOT)
     )
-    assert name_line, f"{skill}.md has no NAME line"
     assert name_line in overview, f"overview omits the NAME line of {skill!r}"
 
 
