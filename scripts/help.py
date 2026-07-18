@@ -21,6 +21,10 @@ import os
 import sys
 from pathlib import Path
 
+# Manual-page stems that document a command rather than a skill: echo-able by
+# name (so ``help help`` works) but never listed under the overview's Skills.
+COMMAND_PAGES = frozenset({"help"})
+
 
 def plugin_root() -> Path:
     """Resolve the plugin root, preferring the env var Claude Code injects and
@@ -36,13 +40,19 @@ def man_dir(root: Path) -> Path:
     return root / "docs" / "man"
 
 
-def skill_names(root: Path) -> list[str]:
-    """List skills that have a manual page, alphabetically, by page stem."""
+def man_names(root: Path) -> list[str]:
+    """List every manual-page stem, alphabetically — skills and commands alike."""
 
     pages = man_dir(root)
     if not pages.is_dir():
         return []
     return sorted(p.stem for p in pages.glob("*.md"))
+
+
+def skill_names(root: Path) -> list[str]:
+    """List the skills that have a manual page — the command pages excluded."""
+
+    return [name for name in man_names(root) if name not in COMMAND_PAGES]
 
 
 def name_line(root: Path, skill: str) -> str:
@@ -105,15 +115,16 @@ def main() -> None:
     manual page, otherwise → unknown."""
 
     root = plugin_root()
-    names = skill_names(root)
+    skills = skill_names(root)
+    pages = man_names(root)
     arg = sys.argv[1].strip() if len(sys.argv) > 1 else ""
 
     if not arg:
-        print(render_overview(root, names))
-    elif arg in names:
+        print(render_overview(root, skills))
+    elif arg in pages:
         print(render_detail(root, arg))
     else:
-        print(render_unknown(arg, names))
+        print(render_unknown(arg, skills))
 
 
 if __name__ == "__main__":
