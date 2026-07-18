@@ -1,0 +1,13 @@
+# Mail keeps the real mailer by default, with a risk-adaptive mass-send valve; cron stays running
+
+A freshly imported copy carries production's real users, subscribers, and integration credentials, and — with cron running — can act on them autonomously the instant the import finishes. The security review recommended capturing all mail by default (Mailpit) with real delivery as opt-in, and treated the running cron as a hazard. This design does the opposite by default, as a **settled decision that deliberately departs from the review** — do not re-open it as an oversight.
+
+Rationale: the tool has a single, aware operator who most often needs to test the real send flow end-to-end (e.g. Postmark), so blanket capture would break routine work; most sites this tool targets mail only the webmaster. The genuine mass-harm channel — a queued campaign to a real recipient list — is caught by the discovery-driven **mass-send valve**: discovery scans for a *poised* bulk send (a campaign queued or scheduled against a real list, **not** mere plugin presence — FluentCRM/MailPoet/etc. being installed is common on these sites and never flips anything), and only then flips the recommendation to Mailpit capture with a loud, specific warning. That is the whole point: the operator is trusted and aware, so we interrupt only on a concrete, about-to-fire hazard. Cron is therefore safe to leave running (`--no-cron` opts out): a queued campaign only actually blasts when cron fires it, and by then mail is captured. The residual non-mail outbound channels (webhooks, payment captures, scheduled social posts, licence re-validation) are lower-probability and are itemised in the always-on risk warning so the running-cron default is informed rather than silent.
+
+The operator explicitly chose the running-cron default over the reviewer's — and the author's — more cautious proposal.
+
+## Consequences
+
+- Capture, when chosen, is a **mu-plugin** short-circuiting `wp_mail` at top priority — so it catches API mailers (Postmark, SendGrid, Mailgun over HTTPS) that never touch sendmail and that "deactivate the SMTP plugin" would miss, and it survives plugin reactivation. It is installed only in the capture branch.
+- `--yes` accepts the risk-adaptive recommendation (live normally, auto-capture on a detected campaign); `--live-mail` forces the real mailer even past a detected campaign; `--capture-mail` forces Mailpit regardless.
+- For an unrecognised mailer, discovery falls back to a generic signal (a sending WP-cron event plus a large pending queue) and, when uncertain, does **not** flip but surfaces it.

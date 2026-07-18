@@ -11,5 +11,7 @@ in the moment.
 ## References
 
 - `docs/design.md` — read before implementing: agreed design and build plan, the single source of truth for the build.
+- `docs/adr/` — the settled architectural decisions with rationale; never re-open one as an oversight.
+- `CONTEXT.md` — the project glossary; use its terms in code, docs, and dialogue.
 - `agents.d/coding-standard/general.md` — read before writing or changing any code
 - `agents.d/coding-standard/python.md` — read before writing or changing Python

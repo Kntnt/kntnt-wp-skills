@@ -1,0 +1,5 @@
+# Deletion mirroring is opt-in, draws only from two safe sources, and moves to a local trash
+
+A blanket "make local identical to production" would delete things we deliberately keep — locally regenerated thumbnails, deliberately excluded blobs, wanted local-only dev tools. So deletion mirroring defaults to **No** (and under `--yes` there must be no surprise removals), and when enabled draws only from two itemised safe sources: **production-deleted files** (in the stored baseline but gone from production now, intersected with the current scope — these provably *were* production's and were removed there; anything never in a production manifest, like thumbnails and dev artefacts, is automatically immune) and **plugin/theme drift** (local plugins/themes with no production counterpart, presented as a checklist so junk goes and dev tools stay).
+
+Deletion is never a hard `rm`: confirmed items are moved to a local trash (`.kntnt-wp-skills/trash/<timestamp>/`, gitignored) and the path reported, so "irreversible" becomes "reversible until you empty it". It is a remembered per-site answer, so "make it identical" is achieved by setting it Yes once for that site.

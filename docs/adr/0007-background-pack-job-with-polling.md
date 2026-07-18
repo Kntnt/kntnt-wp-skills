@@ -1,0 +1,3 @@
+# Packing runs as a detached background job on production, polled for completion
+
+Heavy `mysqldump`/`tar` work inside a single `execute-php` call risks MCP timeouts. The pack therefore runs as a detached background job (`nohup bash pack.sh >> pack.log 2>&1 & echo $!`) and the client **polls** for `DONE` / `FAILED` markers with a `kill -0 $PID` liveness check and an explicit maximum wait, so a mid-pack death never hangs the poll. This is why the health check must independently probe the `exec` capability — a working `run-wp-cli` does not prove it, since Novamira may run WP-CLI in-process ([ADR-0001](./0001-novamira-mcp-sole-control-channel.md)).

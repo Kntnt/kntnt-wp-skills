@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- Plugin help: the `/kntnt-wp-skills:help` command and a full manual page for each skill (`clone`, `pull`).
+- `clone` and `pull` skills, currently no-op stubs while the transfer engine is being designed.
+
 ## [0.1.0] – 2026-07-18
 
 ### Added

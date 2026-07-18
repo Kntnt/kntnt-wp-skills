@@ -1,0 +1,3 @@
+# Minimal flag surface — dry-run, regex filters, static help file, and the blob-threshold engine are cut
+
+For a personal, slash-command-only tool, the original hand-off's finer controls are gold-plating and were **cut**: `--dry-run` (an interactive walk where you decline at the end is the same thing), a static shipped `--help` usage file (replaced by the manpage mechanism, [ADR-0012](./0012-manpage-help-mechanism.md)), `--include`/`--exclude` regex filters, and the formal blob-threshold engine (replaced by the discovery report plus a deterministic heuristic that flags outliers behind a gate). Only a small set of coarse scope/behaviour flags remains for unattended deviation from defaults. Recorded so these don't get "helpfully" re-proposed later.

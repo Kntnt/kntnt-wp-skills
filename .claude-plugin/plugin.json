@@ -1,0 +1,25 @@
+{
+  "name": "kntnt-wp-skills",
+  "version": "0.1.0",
+  "description": "Mirror a live WordPress site down into a local DDEV copy. Two user-invoked skills over one transfer engine: `clone` creates a fresh local copy of a production site, and `pull` refreshes an existing one incrementally. Both reach production solely through the Novamira MCP — never over SSH — and put every decision to you as a recommendation you accept or override.",
+  "author": {
+    "name": "Thomas Barregren",
+    "email": "thomas@kntnt.com",
+    "url": "https://kntnt.com"
+  },
+  "homepage": "https://github.com/Kntnt/kntnt-wp-skills",
+  "repository": "https://github.com/Kntnt/kntnt-wp-skills",
+  "license": "Apache-2.0",
+  "keywords": [
+    "wordpress",
+    "ddev",
+    "clone",
+    "mirror",
+    "mcp",
+    "novamira",
+    "migration",
+    "local-development",
+    "database",
+    "uploads"
+  ]
+}

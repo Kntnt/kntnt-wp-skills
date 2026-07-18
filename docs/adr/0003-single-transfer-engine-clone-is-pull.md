@@ -1,0 +1,3 @@
+# One shared transfer engine — clone is pull against an empty baseline
+
+Two skills sit over **one** shared transfer engine (discovery, packaging on production, the pull, verification, remote cleanup, import, localisation); `clone` and `pull` differ only at the bookends. Because the file transfer is a manifest diff against a stored baseline ([ADR-0006](./0006-baseline-manifest-diff-with-scope.md)), a first-time clone simply has no baseline, so everything is "new" and a full transfer falls straight out of the incremental path. There is one transfer engine, not two — the alternative (separate full-transfer and incremental code paths) would duplicate the riskiest code in the project.

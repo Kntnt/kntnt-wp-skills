@@ -49,7 +49,7 @@ Add the plugin's marketplace and install it from within Claude Code:
 
 ## Usage
 
-Both skills are started by their slash command and run only when you invoke them.
+Both skills are started by their slash command and run only when you invoke them. The full option reference lives in the manual pages — [`clone`](docs/man/clone.md) and [`pull`](docs/man/pull.md) — also reachable as `/kntnt-wp-skills:help clone` and `/kntnt-wp-skills:help pull`.
 
 ### Clone a new copy
 
@@ -65,7 +65,7 @@ Run `/kntnt-wp-skills:pull` from the project directory. The skill takes a rollba
 - **`--yes`** — accept every recommendation, pause for nothing, and print a full record of what was decided and done.
 - **Replay** — when a saved plan exists for the site, the whole walk collapses to a single *replay the saved plan?* gate.
 
-A risk warning is always shown before the destructive steps. It lists each default-on behaviour that reaches beyond the copy — real SMTP can send mail, cron runs real jobs, the database holds real user data. Interactive mode waits for your confirmation; `--yes` prints the warning for the record and proceeds.
+By default the site's existing mailer stays active so you can test the real send flow; if discovery finds a campaign queued against a real recipient list, the recommendation flips to capturing all mail in DDEV's Mailpit with a loud warning. A risk warning is always shown before the destructive steps, listing what reaches outward — real mail, a running cron firing real webhooks, payments, or social posts, and the database's real user data. Use `--live-mail` or `--capture-mail` to force the choice. Interactive mode waits for your confirmation; `--yes` prints the warning for the record and proceeds.
 
 ## Questions, bugs, and feature requests
 
