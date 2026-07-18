@@ -24,7 +24,11 @@ The document computes only normalisations the whole engine agrees on — the
 database flavour, the PHP major.minor pin, the connection host/port split, the
 multilingual-plugin flag, and the mass-send flip. Classification of tables,
 defines, blobs, and the thumbnail exclude-set is deliberately left downstream;
-this document carries the raw attachment metadata that derivation consumes.
+this document carries the raw attachment metadata and the wp-config defines that
+derivation consumes. The defines are the one place a secret could ride in beside
+the connection, so each secret value (the DB password, an auth key, a salt, a
+nonce) is redacted here at the boundary — the name is kept for the classifier,
+the value dropped (safety rail 8).
 """
 
 from __future__ import annotations
@@ -55,6 +59,25 @@ MULTILINGUAL_PLUGIN_SLUGS = frozenset(
 # Minimum pending-queue size before an unrecognised mailer's generic signal —
 # a scheduled sending cron plus a backlog — is worth surfacing to the operator.
 UNRECOGNISED_QUEUE_THRESHOLD = 50
+
+# Define names whose *value* is a production secret that must never enter the
+# canonical document: the database password (safety rail 8, the one secret that
+# unlocks everything) and the eight WordPress auth keys, salts, and nonces that
+# never come down. Custom plugin variants are caught by the *_SALT / NONCE_*
+# patterns in is_secret_define below.
+SECRET_DEFINE_NAMES = frozenset(
+    {
+        "DB_PASSWORD",
+        "AUTH_KEY",
+        "SECURE_AUTH_KEY",
+        "LOGGED_IN_KEY",
+        "NONCE_KEY",
+        "AUTH_SALT",
+        "SECURE_AUTH_SALT",
+        "LOGGED_IN_SALT",
+        "NONCE_SALT",
+    }
+)
 
 
 class DiscoveryError(Exception):
@@ -195,6 +218,43 @@ def build_connection(raw: dict[str, Any]) -> dict[str, Any]:
         "charset": _optional(raw, "DB_CHARSET", str, "", "database.connection"),
         "collate": _optional(raw, "DB_COLLATE", str, "", "database.connection"),
     }
+
+
+def is_secret_define(name: str) -> bool:
+    """Report whether a define carries a production secret whose value must be
+    redacted before it enters the document — the database password and the auth
+    key / salt / nonce family, including the custom plugin variants a downstream
+    classifier also treats as secrets (safety rail 8; the secrets that never come
+    down)."""
+
+    return (
+        name in SECRET_DEFINE_NAMES
+        or name.endswith("_SALT")
+        or name.startswith("NONCE_")
+    )
+
+
+def build_defines(raw_defines: list[Any]) -> list[dict[str, Any]]:
+    """Carry production's wp-config defines into the document for the downstream
+    classifier, redacting every secret value at this trust boundary.
+
+    Classification into the portable and auto-excluded classes is left downstream,
+    but the split needs every define's name — so the name is always carried, while
+    a secret's value (the DB password, an auth key, a salt, a nonce) is dropped to
+    ``None`` here, before it can reach model context and independently of the
+    classifier later dropping the whole auto-excluded value (safety rail 8). A
+    malformed entry — a non-object, or one missing its ``name`` — fails loudly
+    rather than riding in half-built.
+    """
+
+    defines: list[dict[str, Any]] = []
+    for index, entry in enumerate(raw_defines):
+        context = f"discovery.defines[{index}]"
+        name = _require(entry, "name", str, context)
+        value = None if is_secret_define(name) else entry.get("value")
+        defines.append({"name": name, "value": value})
+
+    return defines
 
 
 def _poised_finding(engine: dict[str, Any]) -> str:
@@ -366,6 +426,9 @@ def build_document(raw: Any) -> dict[str, Any]:
             _optional(discovery, "mass_send", dict, {}, "discovery")
         ),
         "attachments": _optional(discovery, "attachments", list, [], "discovery"),
+        "defines": build_defines(
+            _optional(discovery, "defines", list, [], "discovery")
+        ),
         "binaries": _optional(discovery, "binaries", dict, {}, "discovery"),
     }
 

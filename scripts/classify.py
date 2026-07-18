@@ -126,6 +126,37 @@ def _list(mapping: dict[str, Any], key: str, context: str) -> list[Any]:
     return value
 
 
+def _record(value: Any, context: str) -> dict[str, Any]:
+    """Assert a list element is a JSON object, raising :class:`ClassifyError`
+    otherwise. This is the per-element guard that turns a malformed inner record —
+    a non-object where a define, table, or attachment is expected — into a loud
+    ``classify:`` diagnostic rather than an uncaught traceback, because the raw
+    discovery seam passes these list elements through without validating each one.
+    """
+
+    if not isinstance(value, dict):
+        raise ClassifyError(f"{context}: expected an object, got {type(value).__name__}")
+    return value
+
+
+def _field(record: dict[str, Any], key: str, expected: type, context: str) -> Any:
+    """Fetch a required field from an inner record, asserting its type and raising
+    :class:`ClassifyError` when it is absent or mistyped — so a record missing the
+    very key the classifier reads (a define's or table's ``name``, an attachment's
+    ``file``) fails loudly instead of crashing on a ``KeyError`` or an
+    ``AttributeError`` deeper in."""
+
+    if key not in record:
+        raise ClassifyError(f"{context}: missing required field {key!r}")
+    value = record[key]
+    if not isinstance(value, expected):
+        raise ClassifyError(
+            f"{context}: field {key!r} must be {expected.__name__}, "
+            f"got {type(value).__name__}"
+        )
+    return value
+
+
 def define_class(name: str) -> str | None:
     """Classify one define name into its auto-excluded class, or ``None`` when it
     is a portable plugin/behaviour define offered at the gate.
@@ -158,11 +189,13 @@ def classify_defines(defines: list[Any]) -> dict[str, list[dict[str, Any]]]:
 
     portable: list[dict[str, Any]] = []
     auto_excluded: list[dict[str, Any]] = []
-    for entry in defines:
-        name = entry["name"]
+    for index, entry in enumerate(defines):
+        context = f"defines[{index}]"
+        record = _record(entry, context)
+        name = _field(record, "name", str, context)
         classification = define_class(name)
         if classification is None:
-            portable.append({"name": name, "value": entry.get("value")})
+            portable.append({"name": name, "value": record.get("value")})
         else:
             auto_excluded.append({"name": name, "class": classification})
 
@@ -190,8 +223,10 @@ def classify_tables(prefix: str, tables: list[Any]) -> dict[str, list[Any]]:
 
     full: list[str] = []
     empty: list[dict[str, str]] = []
-    for table in tables:
-        name = table["name"]
+    for index, table in enumerate(tables):
+        context = f"top_tables[{index}]"
+        record = _record(table, context)
+        name = _field(record, "name", str, context)
         category = table_category(prefix, name)
         if category is None:
             full.append(name)
@@ -250,11 +285,13 @@ def thumbnail_exclude_set(attachments: list[Any]) -> list[str]:
 
     originals: set[str] = set()
     derivatives: set[str] = set()
-    for attachment in attachments:
-        original = attachment["file"]
+    for index, attachment in enumerate(attachments):
+        context = f"attachments[{index}]"
+        record = _record(attachment, context)
+        original = _field(record, "file", str, context)
         originals.add(original)
         directory = PurePosixPath(original).parent
-        for size_file in attachment.get("sizes", []):
+        for size_file in record.get("sizes", []):
             derivatives.add(str(directory / size_file))
 
     return sorted(derivatives - originals)

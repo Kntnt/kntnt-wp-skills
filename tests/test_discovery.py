@@ -241,6 +241,37 @@ def test_attachment_metadata_is_carried_for_later_thumbnail_derivation() -> None
     assert "banner-300x200.jpg" in banner["sizes"]
 
 
+def test_defines_are_carried_with_secret_values_redacted() -> None:
+    # Arrange & Act — the representative site's wp-config defines flow into the
+    # document for the downstream classifier to split.
+    defines = document_for("representative-site.json")["defines"]
+
+    # Assert — every define's name is carried so the classifier can account for
+    # it, a portable define keeps its value, but a secret define's value is
+    # redacted to None here at the boundary (safety rail 8), never riding into the
+    # document even before the classifier drops the whole auto-excluded value.
+    by_name = {entry["name"]: entry["value"] for entry in defines}
+    assert by_name["WP_MEMORY_LIMIT"] == "256M"
+    assert by_name["DB_PASSWORD"] is None
+    assert by_name["AUTH_SALT"] is None
+
+
+def test_a_malformed_define_record_fails_loudly() -> None:
+    # Arrange — a define entry lacking its 'name' must fail loud rather than ride
+    # into the document half-built or crash on a KeyError.
+    payload = load_fixture("representative-site.json")
+    payload["discovery"]["defines"] = [{"value": "orphan"}]
+
+    # Act.
+    result = run_on(payload)
+
+    # Assert.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"discovery:")
+    assert b"defines" in result.stderr
+
+
 def test_malformed_json_input_fails_loudly() -> None:
     # Arrange & Act.
     result = run_discovery(b"this is not json")
