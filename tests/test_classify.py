@@ -12,11 +12,14 @@ seam through the real command — a canonical discovery document in as JSON on
 stdin, the classifications out as JSON on stdout — and never reaches into the
 helper's internals.
 
-The canonical fixtures under ``fixtures/classify-*.json`` are shaped exactly like
-``scripts/discovery.py``'s output, and the representative site is additionally
-piped through the real ``discovery.py`` so the classifier is anchored to the
-document it actually consumes rather than a hand-authored guess. No test touches
-a real site.
+The canonical fixtures under ``fixtures/classify-*.json`` are shaped like
+``scripts/discovery.py``'s output for the sections each exercises (tables, blobs,
+the thumbnail exclude-set, the project name). The headline define classification
+and the thumbnail exclude-set are additionally driven end-to-end through the real
+``discovery.py`` against the representative raw fixture, so those two are anchored
+to the canonical document discovery actually produces — the ``defines`` array
+included — rather than a hand-authored stand-in the pipeline never emits. No test
+touches a real site.
 """
 
 from __future__ import annotations
@@ -95,8 +98,10 @@ def portable_names(classifications: dict[str, Any]) -> set[str]:
 
 
 def test_credential_defines_are_auto_excluded() -> None:
-    # Arrange & Act.
-    excluded = excluded_classes(classify_fixture("classify-full-site.json"))
+    # Arrange & Act — the representative site through the real discovery helper, so
+    # the define classification is exercised against the canonical document
+    # discovery actually produces.
+    excluded = excluded_classes(classify_through_discovery("representative-site.json"))
 
     # Assert — every database credential is auto-excluded as the credentials
     # class (the local DDEV site has its own, so production's would mis-key it).
@@ -106,7 +111,7 @@ def test_credential_defines_are_auto_excluded() -> None:
 
 def test_auth_key_salt_and_nonce_defines_are_auto_excluded() -> None:
     # Arrange & Act.
-    excluded = excluded_classes(classify_fixture("classify-full-site.json"))
+    excluded = excluded_classes(classify_through_discovery("representative-site.json"))
 
     # Assert — production auth keys, salts, and nonces never come down.
     for name in (
@@ -140,7 +145,7 @@ def test_a_custom_salt_or_nonce_define_is_auto_excluded_by_pattern() -> None:
 
 def test_domain_and_path_defines_are_auto_excluded() -> None:
     # Arrange & Act.
-    excluded = excluded_classes(classify_fixture("classify-full-site.json"))
+    excluded = excluded_classes(classify_through_discovery("representative-site.json"))
 
     # Assert — domain and path constants belong to production's layout, not the
     # local copy's.
@@ -150,7 +155,7 @@ def test_domain_and_path_defines_are_auto_excluded() -> None:
 
 def test_infrastructure_defines_are_auto_excluded() -> None:
     # Arrange & Act.
-    excluded = excluded_classes(classify_fixture("classify-full-site.json"))
+    excluded = excluded_classes(classify_through_discovery("representative-site.json"))
 
     # Assert — cache toggles, cache-server hosts, and cron disabling are
     # infrastructure the local copy must not inherit.
@@ -161,7 +166,7 @@ def test_infrastructure_defines_are_auto_excluded() -> None:
 
 def test_plugin_behaviour_defines_are_offered() -> None:
     # Arrange & Act.
-    classifications = classify_fixture("classify-full-site.json")
+    classifications = classify_through_discovery("representative-site.json")
 
     # Assert — the remaining plugin/behaviour defines are offered at the gate,
     # and none of them leaked into the auto-excluded set.
@@ -173,8 +178,8 @@ def test_plugin_behaviour_defines_are_offered() -> None:
 
 def test_offered_define_carries_its_value_for_the_marked_block() -> None:
     # Arrange & Act — a portable define is written verbatim into the marked block,
-    # so its value must survive classification.
-    portable = classify_fixture("classify-full-site.json")["defines"]["portable"]
+    # so its value must survive classification through the real pipeline.
+    portable = classify_through_discovery("representative-site.json")["defines"]["portable"]
 
     # Assert.
     by_name = {entry["name"]: entry.get("value") for entry in portable}
@@ -182,8 +187,8 @@ def test_offered_define_carries_its_value_for_the_marked_block() -> None:
 
 
 def test_every_define_is_classified_exactly_once() -> None:
-    # Arrange — the fixture carries 26 defines.
-    classifications = classify_fixture("classify-full-site.json")
+    # Arrange — the representative site's wp-config carries 26 defines.
+    classifications = classify_through_discovery("representative-site.json")
 
     # Act.
     offered = portable_names(classifications)
@@ -196,15 +201,24 @@ def test_every_define_is_classified_exactly_once() -> None:
 
 
 def test_secret_define_values_never_appear_in_the_output() -> None:
-    # Arrange — DB_PASSWORD carries a unique sentinel; auto-excluded defines are
-    # dropped, never written, so no secret value may ride into model context.
+    # Arrange — an auto-excluded define carrying a secret sentinel value, fed
+    # straight to the classifier: its own contract is that an auto-excluded define
+    # is dropped to name and class, so no secret value may ride into model
+    # context even if one reaches it (defence in depth behind discovery's redaction
+    # of the same secret at the boundary).
     sentinel = "PW-NEVER-LEAK-4c7a"
+    document = {"defines": [
+        {"name": "DB_PASSWORD", "value": sentinel},
+        {"name": "WP_MEMORY_LIMIT", "value": "256M"},
+    ]}
 
     # Act.
-    result = run_classify((FIXTURES / "classify-full-site.json").read_bytes())
+    result = run_classify(json.dumps(document).encode())
 
-    # Assert.
+    # Assert — the run succeeds, the portable value survives, and the secret is
+    # nowhere in the output.
     assert result.returncode == 0, result.stderr.decode()
+    assert b"256M" in result.stdout
     assert sentinel.encode() not in result.stdout
 
 
@@ -392,6 +406,8 @@ def test_canonical_document_in_yields_every_classification() -> None:
     assert "2024/05/banner-150x150.jpg" in classifications["thumbnails"]["exclude"]
     assert "wp_posts" in classifications["tables"]["full"]
     assert classifications["tables"]["empty"] == []
+    assert "WP_MEMORY_LIMIT" in portable_names(classifications)
+    assert excluded_classes(classifications).get("DB_HOST") == "credentials"
 
 
 def test_malformed_input_fails_loudly() -> None:
@@ -401,6 +417,51 @@ def test_malformed_input_fails_loudly() -> None:
 
     # Assert — a non-zero exit and a `classify:` diagnostic, never a half-built
     # document on stdout.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"classify:")
+
+
+# --- Malformed inner records -------------------------------------------------
+
+
+def test_a_malformed_define_record_fails_loudly() -> None:
+    # Arrange — a define entry lacking its 'name'. It must earn the same loud
+    # `classify:` diagnostic as a top-level shape error, not an uncaught KeyError
+    # traceback (the classifier's fail-loud contract covers inner records too).
+    document = {"defines": [{"value": "orphan"}]}
+
+    # Act.
+    result = run_classify(json.dumps(document).encode())
+
+    # Assert.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"classify:")
+
+
+def test_a_malformed_table_record_fails_loudly() -> None:
+    # Arrange — a table entry lacking its 'name'.
+    document = {"database": {"top_tables": [{"size_bytes": 1024}]}}
+
+    # Act.
+    result = run_classify(json.dumps(document).encode())
+
+    # Assert.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"classify:")
+
+
+def test_a_malformed_attachment_record_fails_loudly() -> None:
+    # Arrange — a non-object attachment element, which the raw discovery seam can
+    # pass through unvalidated.
+    document = {"attachments": ["not-an-object"]}
+
+    # Act.
+    result = run_classify(json.dumps(document).encode())
+
+    # Assert.
     assert result.returncode != 0
     assert result.stdout == b""
     assert result.stderr.startswith(b"classify:")
