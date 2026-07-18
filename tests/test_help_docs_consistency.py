@@ -112,7 +112,9 @@ def test_help_overview_carries_each_manpage_name_line(skill: str) -> None:
     """The overview the ``help`` command renders carries each skill's NAME line."""
 
     name_line = help_module.name_line(REPO_ROOT, skill)
-    overview = help_module.render_overview(REPO_ROOT, help_module.skill_names(REPO_ROOT))
+    overview = help_module.render_overview(
+        REPO_ROOT, help_module.skill_names(REPO_ROOT)
+    )
     assert name_line, f"{skill}.md has no NAME line"
     assert name_line in overview, f"overview omits the NAME line of {skill!r}"
 
