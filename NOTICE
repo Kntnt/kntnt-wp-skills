@@ -1,0 +1,6 @@
+kntnt-wp-skills
+Copyright 2026 Thomas Barregren
+
+This product includes software developed by Thomas Barregren (https://kntnt.com).
+
+A Claude Code plugin that mirrors a live WordPress site down into a local DDEV copy — clone a fresh copy or pull to refresh an existing one.
