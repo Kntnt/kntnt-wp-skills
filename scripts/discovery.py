@@ -83,6 +83,49 @@ def _require(mapping: Any, key: str, expected: type, context: str) -> Any:
     return value
 
 
+def _optional(
+    mapping: dict[str, Any], key: str, expected: type, default: Any, context: str
+) -> Any:
+    """Fetch an optional ``mapping[key]``: return the value when present and of
+    the expected type, the ``default`` when the key is absent, and raise
+    :class:`DiscoveryError` when the key is present but of the wrong type.
+
+    Optionality is about presence, never about shape — a field the scan does emit
+    must still be well-typed, so a malformed value fails loudly rather than riding
+    into the document (AC1: never a half-built document on stdout)."""
+
+    if key not in mapping:
+        return default
+    value = mapping[key]
+    if not isinstance(value, expected):
+        raise DiscoveryError(
+            f"{context}: field {key!r} must be {expected.__name__}, "
+            f"got {type(value).__name__}"
+        )
+    return value
+
+
+def _string_list(mapping: dict[str, Any], key: str, context: str) -> list[str]:
+    """Fetch an optional list of strings, defaulting to empty when absent and
+    raising :class:`DiscoveryError` when the value is not a list or holds a
+    non-string element. This is the boundary that lets downstream string handling
+    — plugin slugs, theme and drop-in names — trust its input instead of crashing
+    on a stray non-string with an uncaught traceback."""
+
+    value = mapping.get(key, [])
+    if not isinstance(value, list):
+        raise DiscoveryError(
+            f"{context}: field {key!r} must be list, got {type(value).__name__}"
+        )
+    for index, item in enumerate(value):
+        if not isinstance(item, str):
+            raise DiscoveryError(
+                f"{context}: field {key!r}[{index}] must be str, "
+                f"got {type(item).__name__}"
+            )
+    return value
+
+
 def split_host_and_port(db_host: str) -> tuple[str, int | None, str | None]:
     """Split a WordPress ``DB_HOST`` into host, port, and socket.
 
@@ -147,28 +190,60 @@ def build_connection(raw: dict[str, Any]) -> dict[str, Any]:
         "host": host,
         "port": port,
         "socket": socket,
-        "name": raw.get("DB_NAME", ""),
-        "user": raw.get("DB_USER", ""),
-        "charset": raw.get("DB_CHARSET", ""),
-        "collate": raw.get("DB_COLLATE", ""),
+        "name": _optional(raw, "DB_NAME", str, "", "database.connection"),
+        "user": _optional(raw, "DB_USER", str, "", "database.connection"),
+        "charset": _optional(raw, "DB_CHARSET", str, "", "database.connection"),
+        "collate": _optional(raw, "DB_COLLATE", str, "", "database.connection"),
     }
+
+
+def _poised_finding(engine: dict[str, Any]) -> str:
+    """Compose the loud, specific warning for one poised engine. A positive
+    recipient count is named; a zero count means the engine could not size the
+    list (MailPoet reports only the subject), so the warning says so plainly
+    rather than claiming a campaign 'against 0 recipients'."""
+
+    count = engine["recipient_count"]
+    target = (
+        f"against {count} recipients"
+        if count > 0
+        else "against its recipient list (size unavailable)"
+    )
+    return (
+        f"{engine['engine']}: campaign {engine['campaign']!r} is poised "
+        f"{target} — mail flips to capture"
+    )
 
 
 def build_mass_send(raw: dict[str, Any]) -> dict[str, Any]:
     """Extract the mass-send verdict from the raw scan.
 
-    A *poised* campaign — a recognised engine that is present, has a queued or
-    scheduled campaign, and holds a real recipient list — is what flips the mail
-    recommendation from live to capture; mere plugin presence never does. An
-    unrecognised mailer only ever falls back to a generic signal (a scheduled
-    sending cron plus a large pending queue): it surfaces a finding and marks the
-    run uncertain, but it never flips the recommendation on its own.
+    A *poised* campaign — a recognised engine that is present and has a queued or
+    scheduled campaign — is what flips the mail recommendation from live to
+    capture; mere plugin presence never does. The recipient count is reported in
+    the warning but is **not** a gate: a named engine that cannot size its list
+    (MailPoet queries only the subject, so it reports 0) must still flip, so the
+    valve fails toward capture rather than open on an uncountable list (ADR-0009,
+    the mass-send safety rail). An unrecognised mailer only ever falls back to a
+    generic signal (a scheduled sending cron plus a large pending queue): it
+    surfaces a finding and marks the run uncertain, but never flips on its own.
     """
 
-    engines = raw.get("engines", [])
-    unrecognised = raw.get("unrecognised", {})
+    engines = _optional(raw, "engines", list, [], "mass_send")
+    unrecognised = _optional(raw, "unrecognised", dict, {}, "mass_send")
 
-    # Keep only the genuinely poised engines; presence alone is not enough.
+    # Validate each engine record before reading it, so a malformed scan fails
+    # loud rather than crashing on a non-object or a non-numeric recipient count.
+    for index, engine in enumerate(engines):
+        if not isinstance(engine, dict):
+            raise DiscoveryError(
+                f"mass_send.engines[{index}]: expected an object, "
+                f"got {type(engine).__name__}"
+            )
+        _optional(engine, "recipient_count", int, 0, f"mass_send.engines[{index}]")
+
+    # Keep only the genuinely poised engines: present and queued or scheduled.
+    # Presence alone never flips, and an uncountable list never un-flips.
     poised_engines = [
         {
             "engine": engine.get("engine"),
@@ -176,28 +251,24 @@ def build_mass_send(raw: dict[str, Any]) -> dict[str, Any]:
             "recipient_count": engine.get("recipient_count", 0),
         }
         for engine in engines
-        if engine.get("present")
-        and engine.get("queued_or_scheduled")
-        and engine.get("recipient_count", 0) > 0
+        if engine.get("present") and engine.get("queued_or_scheduled")
     ]
 
     # Lead every poised engine with a loud, specific finding for the warning.
-    findings = [
-        f"{engine['engine']}: campaign {engine['campaign']!r} is poised against "
-        f"{engine['recipient_count']} recipients — mail flips to capture"
-        for engine in poised_engines
-    ]
+    findings = [_poised_finding(engine) for engine in poised_engines]
 
     # Surface an unrecognised mailer's generic signal without flipping.
+    pending_queue_size = _optional(
+        unrecognised, "pending_queue_size", int, 0, "mass_send.unrecognised"
+    )
     uncertain = bool(
         unrecognised.get("sending_cron_scheduled")
-        and unrecognised.get("pending_queue_size", 0) >= UNRECOGNISED_QUEUE_THRESHOLD
+        and pending_queue_size >= UNRECOGNISED_QUEUE_THRESHOLD
     )
     if uncertain:
         findings.append(
             "an unrecognised mailer has a scheduled sending cron and a pending "
-            f"queue of {unrecognised['pending_queue_size']} — review before "
-            "trusting live mail"
+            f"queue of {pending_queue_size} — review before trusting live mail"
         )
 
     return {
@@ -218,67 +289,84 @@ def build_document(raw: Any) -> dict[str, Any]:
     """
 
     discovery = _require(raw, "discovery", dict, "input")
-    liveness = raw.get("liveness", {}) if isinstance(raw, dict) else {}
-    exec_probe = raw.get("exec", {}) if isinstance(raw, dict) else {}
+    liveness = _optional(raw, "liveness", dict, {}, "input")
+    exec_probe = _optional(raw, "exec", dict, {}, "input")
 
     # Resolve the environment, preferring the liveness probe for the fields it
-    # and discovery both report.
-    php_version = liveness.get("php_version") or _require(
+    # and discovery both report; both sources are typed so a stray number never
+    # reaches major_minor's string split.
+    php_version = _optional(liveness, "php_version", str, "", "liveness") or _require(
         discovery, "php_version", str, "discovery"
     )
-    server_software = liveness.get("server_software") or discovery.get(
-        "server_software", ""
-    )
+    server_software = _optional(
+        liveness, "server_software", str, "", "liveness"
+    ) or _optional(discovery, "server_software", str, "", "discovery")
 
     database = _require(discovery, "database", dict, "discovery")
     connection = build_connection(_require(database, "connection", dict, "database"))
-    active_plugins = discovery.get("active_plugins", [])
+    active_plugins = _string_list(discovery, "active_plugins", "discovery")
     multilingual_active, multilingual_plugin = detect_multilingual(active_plugins)
 
     return {
         "schema_version": SCHEMA_VERSION,
         "site": {
             "home_url": _require(discovery, "home_url", str, "discovery"),
-            "site_url": discovery.get("site_url", ""),
-            "root_path": discovery.get("root_path", ""),
-            "content_path": discovery.get("content_path", ""),
-            "uploads_base": discovery.get("uploads_base", ""),
-            "core_version": discovery.get("core_version", ""),
+            "site_url": _optional(discovery, "site_url", str, "", "discovery"),
+            "root_path": _optional(discovery, "root_path", str, "", "discovery"),
+            "content_path": _optional(discovery, "content_path", str, "", "discovery"),
+            "uploads_base": _optional(discovery, "uploads_base", str, "", "discovery"),
+            "core_version": _optional(discovery, "core_version", str, "", "discovery"),
         },
         "environment": {
             "php_version": php_version,
             "php_major_minor": major_minor(php_version),
             "server_software": server_software,
-            "exec_available": bool(exec_probe.get("exec_available", False)),
-            "disk_free_bytes": discovery.get("disk_free_bytes", 0),
-            "root_writable": bool(discovery.get("root_writable", False)),
+            "exec_available": _optional(
+                exec_probe, "exec_available", bool, False, "exec"
+            ),
+            "disk_free_bytes": _optional(
+                discovery, "disk_free_bytes", int, 0, "discovery"
+            ),
+            "root_writable": _optional(
+                discovery, "root_writable", bool, False, "discovery"
+            ),
         },
         "database": {
             "flavour": detect_flavour(
                 _require(database, "version", str, "database"),
-                database.get("version_comment", ""),
+                _optional(database, "version_comment", str, "", "database"),
             ),
             "version": database["version"],
-            "default_collation": database.get("default_collation", ""),
+            "default_collation": _optional(
+                database, "default_collation", str, "", "database"
+            ),
             "table_prefix": _require(discovery, "table_prefix", str, "discovery"),
-            "total_size_bytes": database.get("total_size_bytes", 0),
-            "top_tables": database.get("top_tables", []),
-            "content_tables_innodb": bool(database.get("content_tables_innodb", False)),
+            "total_size_bytes": _optional(
+                database, "total_size_bytes", int, 0, "database"
+            ),
+            "top_tables": _optional(database, "top_tables", list, [], "database"),
+            "content_tables_innodb": _optional(
+                database, "content_tables_innodb", bool, False, "database"
+            ),
             "connection": connection,
         },
         "uploads": {
-            "subdirectories": discovery.get("uploads_subdirectories", []),
+            "subdirectories": _optional(
+                discovery, "uploads_subdirectories", list, [], "discovery"
+            ),
         },
         "plugins": {
             "active": active_plugins,
             "multilingual_active": multilingual_active,
             "multilingual_plugin": multilingual_plugin,
         },
-        "dropins": discovery.get("dropins", []),
-        "themes": discovery.get("themes", []),
-        "mass_send": build_mass_send(discovery.get("mass_send", {})),
-        "attachments": discovery.get("attachments", []),
-        "binaries": discovery.get("binaries", {}),
+        "dropins": _string_list(discovery, "dropins", "discovery"),
+        "themes": _string_list(discovery, "themes", "discovery"),
+        "mass_send": build_mass_send(
+            _optional(discovery, "mass_send", dict, {}, "discovery")
+        ),
+        "attachments": _optional(discovery, "attachments", list, [], "discovery"),
+        "binaries": _optional(discovery, "binaries", dict, {}, "discovery"),
     }
 
 
