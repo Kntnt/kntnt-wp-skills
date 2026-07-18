@@ -1,0 +1,71 @@
+{
+  "liveness": {
+    "home_url": "https://blog.example.org",
+    "abspath": "/srv/www/blog/",
+    "php_version": "8.1.27",
+    "server_software": "nginx/1.24.0"
+  },
+  "exec": {
+    "exec_available": true,
+    "disable_functions": "pcntl_fork,pcntl_exec",
+    "exec_roundtrip": "ok"
+  },
+  "discovery": {
+    "home_url": "https://blog.example.org",
+    "site_url": "https://blog.example.org",
+    "root_path": "/srv/www/blog/",
+    "content_path": "/srv/www/blog/wp-content",
+    "uploads_base": "/srv/www/blog/wp-content/uploads",
+    "core_version": "6.4.3",
+    "php_version": "8.1.27",
+    "server_software": "nginx/1.24.0",
+    "disk_free_bytes": 10737418240,
+    "root_writable": true,
+    "table_prefix": "blog_",
+    "database": {
+      "version": "8.0.32",
+      "version_comment": "MySQL Community Server - GPL",
+      "default_collation": "utf8mb4_0900_ai_ci",
+      "total_size_bytes": 41943040,
+      "top_tables": [
+        {"name": "blog_posts", "size_bytes": 20971520},
+        {"name": "blog_options", "size_bytes": 8388608}
+      ],
+      "content_tables_innodb": true,
+      "connection": {
+        "DB_HOST": "db.internal:3307",
+        "DB_NAME": "blog",
+        "DB_USER": "blog_user",
+        "DB_PASSWORD": "monolingual-secret-do-not-emit",
+        "DB_CHARSET": "utf8mb4",
+        "DB_COLLATE": ""
+      }
+    },
+    "uploads_subdirectories": [
+      {"path": "2024", "size_bytes": 20971520}
+    ],
+    "active_plugins": [
+      "akismet/akismet.php",
+      "wordpress-seo/wp-seo.php"
+    ],
+    "dropins": [],
+    "themes": ["twentytwentyfour"],
+    "mass_send": {
+      "engines": [],
+      "unrecognised": {"sending_cron_scheduled": false, "pending_queue_size": 0}
+    },
+    "attachments": [
+      {"id": 5, "file": "2024/01/photo.png", "sizes": ["photo-150x150.png"]}
+    ],
+    "binaries": {
+      "mysqldump": true,
+      "mysql": true,
+      "openssl": true,
+      "tar": true,
+      "gzip": true,
+      "sha256sum": true,
+      "nohup": true,
+      "bash": true
+    }
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "discovery": {
+    "home_url": "https://shop.example.net",
+    "site_url": "https://shop.example.net",
+    "root_path": "/home/shop/public_html/",
+    "content_path": "/home/shop/public_html/wp-content",
+    "uploads_base": "/home/shop/public_html/wp-content/uploads",
+    "core_version": "6.5.2",
+    "php_version": "8.3.6",
+    "server_software": "LiteSpeed",
+    "disk_free_bytes": 21474836480,
+    "root_writable": true,
+    "table_prefix": "wp_",
+    "database": {
+      "version": "10.11.6-MariaDB",
+      "version_comment": "MariaDB Server",
+      "default_collation": "utf8mb4_general_ci",
+      "total_size_bytes": 536870912,
+      "top_tables": [
+        {"name": "wp_options", "size_bytes": 268435456},
+        {"name": "wp_posts", "size_bytes": 134217728}
+      ],
+      "content_tables_innodb": true,
+      "connection": {
+        "DB_HOST": "localhost",
+        "DB_NAME": "shop_wp",
+        "DB_USER": "shop_wp",
+        "DB_PASSWORD": "mariadb-secret-do-not-emit",
+        "DB_CHARSET": "utf8mb4",
+        "DB_COLLATE": ""
+      }
+    },
+    "uploads_subdirectories": [
+      {"path": "2024", "size_bytes": 314572800},
+      {"path": "woocommerce_uploads", "size_bytes": 52428800}
+    ],
+    "active_plugins": [
+      "woocommerce/woocommerce.php"
+    ],
+    "dropins": ["object-cache.php"],
+    "themes": ["storefront"],
+    "mass_send": {
+      "engines": [],
+      "unrecognised": {"sending_cron_scheduled": false, "pending_queue_size": 0}
+    },
+    "attachments": [
+      {"id": 88, "file": "2024/03/product.jpg", "sizes": ["product-300x300.jpg", "product-woocommerce_thumbnail-300x300.jpg"]}
+    ],
+    "binaries": {
+      "mysqldump": true,
+      "mysql": true,
+      "openssl": true,
+      "tar": true,
+      "gzip": true,
+      "sha256sum": true,
+      "nohup": true,
+      "bash": true
+    }
+  }
+}

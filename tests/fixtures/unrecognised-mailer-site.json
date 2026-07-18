@@ -1,0 +1,58 @@
+{
+  "discovery": {
+    "home_url": "https://list.example.com",
+    "site_url": "https://list.example.com",
+    "root_path": "/var/www/list/",
+    "content_path": "/var/www/list/wp-content",
+    "uploads_base": "/var/www/list/wp-content/uploads",
+    "core_version": "6.5.2",
+    "php_version": "8.2.18",
+    "server_software": "Apache/2.4.57",
+    "disk_free_bytes": 4294967296,
+    "root_writable": true,
+    "table_prefix": "wp_",
+    "database": {
+      "version": "8.0.36",
+      "version_comment": "MySQL Community Server - GPL",
+      "default_collation": "utf8mb4_0900_ai_ci",
+      "total_size_bytes": 67108864,
+      "top_tables": [
+        {"name": "wp_options", "size_bytes": 16777216}
+      ],
+      "content_tables_innodb": true,
+      "connection": {
+        "DB_HOST": "127.0.0.1:3306",
+        "DB_NAME": "list",
+        "DB_USER": "list_user",
+        "DB_PASSWORD": "unrecognised-secret-do-not-emit",
+        "DB_CHARSET": "utf8mb4",
+        "DB_COLLATE": ""
+      }
+    },
+    "uploads_subdirectories": [
+      {"path": "2024", "size_bytes": 20971520}
+    ],
+    "active_plugins": [
+      "some-obscure-newsletter/some-obscure-newsletter.php"
+    ],
+    "dropins": [],
+    "themes": ["twentytwentyfour"],
+    "mass_send": {
+      "engines": [],
+      "unrecognised": {"sending_cron_scheduled": true, "pending_queue_size": 1200}
+    },
+    "attachments": [
+      {"id": 3, "file": "2024/02/logo.png", "sizes": ["logo-150x150.png"]}
+    ],
+    "binaries": {
+      "mysqldump": true,
+      "mysql": true,
+      "openssl": true,
+      "tar": true,
+      "gzip": true,
+      "sha256sum": true,
+      "nohup": true,
+      "bash": true
+    }
+  }
+}

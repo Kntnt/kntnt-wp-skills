@@ -1,0 +1,78 @@
+{
+  "liveness": {
+    "home_url": "https://www.example.com",
+    "abspath": "/var/www/html/",
+    "php_version": "8.2.18",
+    "server_software": "Apache/2.4.57 (Debian)"
+  },
+  "exec": {
+    "exec_available": true,
+    "disable_functions": "",
+    "exec_roundtrip": "ok"
+  },
+  "discovery": {
+    "home_url": "https://www.example.com",
+    "site_url": "https://www.example.com",
+    "root_path": "/var/www/html/",
+    "content_path": "/var/www/html/wp-content",
+    "uploads_base": "/var/www/html/wp-content/uploads",
+    "core_version": "6.5.2",
+    "php_version": "8.2.18",
+    "server_software": "Apache/2.4.57 (Debian)",
+    "disk_free_bytes": 5368709120,
+    "root_writable": true,
+    "table_prefix": "wp_",
+    "database": {
+      "version": "8.0.36",
+      "version_comment": "MySQL Community Server - GPL",
+      "default_collation": "utf8mb4_0900_ai_ci",
+      "total_size_bytes": 268435456,
+      "top_tables": [
+        {"name": "wp_posts", "size_bytes": 104857600},
+        {"name": "wp_postmeta", "size_bytes": 83886080},
+        {"name": "wp_options", "size_bytes": 20971520}
+      ],
+      "content_tables_innodb": true,
+      "connection": {
+        "DB_HOST": "127.0.0.1:3306",
+        "DB_NAME": "wordpress",
+        "DB_USER": "wp_user",
+        "DB_PASSWORD": "P@ssw0rd-NEVER-LEAK-2b91f",
+        "DB_CHARSET": "utf8mb4",
+        "DB_COLLATE": ""
+      }
+    },
+    "uploads_subdirectories": [
+      {"path": "2024", "size_bytes": 157286400},
+      {"path": "2023", "size_bytes": 104857600},
+      {"path": "galleries", "size_bytes": 2147483648}
+    ],
+    "active_plugins": [
+      "polylang/polylang.php",
+      "fluent-crm/fluent-crm.php",
+      "woocommerce/woocommerce.php"
+    ],
+    "dropins": ["object-cache.php", "advanced-cache.php"],
+    "themes": ["astra", "twentytwentyfour"],
+    "mass_send": {
+      "engines": [
+        {"engine": "fluentcrm", "present": true, "queued_or_scheduled": false, "campaign": null, "recipient_count": 0}
+      ],
+      "unrecognised": {"sending_cron_scheduled": false, "pending_queue_size": 0}
+    },
+    "attachments": [
+      {"id": 12, "file": "2024/05/banner.jpg", "sizes": ["banner-150x150.jpg", "banner-300x200.jpg", "banner-1024x683.jpg"]},
+      {"id": 34, "file": "2024/05/banner-1920x1080.jpg", "sizes": ["banner-1920x1080-150x150.jpg"]}
+    ],
+    "binaries": {
+      "mysqldump": true,
+      "mysql": true,
+      "openssl": true,
+      "tar": true,
+      "gzip": true,
+      "sha256sum": true,
+      "nohup": true,
+      "bash": true
+    }
+  }
+}
