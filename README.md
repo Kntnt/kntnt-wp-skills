@@ -49,7 +49,7 @@ Add the plugin's marketplace and install it from within Claude Code:
 
 ## Usage
 
-Both skills are started by their slash command and run only when you invoke them. The full option reference lives in the manual pages — [`clone`](docs/man/clone.md) and [`pull`](docs/man/pull.md) — also reachable as `/kntnt-wp-skills:help clone` and `/kntnt-wp-skills:help pull`.
+Both skills are started by their slash command and run only when you invoke them. The full option reference lives in the manual pages — [`clone`](docs/man/clone-manual.md) and [`pull`](docs/man/pull.md) — also reachable as `/kntnt-wp-skills:help clone` and `/kntnt-wp-skills:help pull`.
 
 ### Clone a new copy
 
