@@ -36,7 +36,6 @@ After the import your local users are production's, so you log in with your prod
 | `--include-blobs` | Include the heavy blobs (large galleries, `.mmdb` databases, backups, dumps) that are excluded by default. |
 | `--live-mail` | Force the site's real mailer even past a detected mass-send (the "send/test anyway" override). |
 | `--capture-mail` | Force all mail to DDEV's Mailpit regardless of what discovery finds. |
-| `--no-cron` | Disable local WP-Cron (`define('DISABLE_WP_CRON', true)`), so no scheduled job fires against the copy. |
 | `--regenerate-all` | Regenerate every thumbnail after import, not just the affected set. |
 | `help`, `--help`, `-h` | Print this manual page and stop. |
 
