@@ -28,9 +28,7 @@ SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "discovery.py"
 def run_discovery(raw: bytes) -> subprocess.CompletedProcess[bytes]:
     """Run the helper with ``raw`` on stdin and capture its result."""
 
-    return subprocess.run(
-        [sys.executable, str(SCRIPT)], input=raw, capture_output=True
-    )
+    return subprocess.run([sys.executable, str(SCRIPT)], input=raw, capture_output=True)
 
 
 def document_for(fixture: str) -> dict[str, Any]:
@@ -39,7 +37,8 @@ def document_for(fixture: str) -> dict[str, Any]:
 
     result = run_discovery((FIXTURES / fixture).read_bytes())
     assert result.returncode == 0, result.stderr.decode()
-    return json.loads(result.stdout)
+    document: dict[str, Any] = json.loads(result.stdout)
+    return document
 
 
 def test_valid_discovery_output_is_parsed_into_a_canonical_document() -> None:
@@ -145,9 +144,11 @@ def test_a_poised_campaign_flips_the_mail_recommendation() -> None:
 
     # Assert — the flip fires and the finding names the engine and the count.
     assert mass_send["flip"] is True
-    assert {"engine": "fluentcrm", "campaign": "Summer Sale 2026", "recipient_count": 4820} in mass_send[
-        "poised_engines"
-    ]
+    assert {
+        "engine": "fluentcrm",
+        "campaign": "Summer Sale 2026",
+        "recipient_count": 4820,
+    } in mass_send["poised_engines"]
     assert any("4820" in finding for finding in mass_send["findings"])
 
 
