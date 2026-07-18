@@ -1,0 +1,26 @@
+{
+  "baseline": {
+    "scope": {
+      "exclusions": []
+    },
+    "entries": [
+      { "path": "wp-content/uploads/2024/05/photo.jpg", "size": 1000, "mtime": 1700000000 },
+      { "path": "wp-content/uploads/gallery/big-1.jpg", "size": 5000000, "mtime": 1700000001 },
+      { "path": "wp-content/uploads/gallery/big-2.jpg", "size": 6000000, "mtime": 1700000002 },
+      { "path": "wp-content/plugins/acme/acme.php", "size": 2000, "mtime": 1700000003 },
+      { "path": "wp-content/plugins/old/old.php", "size": 300, "mtime": 1700000004 },
+      { "path": "wp-content/themes/astra/style.css", "size": 400, "mtime": 1700000010 }
+    ]
+  },
+  "current": {
+    "scope": {
+      "exclusions": ["wp-content/uploads/gallery"]
+    },
+    "entries": [
+      { "path": "wp-content/uploads/2024/05/photo.jpg", "size": 1000, "mtime": 1700000000 },
+      { "path": "wp-content/plugins/acme/acme.php", "size": 2500, "mtime": 1700000003 },
+      { "path": "wp-content/themes/astra/style.css", "size": 400, "mtime": 1700000600 },
+      { "path": "wp-content/plugins/new/new.php", "size": 800, "mtime": 1700000099 }
+    ]
+  }
+}

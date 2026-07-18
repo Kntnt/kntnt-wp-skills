@@ -1,0 +1,17 @@
+{
+  "baseline": {
+    "scope": {
+      "exclusions": []
+    },
+    "entries": []
+  },
+  "current": {
+    "scope": {
+      "exclusions": ["wp-content/uploads/gallery"]
+    },
+    "entries": [
+      { "path": "wp-content/plugins/acme/acme.php", "size": 2000, "mtime": 1700000000 },
+      { "path": "wp-content/themes/astra/style.css", "size": 400, "mtime": 1700000010 }
+    ]
+  }
+}
