@@ -41,6 +41,21 @@ def document_for(fixture: str) -> dict[str, Any]:
     return document
 
 
+def load_fixture(fixture: str) -> dict[str, Any]:
+    """Load a named fixture as a mutable dict, so a test can perturb a single
+    field and feed the perturbed payload back through the helper."""
+
+    payload: dict[str, Any] = json.loads((FIXTURES / fixture).read_text())
+    return payload
+
+
+def run_on(payload: dict[str, Any]) -> subprocess.CompletedProcess[bytes]:
+    """Run the helper on an in-memory payload, serialising it to stdin — the same
+    seam as a fixture file, but for inputs a test constructs on the fly."""
+
+    return run_discovery(json.dumps(payload).encode())
+
+
 def test_valid_discovery_output_is_parsed_into_a_canonical_document() -> None:
     # Arrange & Act.
     document = document_for("representative-site.json")
@@ -95,6 +110,24 @@ def test_connection_host_without_a_port_leaves_the_port_null() -> None:
     assert connection["port"] is None
 
 
+def test_connection_host_with_a_socket_path_is_split() -> None:
+    # Arrange — a DB_HOST that carries a unix socket path after the single colon.
+    payload = load_fixture("mariadb-site.json")
+    connection_in = payload["discovery"]["database"]["connection"]
+    connection_in["DB_HOST"] = "localhost:/var/run/mysqld/mysqld.sock"
+
+    # Act.
+    result = run_on(payload)
+    assert result.returncode == 0, result.stderr.decode()
+    connection = json.loads(result.stdout)["database"]["connection"]
+
+    # Assert — the socket travels apart from the host, with no spurious port, as
+    # the client credentials file needs.
+    assert connection["host"] == "localhost"
+    assert connection["port"] is None
+    assert connection["socket"] == "/var/run/mysqld/mysqld.sock"
+
+
 def test_mariadb_flavour_is_detected_from_the_version() -> None:
     # Arrange & Act.
     database = document_for("mariadb-site.json")["database"]
@@ -142,14 +175,38 @@ def test_a_poised_campaign_flips_the_mail_recommendation() -> None:
     # Arrange & Act — a recognised engine with a queued campaign and a real list.
     mass_send = document_for("poised-campaign-site.json")["mass_send"]
 
-    # Assert — the flip fires and the finding names the engine and the count.
+    # Assert — the flip fires and one finding names the engine and the count
+    # together, isolated from any unrecognised-fallback finding.
     assert mass_send["flip"] is True
     assert {
         "engine": "fluentcrm",
         "campaign": "Summer Sale 2026",
         "recipient_count": 4820,
     } in mass_send["poised_engines"]
-    assert any("4820" in finding for finding in mass_send["findings"])
+    assert any(
+        "fluentcrm" in finding and "4820" in finding
+        for finding in mass_send["findings"]
+    )
+
+
+def test_a_poised_campaign_with_no_countable_list_still_flips() -> None:
+    # Arrange & Act — a recognised engine (MailPoet) with a scheduled campaign
+    # whose recipient list it cannot count, so recipient_count arrives as 0.
+    mass_send = document_for("mailpoet-poised-site.json")["mass_send"]
+
+    # Assert — the valve fails toward capture: a named, scheduled engine flips
+    # mail even when no recipient count is available (ADR-0009). Requiring a
+    # positive count would fail open and let a scheduled MailPoet send fire live.
+    assert mass_send["flip"] is True
+    assert {
+        "engine": "mailpoet",
+        "campaign": "Newsletter #9",
+        "recipient_count": 0,
+    } in mass_send["poised_engines"]
+    assert any(
+        "mailpoet" in finding and "Newsletter #9" in finding
+        for finding in mass_send["findings"]
+    )
 
 
 def test_mere_plugin_presence_does_not_flip_the_mail_recommendation() -> None:
@@ -203,3 +260,51 @@ def test_missing_discovery_section_fails_loudly() -> None:
     assert result.returncode != 0
     assert b"missing" in result.stderr
     assert result.stdout == b""
+
+
+def test_a_required_field_of_the_wrong_type_fails_loudly() -> None:
+    # Arrange — home_url is required and typed; a number is malformed.
+    payload = load_fixture("representative-site.json")
+    payload["discovery"]["home_url"] = 12345
+
+    # Act.
+    result = run_on(payload)
+
+    # Assert — a loud exit that names the offending field, never a document.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"discovery:")
+    assert b"home_url" in result.stderr
+
+
+def test_a_malformed_structural_field_fails_loudly() -> None:
+    # Arrange — top_tables must be a list; a string is malformed and must not
+    # ride through into the document (AC1: never a half-built document on stdout).
+    payload = load_fixture("representative-site.json")
+    payload["discovery"]["database"]["top_tables"] = "oops"
+
+    # Act.
+    result = run_on(payload)
+
+    # Assert.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"discovery:")
+    assert b"top_tables" in result.stderr
+
+
+def test_a_non_string_active_plugin_fails_loudly() -> None:
+    # Arrange — a non-string element in active_plugins would otherwise crash the
+    # multilingual scan with an uncaught traceback rather than a diagnostic.
+    payload = load_fixture("representative-site.json")
+    payload["discovery"]["active_plugins"] = ["polylang/polylang.php", 42]
+
+    # Act.
+    result = run_on(payload)
+
+    # Assert — the precise `discovery: ...` diagnostic, not a stack trace, and no
+    # partial document (user story #8: a remediation message, not a traceback).
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"discovery:")
+    assert b"active_plugins" in result.stderr

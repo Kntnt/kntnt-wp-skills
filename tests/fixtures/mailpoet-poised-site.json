@@ -1,7 +1,7 @@
 {
   "liveness": {
-    "home_url": "https://news.example.com",
-    "abspath": "/var/www/news/",
+    "home_url": "https://letters.example.com",
+    "abspath": "/var/www/letters/",
     "php_version": "8.2.18",
     "server_software": "Apache/2.4.57"
   },
@@ -11,11 +11,11 @@
     "exec_roundtrip": "ok"
   },
   "discovery": {
-    "home_url": "https://news.example.com",
-    "site_url": "https://news.example.com",
-    "root_path": "/var/www/news/",
-    "content_path": "/var/www/news/wp-content",
-    "uploads_base": "/var/www/news/wp-content/uploads",
+    "home_url": "https://letters.example.com",
+    "site_url": "https://letters.example.com",
+    "root_path": "/var/www/letters/",
+    "content_path": "/var/www/letters/wp-content",
+    "uploads_base": "/var/www/letters/wp-content/uploads",
     "core_version": "6.5.2",
     "php_version": "8.2.18",
     "server_software": "Apache/2.4.57",
@@ -28,35 +28,35 @@
       "default_collation": "utf8mb4_0900_ai_ci",
       "total_size_bytes": 134217728,
       "top_tables": [
-        {"name": "wp_fc_subscribers", "size_bytes": 41943040},
-        {"name": "wp_posts", "size_bytes": 33554432}
+        {"name": "wp_mailpoet_newsletters", "size_bytes": 20971520},
+        {"name": "wp_posts", "size_bytes": 16777216}
       ],
       "content_tables_innodb": true,
       "connection": {
         "DB_HOST": "127.0.0.1:3306",
-        "DB_NAME": "news",
-        "DB_USER": "news_user",
-        "DB_PASSWORD": "poised-secret-do-not-emit",
+        "DB_NAME": "letters",
+        "DB_USER": "letters_user",
+        "DB_PASSWORD": "mailpoet-secret-do-not-emit",
         "DB_CHARSET": "utf8mb4",
         "DB_COLLATE": ""
       }
     },
     "uploads_subdirectories": [
-      {"path": "2024", "size_bytes": 62914560}
+      {"path": "2024", "size_bytes": 41943040}
     ],
     "active_plugins": [
-      "fluent-crm/fluent-crm.php"
+      "mailpoet/mailpoet.php"
     ],
     "dropins": [],
     "themes": ["twentytwentyfour"],
     "mass_send": {
       "engines": [
-        {"engine": "fluentcrm", "present": true, "queued_or_scheduled": true, "campaign": "Summer Sale 2026", "recipient_count": 4820}
+        {"engine": "mailpoet", "present": true, "queued_or_scheduled": true, "campaign": "Newsletter #9", "recipient_count": 0}
       ],
       "unrecognised": {"sending_cron_scheduled": false, "pending_queue_size": 0}
     },
     "attachments": [
-      {"id": 7, "file": "2024/06/hero.jpg", "sizes": ["hero-150x150.jpg"]}
+      {"id": 21, "file": "2024/07/masthead.jpg", "sizes": ["masthead-150x150.jpg"]}
     ],
     "binaries": {
       "mysqldump": true,
