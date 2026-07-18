@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "site": {
+    "home_url": "https://www.example.com"
+  },
+  "database": {
+    "table_prefix": "wp_",
+    "top_tables": []
+  },
+  "uploads": {
+    "subdirectories": []
+  },
+  "attachments": [
+    {"id": 1, "file": "2020/01/photo.jpg", "sizes": ["photo-1024x768.jpg", "photo-300x200.jpg"]},
+    {"id": 2, "file": "2020/01/photo-300x200.jpg", "sizes": ["photo-300x200-150x150.jpg"]}
+  ],
+  "defines": []
+}

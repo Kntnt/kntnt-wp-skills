@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "site": {
+    "home_url": "https://shop.example.org"
+  },
+  "database": {
+    "table_prefix": "site7_",
+    "top_tables": [
+      {"name": "site7_posts", "size_bytes": 1000},
+      {"name": "site7_relevanssi", "size_bytes": 5000},
+      {"name": "site7_options", "size_bytes": 800}
+    ]
+  },
+  "uploads": {
+    "subdirectories": []
+  },
+  "attachments": [],
+  "defines": []
+}
