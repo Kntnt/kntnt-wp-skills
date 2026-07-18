@@ -2,7 +2,7 @@
 
 ## NAME
 
-
+`clone` — create a fresh local DDEV copy of a production WordPress site
 
 ## SYNOPSIS
 
