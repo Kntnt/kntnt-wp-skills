@@ -7,6 +7,7 @@ implementation notes must be baked in, and generation must be deterministic
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -100,6 +101,39 @@ def test_exclusion_is_anchored_with_wildcards_disabled() -> None:
     assert "--warning=no-file-changed" in script
     assert "wp-content/object-cache.php" in script
     assert "wp-content/uploads/2023/07/pic-150x150.jpg" in script
+
+
+def test_clone_path_with_exclude_paths_is_byte_unchanged() -> None:
+    """Regression guard: a resolved-inputs mapping carrying a non-empty exclude
+    list (the clone path, or a pull's classification-derived scope) renders to
+    the exact bytes this generator has always produced — the explicit-include
+    behaviour below must never leak into the clone path."""
+
+    script = pack_script.generate_pack_script(_config())
+
+    digest = hashlib.sha256(script.encode("utf-8")).hexdigest()
+    assert digest == "2541177166ebd7b46bfc1340bff7af7b982ddc015631db0b1eb64db43a255c3d"
+
+
+def test_explicit_include_list_omits_the_exclusion_heredoc() -> None:
+    """The pull delta path hands pack_script.py an explicit include list already
+    scope-filtered locally (baseline_diff's new_or_changed set) with an empty
+    exclude list — the generated script must skip the exclusion heredoc and any
+    tar reference to it entirely, rather than writing and matching against an
+    empty file for zero effect."""
+
+    script = pack_script.generate_pack_script(
+        _config(archivePaths=["wp-content/plugins/changed.php"], excludePaths=[])
+    )
+
+    assert "KNTNT_EXCLUDE_EOF" not in script
+    assert "EXCLUDE_FILE" not in script
+    assert "--exclude-from=" not in script
+    assert "--anchored" not in script
+    assert "--no-wildcards" not in script
+    # The rest of the archive invocation is otherwise intact.
+    assert "--warning=no-file-changed" in script
+    assert "wp-content/plugins/changed.php" in script
 
 
 def test_two_pass_consistent_dump() -> None:
