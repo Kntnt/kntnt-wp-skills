@@ -84,6 +84,7 @@ SAVED_KEYS: dict[str, str] = {
     "mail": "mail",
     "cron": "cron",
     "deletion_mirroring": "deletion_mirroring",
+    "user_submissions": "user_submissions",
 }
 
 # Saved-plan keys the spec's persistent config records but that no gate resolves:
@@ -217,6 +218,7 @@ DECISIONS: tuple[Decision, ...] = (
     Decision("directory_name", frozenset({CLONE}), const(None), live_directory_name),
     Decision("db_table_structure", BOTH, const("all_tables_with_schema")),
     Decision("db_table_content", BOTH, const(None), live_table_content),
+    Decision("user_submissions", BOTH, const("empty")),
     Decision("table_prefix", BOTH, const(None), live_table_prefix),
     Decision("db_engine_php", BOTH, const(None), live_engine_php),
     Decision("media_originals", BOTH, const("include")),

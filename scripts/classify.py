@@ -15,9 +15,12 @@ from as one JSON object on stdout. It computes:
   values are dropped, never echoed, so a secret (a DB password, a salt) cannot
   ride back into model context.
 - ``tables`` — each of production's tables split into full-data and empty
-  (schema-only) by matching the operational-table patterns after the site's
-  prefix; every table's structure is carried regardless, so this is a
-  content-only verdict.
+  (schema-only) by matching the operational-table patterns and the
+  user-submission patterns after the site's prefix; every table's structure is
+  carried regardless, so this is a content-only verdict. A user-submission table
+  is tagged with its own ``user_submissions`` category, distinct from the four
+  operational ones, because it earns a standalone gate rather than being
+  silently emptied (ADR-0014).
 - ``blobs`` — the heavy-outlier upload subdirectories flagged for the exclusion
   gate by a deterministic size heuristic (same document in, same flags out).
 - ``thumbnails`` — the exclude-set of DB-known generated sizes, with a registered
@@ -84,6 +87,29 @@ OPERATIONAL_TABLE_PATTERNS: dict[str, tuple[str, ...]] = {
     "email_log": ("fsmpt_email_logs", "email_log", "mail_log", "wpmailsmtp"),
     "search_index": ("relevanssi", "searchwp"),
 }
+
+# The user-submission table family: form/entry data from WS Form, Fluent Forms,
+# Formidable, WPForms, and Gravity Forms — real names, emails, and messages, the
+# most privacy-sensitive content the transfer handles. Matched the same way as
+# the operational patterns (after prefix-stripping), but kept as its own family
+# rather than folded into OPERATIONAL_TABLE_PATTERNS: unlike those four, which
+# are silently emptied, this one earns a standalone carry/empty gate, default
+# empty for privacy minimisation (ADR-0014).
+USER_SUBMISSION_TABLE_PATTERNS: tuple[str, ...] = (
+    "wsf_submit",
+    "wsf_submit_meta",
+    "fluentform_submissions",
+    "fluentform_submission_meta",
+    "fluentform_entry_details",
+    "frm_items",
+    "frm_item_metas",
+    "wpforms_entries",
+    "wpforms_entry_meta",
+    "wpforms_entry_fields",
+    "gf_entry",
+    "gf_entry_meta",
+    "gf_entry_notes",
+)
 
 # A subdirectory is a heavy blob only when it clears an absolute floor *and*
 # stands out from its peers — both together, so a uniformly large library is not
@@ -241,11 +267,20 @@ def classify_defines(defines: list[Any]) -> dict[str, list[dict[str, Any]]]:
 
 
 def table_category(prefix: str, name: str) -> str | None:
-    """Return the operational category a table belongs to, or ``None`` when its
-    content is carried in full. The match is on the name after the prefix, so a
-    non-default prefix never hides an operational table."""
+    """Return the category a table belongs to — one of the four operational
+    families or ``user_submissions`` — or ``None`` when its content is carried in
+    full. The match is on the name after the prefix, so a non-default prefix
+    never hides an operational or user-submission table.
+
+    ``user_submissions`` is checked first: it is disjoint from the operational
+    patterns, but keeping it first documents that it is a distinct family with
+    its own gate (ADR-0014), not a fifth operational category folded into the
+    silently-emptied set.
+    """
 
     stem = name[len(prefix):] if prefix and name.startswith(prefix) else name
+    if any(stem == pattern or stem.startswith(pattern) for pattern in USER_SUBMISSION_TABLE_PATTERNS):
+        return "user_submissions"
     for category, patterns in OPERATIONAL_TABLE_PATTERNS.items():
         if any(stem == pattern or stem.startswith(pattern) for pattern in patterns):
             return category
