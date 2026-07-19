@@ -20,6 +20,11 @@ with a coarse flag pinning its decision above all four (ADR-0013), and ``--yes``
 stopping at the saved-config layer — it never consumes a this-run answer. A saved
 plan collapses the interactive walk to the single "Replay the saved plan?" gate.
 
+One safety exception overrides that collapse: when a saved concrete ``live`` mail
+mode would mask a freshly-poised campaign, the mass-send valve re-surfaces the
+mail gate even on an otherwise-silent unattended replay, so a real recipient list
+is never blasted without a confirmation (ADR-0009).
+
 Two operations share the seam:
 
 - ``resolve`` (the default) turns the envelope into the resolved plan.
@@ -29,8 +34,9 @@ Two operations share the seam:
   stale as production evolves. Writing an accepted plan out and reading it back
   is an identity.
 
-Malformed input fails loudly: a non-zero exit and a ``resolve_plan:`` diagnostic
-on stderr, never a half-built plan on stdout.
+Malformed input fails loudly — a wrong top-level shape or a malformed upstream
+document (a missing nested key, a wrong-typed section) alike: a non-zero exit and
+a ``resolve_plan:`` diagnostic on stderr, never a half-built plan on stdout.
 """
 
 from __future__ import annotations
@@ -85,7 +91,8 @@ MAIL_RISK_ADAPTIVE = "risk_adaptive"
 
 class ResolveError(Exception):
     """Raised when the envelope is malformed — not an object, missing a required
-    section, or carrying a field of the wrong type. The CLI turns this into a loud
+    section, carrying a field of the wrong type, or an upstream document whose
+    inner shape a live derivation cannot read. The CLI turns this into a loud
     non-zero exit rather than emitting a partial plan."""
 
 
@@ -286,8 +293,19 @@ def resolve_decision(decision: Decision, context: Context) -> dict[str, Any]:
     layer. The mail decision additionally carries the mass-send findings so its
     gate can lead with the loud, specific warning."""
 
+    # Read the two upstream-derived layers, turning a malformed inner shape (a
+    # missing nested key or a wrong-typed section that slipped past the top-level
+    # object check) into the loud ResolveError the CLI reports — so the fail-loud
+    # contract holds for a malformed document, not just a missing section.
+    try:
+        live = decision.live(context) if decision.live is not None else MISSING
+        findings = context.discovery["mass_send"]["findings"] if decision.id == "mail" else MISSING
+    except (KeyError, TypeError) as error:
+        raise ResolveError(
+            f"decision {decision.id!r}: malformed upstream document ({error})"
+        ) from error
+
     built_in = decision.built_in(context)
-    live = decision.live(context) if decision.live is not None else MISSING
     saved = saved_layer(decision, context)
     answer = MISSING if context.yes_mode else context.answers.get(decision.id, MISSING)
     pin = context.pins.get(decision.id, MISSING)
@@ -305,8 +323,8 @@ def resolve_decision(decision: Decision, context: Context) -> dict[str, Any]:
 
     # Surface the mass-send findings on the mail decision — the warning the gate
     # leads with when the valve flips, and the informational note otherwise.
-    if decision.id == "mail":
-        entry["findings"] = context.discovery["mass_send"]["findings"]
+    if findings is not MISSING:
+        entry["findings"] = findings
 
     return entry
 
@@ -319,17 +337,45 @@ def active_decisions(skill: str) -> list[Decision]:
 
 
 def gate_list(
-    decisions: list[Decision], pins: dict[str, Any], replay: bool, yes_mode: bool
+    decisions: list[Decision],
+    pins: dict[str, Any],
+    replay: bool,
+    yes_mode: bool,
+    mail_hazard: bool,
 ) -> list[str]:
     """The gates the run walks. A saved plan collapses the walk to the single
     replay gate; an unattended run walks none; otherwise the operator walks every
-    decision except those a flag already pinned."""
+    decision except those a flag already pinned.
+
+    One safety exception overrides the replay collapse: when a saved concrete
+    ``live`` mail mode would mask a freshly-poised campaign (``mail_hazard``), the
+    mail gate is re-surfaced on top of the replay — including the otherwise-silent
+    unattended replay — so the mass-send valve is never quietly defeated and a
+    real recipient list is never blasted without a confirmation (ADR-0009)."""
 
     if replay:
-        return [] if yes_mode else ["replay"]
+        gates = [] if yes_mode else ["replay"]
+        if mail_hazard:
+            gates.append("mail")
+        return gates
     if yes_mode:
         return []
     return [decision.id for decision in decisions if decision.id not in pins]
+
+
+def mail_valve_defeated(decisions: list[dict[str, Any]], context: Context) -> bool:
+    """Whether a saved concrete mail mode is silently overriding the live mass-send
+    valve. True only when discovery found a poised campaign (the valve wants
+    capture) yet the mail decision resolves to a live-delivering value from the
+    saved layer — the one about-to-fire hazard the valve exists to catch. A
+    this-run ``--live-mail`` flag resolves from the flag layer, not the saved one,
+    so a deliberate present override is intentionally excluded."""
+
+    if not context.discovery["mass_send"]["flip"]:
+        return False
+
+    mail = next(entry for entry in decisions if entry["id"] == "mail")
+    return mail["source"] == "saved" and mail["value"] != "capture"
 
 
 def collect_pins(flags: list[str]) -> dict[str, Any]:
@@ -375,11 +421,17 @@ def resolve(envelope: dict[str, Any]) -> dict[str, Any]:
     )
 
     decisions = active_decisions(skill)
+    resolved = [resolve_decision(decision, context) for decision in decisions]
+
+    # A replay must not silently deliver live mail into a freshly-poised campaign
+    # a saved concrete mode masks — re-surface the mail gate on that collision.
+    mail_hazard = replay and mail_valve_defeated(resolved, context)
+
     return {
         "mode": "yes" if context.yes_mode else "interactive",
         "replay": replay,
-        "gates": gate_list(decisions, context.pins, replay, context.yes_mode),
-        "decisions": [resolve_decision(decision, context) for decision in decisions],
+        "gates": gate_list(decisions, context.pins, replay, context.yes_mode, mail_hazard),
+        "decisions": resolved,
     }
 
 
