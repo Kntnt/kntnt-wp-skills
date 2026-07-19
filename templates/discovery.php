@@ -111,18 +111,33 @@ foreach ( $attachment_rows as $row ) {
 // unevaluated source expression, the same live-value strategy the connection
 // block above already uses for DB_HOST and friends. wp-config.php
 // conventionally sits at ABSPATH, or one directory above it when the site
-// owner has moved it out of the docroot.
-$wp_config_path = file_exists( ABSPATH . 'wp-config.php' )
-	? ABSPATH . 'wp-config.php'
-	: dirname( ABSPATH ) . '/wp-config.php';
+// owner has moved it out of the docroot — but only when that parent directory
+// is not itself a nested WordPress root (no wp-settings.php of its own),
+// matching WordPress's own wp-load.php rule; otherwise the fallback would read
+// an unrelated outer site's wp-config in a nested-install layout.
+$wp_config_parent_is_own_root = file_exists( dirname( ABSPATH ) . '/wp-settings.php' );
+$wp_config_path = match ( true ) {
+	file_exists( ABSPATH . 'wp-config.php' ) => ABSPATH . 'wp-config.php',
+	! $wp_config_parent_is_own_root => dirname( ABSPATH ) . '/wp-config.php',
+	default => null,
+};
 $wp_config_defines = [];
-if ( file_exists( $wp_config_path ) ) {
+if ( $wp_config_path && file_exists( $wp_config_path ) ) {
 	$wp_config_source = file_get_contents( $wp_config_path );
 	preg_match_all( "/define\s*\(\s*['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]/", $wp_config_source, $wp_config_matches );
+
+	// Resolve every name's live value, except the secret family — the database
+	// password and the auth key / salt / nonce set — whose value is nulled here
+	// at the source and never passed to constant(), so it never crosses the
+	// control channel even transiently (safety rail 8; mirrors
+	// scripts/discovery.py's is_secret_define(), which redacts the same family
+	// downstream as a second, independent line of defence).
 	foreach ( array_unique( $wp_config_matches[1] ) as $define_name ) {
 		$wp_config_defines[] = [
-			'name'  => $define_name,
-			'value' => defined( $define_name ) ? constant( $define_name ) : null,
+			'name' => $define_name,
+			'value' => ( ! kntnt_wp_skills_is_secret_define( $define_name ) && defined( $define_name ) )
+				? constant( $define_name )
+				: null,
 		];
 	}
 }
@@ -305,4 +320,23 @@ function kntnt_wp_skills_pending_queue_size( $wpdb ) {
 		return 0;
 	}
 	return (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE status = 'pending'" );
+}
+
+/**
+ * Report whether a wp-config define name carries a production secret whose
+ * value must never resolve into the discovery payload: the database password
+ * and the eight WordPress auth key / salt / nonce constants, including custom
+ * plugin variants caught by the `*_SALT` suffix and `NONCE_` prefix patterns.
+ * Mirrors scripts/discovery.py's `is_secret_define()` so the same family is
+ * withheld at both ends of the boundary the secret must never cross (safety
+ * rail 8: the database password, auth keys, salts, and nonces never come
+ * down).
+ *
+ * @param string $name The define's name, as parsed from wp-config.php.
+ * @return bool Whether the define's value must be withheld from the payload.
+ */
+function kntnt_wp_skills_is_secret_define( $name ) {
+	return in_array( $name, [ 'DB_PASSWORD', 'AUTH_KEY', 'SECURE_AUTH_KEY', 'LOGGED_IN_KEY' ], true )
+		|| str_ends_with( $name, '_SALT' )
+		|| str_starts_with( $name, 'NONCE_' );
 }

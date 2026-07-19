@@ -81,3 +81,49 @@ def test_template_collects_wp_config_defines_for_the_gate() -> None:
 
     # The collection must run before the echo, not be dead code after it.
     assert source.index("wp-config.php") < source.index("echo json_encode(")
+
+
+def test_template_withholds_secret_define_values_at_the_source() -> None:
+    """The defines-collection loop must never call constant() on a production
+    secret's name — the database password and the auth key / salt / nonce
+    family — because scripts/discovery.py's build_defines() redacting the value
+    downstream is too late: the plaintext has already crossed the Novamira
+    control channel into model context by the time it gets there (spec platform
+    constraint 8: the database password never enters model context; issue #19
+    review finding)."""
+
+    source = _TEMPLATE.read_text(encoding="utf-8")
+
+    # The template recognises the same secret family scripts/discovery.py's
+    # is_secret_define() redacts downstream: the database password by name, and
+    # the auth-key / salt / nonce set by name and by the *_SALT / NONCE_*
+    # patterns a custom plugin variant may use.
+    assert "DB_PASSWORD" in source
+    assert "_SALT" in source
+    assert "NONCE_" in source
+
+    # The loop that builds each define's value gates its call to constant()
+    # behind that recognition — a secret name is never passed to constant() in
+    # the first place, not merely redacted from the value constant() already
+    # returned.
+    loop_start = source.index("foreach ( array_unique( $wp_config_matches[1] )")
+    loop_body = source[loop_start:source.index("\n}", loop_start)]
+    value_expression = loop_body[loop_body.index("'value' =>"):]
+    assert "constant( $define_name )" in value_expression
+    assert "secret" in value_expression.lower()
+
+
+def test_wp_config_fallback_respects_the_parent_directory_rule() -> None:
+    """The one-directory-above-ABSPATH wp-config.php fallback must not fire when
+    the parent is itself a nested WordPress root (has its own wp-settings.php)
+    — WordPress's own wp-load.php rule — or a nested-install layout would read
+    the outer site's wp-config and report the wrong define set (issue #19
+    review finding)."""
+
+    source = _TEMPLATE.read_text(encoding="utf-8")
+
+    # The fallback path is guarded by a check for the parent's own
+    # wp-settings.php, evaluated before the fallback is ever selected.
+    fallback_index = source.index("dirname( ABSPATH ) . '/wp-config.php'")
+    guard_region = source[:fallback_index]
+    assert "wp-settings.php" in guard_region
