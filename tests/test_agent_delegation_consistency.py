@@ -315,6 +315,23 @@ def test_skill_states_the_delegation_architecture_and_the_fail_closed_rule() -> 
         )
 
 
+def test_manifest_baseline_diff_agent_forwards_the_unreadable_field() -> None:
+    """The delegated path must not be a hole in issue #18's fail-loud guard:
+    ``agents/manifest-baseline-diff.md`` step 2 constructs the
+    ``scripts/filter_manifest.py`` payload itself (the orchestrator never sees
+    it), so if that construction omits ``"unreadable"``, the helper's
+    absent-field-means-clean-walk default lets a permission-denied production
+    subtree sail through undetected in every delegated run — even though both
+    ``SKILL.md`` files' own (non-delegated) payload descriptions already
+    include it. This binds the agent definition to the same payload shape."""
+
+    body = _body(AGENTS_DIR / "manifest-baseline-diff.md")
+    assert '"unreadable"' in body, (
+        "agents/manifest-baseline-diff.md's filter_manifest.py payload does "
+        "not forward the manifest's \"unreadable\" field"
+    )
+
+
 def test_spec_notes_the_delegation_architecture() -> None:
     """AC #3: docs/spec.md notes the delegation architecture briefly, naming
     every subagent in the roster."""
