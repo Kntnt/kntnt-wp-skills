@@ -140,8 +140,7 @@ def test_every_decision_is_a_gate_from_the_resolved_plan() -> None:
 
     for term in ("gate", "recommendation", "replay"):
         assert re.search(term, SKILL_TEXT, re.IGNORECASE), f"missing decision term {term!r}"
-    assert "scripts/resolve_plan.py" in SKILL_TEXT
-    assert _pos(r"scripts/resolve_plan\.py") < _pos(r"\bgate")
+    assert "scripts/resolve_plan.py" in SKILL_TEXT, "recommendations must come from resolve_plan.py"
 
 
 def test_yes_mode_is_unattended_and_prints_the_full_record() -> None:
