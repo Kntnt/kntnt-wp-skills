@@ -16,6 +16,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - Safety behaviours: user data encrypted in transit and deleted from production once verified, deletion mirroring off by default and always to a timestamped trash, and a mass-send valve that keeps the real mailer live by default but flips to Mailpit capture on a poised campaign (`--live-mail` / `--capture-mail` pin it), with the risk warning always emitted.
 - The minimal flag surface — `--yes`, `--include-media` / `--exclude-media`, `--include-blobs`, `--live-mail` / `--capture-mail`, `--no-cron`, `--regenerate-all`, and the help forms — as a single canonical registry.
 - Automated test suite (pytest via uv) over the deterministic helper seam, with a help/docs consistency test binding the manual pages, the flag registry, and the README links together.
+- Four pinned subagents shipped under `agents/` (`discovery-classify`, `pack-transfer`, `manifest-baseline-diff`, `thumbnail-smoke-test`, each with model and reasoning effort fixed in its frontmatter) that both skills delegate their heaviest, noisiest phases to, so the orchestrating agent's own context stays clear of MCP round-trip logs, curl/checksum output, and thumbnail-regeneration warning spam; each returns a structured evidence block (exit codes, artifact paths and SHA256, row/file counts, a DONE/FAILED marker) the orchestrator validates with its own cheap deterministic spot checks rather than trusting a second LLM's prose.
 
 ## [0.1.0] – 2026-07-18
 
