@@ -78,6 +78,26 @@ def _sentence_containing(text: str, anchor: str) -> str | None:
     return match.group(0) if match else None
 
 
+def test_sentence_containing_does_not_truncate_at_inline_code_periods() -> None:
+    """`_sentence_containing` must capture the whole sentence even when an
+    inline-code period with no trailing whitespace (a dotfile name, a
+    `<local pass.key>` literal) sits between the anchor and the real
+    sentence-ending period — the exact shape that let the pack- and
+    download-step assertions above pass against a truncated capture rather
+    than the real sentence, narrowing the window a negative assertion
+    actually scans."""
+
+    text = (
+        "Before. Write `pass.key` and the `.my.cnf` file into the working "
+        "dir, using execute-php. After."
+    )
+    sentence = _sentence_containing(text, "Write `pass.key`")
+    assert sentence == (
+        "Write `pass.key` and the `.my.cnf` file into the working dir, "
+        "using execute-php."
+    )
+
+
 @pytest.mark.parametrize("skill", sorted(SKILL_FILES))
 def test_skill_states_read_write_file_are_docroot_only(skill: str) -> None:
     """AC: each SKILL.md's control-channel section states that `read-file` and
