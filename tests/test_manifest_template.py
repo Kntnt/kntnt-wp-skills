@@ -28,12 +28,13 @@ def test_template_carries_no_exclusion_payload() -> None:
     injection point a runtime skill could substitute a resolved exclusion list
     into. A production request built from this template can therefore never
     embed the exclusion set, however large it grows on a real site (the smoke
-    test measured 6,135 entries / ~436KB for one site)."""
+    test measured 6,135 entries / ~436KB for one site). The template's own
+    comments may still document the "no payload" contract in prose — this
+    checks for the injection point itself, not the word "exclusion"."""
 
     source = _TEMPLATE.read_text(encoding="utf-8")
 
     assert "$exclusions" not in source
-    assert "exclusion" not in source.lower()
 
 
 def test_template_applies_no_scope_filtering_while_walking() -> None:
