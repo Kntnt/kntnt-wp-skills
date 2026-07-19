@@ -556,8 +556,19 @@ def check_local_asset_urls(expected: Any, fetch: FetchUrl) -> CheckResult:
 
     if expected is None:
         return _skip("local_asset_urls")
-    url = expected["url"]
-    production_host = expected["productionHost"]
+
+    # Guard the expectations file's own shape — it is operator-editable
+    # input, so a missing key must fail this one check loudly rather than
+    # crash the whole report with an uncaught KeyError.
+    url = expected.get("url")
+    production_host = expected.get("productionHost")
+    if not url or not production_host:
+        return CheckResult(
+            "local_asset_urls",
+            "fail",
+            "localAssetCheck expectation must carry both 'url' and 'productionHost'",
+        )
+
     status, body = fetch(url)
     if status != 200:
         return CheckResult("local_asset_urls", "fail", f"{url}: HTTP {status}")
