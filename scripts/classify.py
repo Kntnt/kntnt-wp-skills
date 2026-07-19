@@ -143,8 +143,8 @@ def _field(record: dict[str, Any], key: str, expected: type, context: str) -> An
     """Fetch a required field from an inner record, asserting its type and raising
     :class:`ClassifyError` when it is absent or mistyped — so a record missing the
     very key the classifier reads (a define's or table's ``name``, an attachment's
-    ``file``) fails loudly instead of crashing on a ``KeyError`` or an
-    ``AttributeError`` deeper in."""
+    ``file``, a subdirectory's ``size_bytes``) fails loudly instead of crashing on
+    a ``KeyError`` or a ``TypeError`` deeper in."""
 
     if key not in record:
         raise ClassifyError(f"{context}: missing required field {key!r}")
@@ -155,6 +155,24 @@ def _field(record: dict[str, Any], key: str, expected: type, context: str) -> An
             f"got {type(value).__name__}"
         )
     return value
+
+
+def _string_list(record: dict[str, Any], key: str, context: str) -> list[str]:
+    """Fetch an optional list-of-strings field from an inner record: default empty
+    when absent, and raise :class:`ClassifyError` when it is not a list or holds a
+    non-string element. This is the per-element guard the thumbnail exclude-set
+    needs so a stray non-string size never reaches the path join as a raw
+    ``TypeError`` — the same branded fail-loud story :func:`_record` and
+    :func:`_field` give defines, tables, and attachments."""
+
+    values = _list(record, key, context)
+    for index, value in enumerate(values):
+        if not isinstance(value, str):
+            raise ClassifyError(
+                f"{context}: field {key!r}[{index}] must be str, "
+                f"got {type(value).__name__}"
+            )
+    return values
 
 
 def define_class(name: str) -> str | None:
@@ -245,7 +263,19 @@ def flag_blobs(subdirectories: list[Any]) -> dict[str, list[dict[str, Any]]]:
     flags — the determinism the gate relies on.
     """
 
-    sizes = [int(subdir["size_bytes"]) for subdir in subdirectories]
+    # Validate each subdirectory element and read its path and size once, so a
+    # malformed blob record earns the branded `classify:` diagnostic rather than a
+    # raw KeyError/TypeError from the size read — the raw discovery seam passes
+    # these list elements through without validating each one.
+    blobs: list[tuple[str, int]] = []
+    for index, subdir in enumerate(subdirectories):
+        context = f"uploads.subdirectories[{index}]"
+        record = _record(subdir, context)
+        path = _field(record, "path", str, context)
+        size = _field(record, "size_bytes", int, context)
+        blobs.append((path, size))
+
+    sizes = [size for _, size in blobs]
     if not sizes:
         return {"flagged": []}
 
@@ -254,7 +284,7 @@ def flag_blobs(subdirectories: list[Any]) -> dict[str, list[dict[str, Any]]]:
     outlier_threshold = median * BLOB_OUTLIER_MEDIAN_FACTOR
     flagged = [
         {
-            "path": subdir["path"],
+            "path": path,
             "size_bytes": size,
             "reason": (
                 f"{size} bytes: at or above the {BLOB_ABSOLUTE_FLOOR_BYTES}-byte "
@@ -262,9 +292,8 @@ def flag_blobs(subdirectories: list[Any]) -> dict[str, list[dict[str, Any]]]:
                 f"{int(median)}-byte median subdirectory"
             ),
         }
-        for subdir in subdirectories
-        if (size := int(subdir["size_bytes"])) >= BLOB_ABSOLUTE_FLOOR_BYTES
-        and size >= outlier_threshold
+        for path, size in blobs
+        if size >= BLOB_ABSOLUTE_FLOOR_BYTES and size >= outlier_threshold
     ]
 
     return {"flagged": flagged}
@@ -291,7 +320,7 @@ def thumbnail_exclude_set(attachments: list[Any]) -> list[str]:
         original = _field(record, "file", str, context)
         originals.add(original)
         directory = PurePosixPath(original).parent
-        for size_file in record.get("sizes", []):
+        for size_file in _string_list(record, "sizes", context):
             derivatives.add(str(directory / size_file))
 
     return sorted(derivatives - originals)

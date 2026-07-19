@@ -65,7 +65,7 @@ Assemble the resolve envelope — `{ "operation": "resolve", "skill": "pull", "f
 
 Walk the returned gates in order. For each, present the recommendation and accept on `Y`; on `n`, reveal the alternatives and record the operator's answer, then re-run `scripts/resolve_plan.py` with that answer in `answers` so the resolved value and every dependent recommendation stay consistent. In `--yes` mode present nothing — every recommendation is accepted — and accumulate the record. When a saved plan exists, present only the single *Replay the saved plan?* gate (plus the mail gate if the valve re-surfaced it).
 
-The mail decision leads with its `findings`: when the mass-send valve flipped, the gate opens with the loud, specific warning naming the engine, the campaign, and the recipient count. Once the walk is done, persist the accepted plan by running `scripts/resolve_plan.py` with `{ "operation": "save", "resolved": <resolved plan> }` and writing the result to `.kntnt-wp-skills.json` — decisions only, never the computed lists.
+The mail decision leads with its `findings`: when the mass-send valve flipped, the gate opens with the loud, specific warning naming the engine, the campaign, and the recipient count. Once the walk is done, persist the accepted plan by running `scripts/resolve_plan.py` with `{ "operation": "save", "resolved": <resolved plan>, "saved_plan": <.kntnt-wp-skills.json or null> }` and writing the result to `.kntnt-wp-skills.json` — decisions only, never the computed lists. Pass the prior saved plan back so the save carries forward any key a pull does not walk — notably the DDEV `target` a preceding clone recorded — rather than dropping it on the re-save.
 
 ## 4. Pull bookends — verify the prefix, diff the baseline
 

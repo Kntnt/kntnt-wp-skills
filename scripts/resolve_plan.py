@@ -446,17 +446,36 @@ def persisted_value(entry: dict[str, Any]) -> Any:
     return entry["value"]
 
 
-def build_saved_plan(resolved: dict[str, Any]) -> dict[str, Any]:
+def build_saved_plan(
+    resolved: dict[str, Any], prior: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Reduce an accepted resolved plan to the saved plan — only the persistable
     decisions, each under its saved-plan key, and never a computed list. Reading
     the result back into :func:`resolve` reproduces the same decisions from the
-    saved layer, so the round-trip is an identity."""
+    saved layer, so the round-trip is an identity.
+
+    A key belonging to a decision this skill does not walk cannot appear in
+    ``resolved`` — a pull never carries ``project_name``, so it cannot re-emit the
+    clone-only ``target``. To keep the committed plan whole across skills, any
+    known saved-plan key the ``prior`` committed plan already settled but this run
+    does not produce is carried forward, so a pull re-save never silently strips
+    the DDEV ``target`` a preceding clone recorded (docs/spec.md: the saved plan
+    records the target DDEV project)."""
 
     decisions = resolved.get("decisions")
     if not isinstance(decisions, list):
         raise ResolveError("resolved plan must carry a 'decisions' list")
 
-    saved: dict[str, Any] = {}
+    # Carry forward the known saved-plan keys the prior committed plan settled, so
+    # a decision this run does not walk survives the re-save; still only recognised
+    # keys, so no stale or computed value can ride in behind them.
+    known_keys = set(SAVED_KEYS.values())
+    saved: dict[str, Any] = {
+        key: value for key, value in (prior or {}).items() if key in known_keys
+    }
+
+    # Overwrite with the decisions this run resolved, refreshing every walked
+    # decision from live state while the carried-forward inactive ones stand.
     for entry in decisions:
         key = SAVED_KEYS.get(entry["id"])
         if key is not None:
@@ -473,7 +492,10 @@ def run(envelope: Any) -> dict[str, Any]:
     if operation == "resolve":
         return resolve(envelope)
     if operation == "save":
-        return build_saved_plan(_object(envelope.get("resolved", {}), "resolved"))
+        prior = envelope.get("saved_plan")
+        if prior is not None:
+            prior = _object(prior, "saved_plan")
+        return build_saved_plan(_object(envelope.get("resolved", {}), "resolved"), prior)
     raise ResolveError(f"unknown operation {operation!r}")
 
 
