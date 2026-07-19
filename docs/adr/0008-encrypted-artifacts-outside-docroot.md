@@ -12,4 +12,6 @@ Both smoke-test runs discovered mid-flight that `read-file` and `write-file` are
 
 Decision: `pass.key` — and every other outside-docroot write or read the pack flow needs (placing `pack.sh` in the working dir, fetching the passphrase back) — goes over `execute-php` with `file_get_contents` / `file_put_contents`, the same authenticated channel, never `read-file` / `write-file`. **`pass.key` must never be copied into the docroot, not even transiently**, to work around this limit. The original text's mention of a `read-file` hop is superseded by this amendment; the ADR's title and body are left as the historical record and are not rewritten.
 
+The same absolute prohibition also forecloses the working dir's own last-resort fallback: when neither the system temp dir nor a writable directory above `ABSPATH` is available, the run must **abort** rather than fall back to a working dir inside the docroot — `pass.key` lives in that working dir, so a docroot working dir would place it there regardless of "immediate cleanup," the exact contradiction this amendment exists to close.
+
 Recorded under explicit operator authority, 2026-07-19; see issue #16.
