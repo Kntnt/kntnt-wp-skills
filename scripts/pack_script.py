@@ -158,17 +158,26 @@ def _dump_block(inputs: PackInputs) -> str:
 
 
 def _archive_block(inputs: PackInputs) -> str:
-    """Render the file archive: an anchored exclude file with wildcards disabled,
-    streamed straight through encryption to files.enc."""
+    """Render the file archive: an anchored exclude file with wildcards disabled
+    when an exclusion list applies, streamed straight through encryption to
+    files.enc. An explicit include list (the pull delta path) already carries no
+    exclusion list — it was scope-filtered locally against the exclude paths
+    before the archive set was even built — so there is nothing left to exclude
+    and the tar invocation drops the exclude-file flags entirely."""
 
     # An empty transfer set still yields a valid (empty) archive rather than a
     # tar invocation with no operands.
     operands = _join_operands(inputs.archive_paths) or "--files-from=/dev/null"
+    exclude_flags = (
+        '--exclude-from="$EXCLUDE_FILE" --anchored --no-wildcards '
+        if inputs.exclude_paths
+        else ""
+    )
 
     return (
         "# Archive the in-scope tree with an anchored exclude file (wildcards\n"
         "# disabled) and stream it straight through encryption to files.enc.\n"
-        'tar --exclude-from="$EXCLUDE_FILE" --anchored --no-wildcards '
+        f"tar {exclude_flags}"
         '--warning=no-file-changed -C "$SOURCE_ROOT" -czf - '
         f"{operands} \\\n"
         f'    | {_OPENSSL_ENC} -out "$WORKDIR/files.enc"'
@@ -187,6 +196,9 @@ def generate_pack_script(config: Mapping[str, Any]) -> str:
 
     # Bake the resolved locations and tunables as shell variables; every
     # interpolated value is shell-quoted so odd characters cannot break out.
+    # EXCLUDE_FILE is only declared when an exclusion list applies — an explicit
+    # include list has nothing for it to name.
+    exclude_file_var = 'EXCLUDE_FILE="$WORKDIR/exclude.txt"\n' if inputs.exclude_paths else ""
     header = (
         "#!/usr/bin/env bash\n"
         "#\n"
@@ -204,7 +216,7 @@ def generate_pack_script(config: Mapping[str, Any]) -> str:
         'PASS_FILE="$WORKDIR/pass.key"\n'
         'MYCNF="$WORKDIR/.my.cnf"\n'
         'LOG="$WORKDIR/pack.log"\n'
-        'EXCLUDE_FILE="$WORKDIR/exclude.txt"\n'
+        f"{exclude_file_var}"
         f"TAIL_LINES={inputs.log_tail_lines}\n"
         f"SELF_DESTRUCT_DELAY={inputs.self_destruct_delay_seconds}\n"
     )
@@ -236,14 +248,19 @@ def generate_pack_script(config: Mapping[str, Any]) -> str:
     )
 
     # The exclusion list is a heredoc of full anchored relative paths; the quoted
-    # delimiter keeps the shell from expanding anything inside.
-    exclude_body = "\n".join(inputs.exclude_paths)
-    exclude = (
-        "# Write the archive exclusion list: full anchored relative paths.\n"
-        "cat > \"$EXCLUDE_FILE\" <<'KNTNT_EXCLUDE_EOF'\n"
-        f"{exclude_body}\n"
-        "KNTNT_EXCLUDE_EOF\n"
-    )
+    # delimiter keeps the shell from expanding anything inside. An explicit
+    # include list (the pull delta path) arrives already scope-filtered against
+    # the exclude paths, so there is nothing left to exclude — the heredoc is
+    # skipped entirely rather than writing and matching against an empty file.
+    exclude = ""
+    if inputs.exclude_paths:
+        exclude_body = "\n".join(inputs.exclude_paths)
+        exclude = (
+            "# Write the archive exclusion list: full anchored relative paths.\n"
+            "cat > \"$EXCLUDE_FILE\" <<'KNTNT_EXCLUDE_EOF'\n"
+            f"{exclude_body}\n"
+            "KNTNT_EXCLUDE_EOF\n"
+        )
 
     # Checksum the final names in the working dir, then publish all three
     # artifacts world-readable and signal a clean finish.
@@ -259,11 +276,13 @@ def generate_pack_script(config: Mapping[str, Any]) -> str:
         'touch "$DLDIR/DONE"\n'
     )
 
+    # Drop the exclude section outright when empty rather than joining in a
+    # blank placeholder — the explicit-include path leaves no trace of it.
     sections = [
         header,
         trap,
         setup,
-        exclude,
+        *([exclude] if exclude else []),
         _dump_block(inputs) + "\n",
         _archive_block(inputs) + "\n",
         publish,

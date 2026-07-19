@@ -49,6 +49,22 @@ def test_success_path_yields_done_and_three_artifacts(sandbox: Sandbox) -> None:
     assert sandbox.download_entries() == EXPECTED_DOWNLOAD_ENTRIES
 
 
+def test_success_path_with_no_exclude_list_yields_done_and_three_artifacts(
+    sandbox: Sandbox,
+) -> None:
+    """The explicit-include (pull delta) path — an empty exclude list, so the
+    generated script carries no exclusion heredoc or exclude-file reference —
+    still runs to a clean DONE with all three artifacts."""
+
+    _generate_into(sandbox, excludePaths=[])
+
+    code = sandbox.run()
+
+    assert code == 0
+    assert (sandbox.download_dir / "DONE").is_file()
+    assert sandbox.download_entries() == EXPECTED_DOWNLOAD_ENTRIES
+
+
 def test_success_path_checksums_verify(sandbox: Sandbox) -> None:
     """The published SHA256 file lists the artifacts under their final names and
     the recorded digests match the bytes on disk."""
