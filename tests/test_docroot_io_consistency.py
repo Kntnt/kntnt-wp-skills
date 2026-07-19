@@ -44,6 +44,7 @@ SKILL_FILES: dict[str, Path] = {
 SPEC: Path = REPO_ROOT / "docs" / "spec.md"
 ADR_0008: Path = REPO_ROOT / "docs" / "adr" / "0008-encrypted-artifacts-outside-docroot.md"
 IMPLEMENTATION_NOTES: Path = REPO_ROOT / "docs" / "implementation-notes.md"
+PACK_TRANSFER_AGENT: Path = REPO_ROOT / "agents" / "pack-transfer.md"
 
 # The docroot-only statement: read-file and write-file named together with
 # "docroot-only" close enough to bind the claim to those two abilities, not to
@@ -196,6 +197,51 @@ def test_skill_download_step_fetches_pass_key_over_execute_php(skill: str) -> No
     # — is the regression the smoke tests hit.
     assert not READ_FILE_CHANNEL_PATTERN.search(sentence), (
         f"{skill}/SKILL.md still routes the pass.key fetch over the docroot-only read channel: {sentence!r}"
+    )
+
+
+def test_pack_transfer_agent_write_step_uses_execute_php() -> None:
+    """The delegated pack phase (`agents/pack-transfer.md` step 2) writes
+    `pass.key`, `.my.cnf`, and `pack.sh` into the outside-docroot working dir —
+    it must name `execute-php` (`file_put_contents`) as the channel, matching
+    both `SKILL.md` files' own description of the same write, or the delegated
+    path silently regresses to an ambiguous "over the control channel" that a
+    future agent could satisfy with the docroot-only `write-file`."""
+
+    text = _text(PACK_TRANSFER_AGENT)
+    sentence = _sentence_containing(text, "write the working dir's `pass.key`")
+    assert sentence, "agents/pack-transfer.md dropped the pass.key write instruction"
+    assert "execute-php" in sentence, (
+        f"agents/pack-transfer.md's pass.key write step does not name execute-php: {sentence!r}"
+    )
+
+
+def test_pack_transfer_agent_fetch_step_uses_execute_php_never_read_file() -> None:
+    """The delegated pack phase's fetch-back of `pass.key` (step 5) must go
+    over `execute-php`, never the docroot-only `read-file` ability — the exact
+    #16 regression: `read-file` cannot reach outside the docroot at all, and
+    `pass.key` must never be copied into the docroot, not even transiently
+    (ADR-0008 amendment)."""
+
+    text = _text(PACK_TRANSFER_AGENT)
+    sentence = _sentence_containing(text, "Fetch `pass.key`")
+    assert sentence, "agents/pack-transfer.md dropped the pass.key fetch instruction"
+    assert "execute-php" in sentence, (
+        f"agents/pack-transfer.md's pass.key fetch step does not name execute-php: {sentence!r}"
+    )
+    assert not READ_FILE_CHANNEL_PATTERN.search(sentence), (
+        f"agents/pack-transfer.md still routes the pass.key fetch over the docroot-only read channel: {sentence!r}"
+    )
+
+
+def test_pack_transfer_agent_forbids_copying_pass_key_into_the_docroot() -> None:
+    """AC: `agents/pack-transfer.md` explicitly forbids copying `pass.key` into
+    the docroot, not even transiently — the same prohibition both `SKILL.md`
+    files already state."""
+
+    text = _text(PACK_TRANSFER_AGENT)
+    assert PASS_KEY_PROHIBITION_PATTERN.search(text), (
+        "agents/pack-transfer.md does not forbid copying pass.key into the docroot"
     )
 
 

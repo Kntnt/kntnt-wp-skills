@@ -28,10 +28,10 @@ You perform the pack-download-decrypt phase of a `kntnt-wp-skills` `clone` or `p
 ## What to do
 
 1. Pipe `resolved_inputs` to `uv run "${plugin_root}/scripts/pack_script.py"` to generate `pack.sh` — never assemble this shell by hand.
-2. Over the control channel, write the working dir's `pass.key`, `.my.cnf` (built from `db_connection`, completed by the production-side `DB_PASSWORD` read described above), and `pack.sh`, then launch the detached job (`nohup bash pack.sh >> pack.log 2>&1 & echo $!`).
+2. Over `execute-php` with `file_put_contents` — the working dir is outside the docroot and `read-file`/`write-file` reach only the docroot (issue #16) — write the working dir's `pass.key`, `.my.cnf` (built from `db_connection`, completed by the production-side `DB_PASSWORD` read described above), and `pack.sh`, then launch the detached job (`nohup bash pack.sh >> pack.log 2>&1 & echo $!`).
 3. Poll for `DONE`, `FAILED`, and process liveness up to `poll_max_wait_seconds`. On `FAILED` or an exhausted wait, capture the log tail and stop — return `FAILED`.
 4. On `DONE`, fetch `SHA256` then `db.enc` and `files.enc` from the download dir under `home_url` with `curl -fSL -C - --retry 3` into `<scratchpad_dir>`, and re-run `sha256sum -c` yourself against the returned checksums before touching anything else.
-5. Fetch `pass.key` over the authenticated `read-file` ability — never over HTTP — decrypt both artifacts, `gunzip` the dump, and write both decrypted files under `<scratchpad_dir>`.
+5. Fetch `pass.key` back over `execute-php` with `file_get_contents` — never over HTTP; `read-file` cannot reach it at all, since the working dir sits outside the docroot — decrypt both artifacts, `gunzip` the dump, and write both decrypted files under `<scratchpad_dir>`. **`pass.key` must never be copied into the docroot, not even transiently** ([ADR-0008](../docs/adr/0008-encrypted-artifacts-outside-docroot.md) amendment) — a docroot copy is web-reachable and defeats the reason it lives outside it.
 6. Delete both remote directories (the download dir and the working dir) over the control channel and confirm they are gone.
 
 ## What to return
