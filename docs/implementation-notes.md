@@ -58,7 +58,7 @@ This file preserves the invocation-level literals from the superseded design-and
 
 - Fetch order: `SHA256` first, then `db.enc` and `files.enc`, each with `curl -fSL -C - --retry 3`, into the local scratch area.
 - Verify: `sha256sum -c SHA256` — the names match creation time exactly, no renaming.
-- Fetch `pass.key` via Novamira `read-file` (never over HTTP), decrypt both artifacts with `openssl enc -d -aes-256-cbc -pbkdf2 -pass file:<local pass.key>`, and `gunzip` the DB dump.
+- Fetch `pass.key` via Novamira `execute-php` (`file_get_contents`) — it lives outside the docroot, so `read-file` cannot reach it, and it is never web-served over HTTP — decrypt both artifacts with `openssl enc -d -aes-256-cbc -pbkdf2 -pass file:<local pass.key>`, and `gunzip` the DB dump.
 
 ## Import and localise (local)
 
