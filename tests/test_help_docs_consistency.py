@@ -1,14 +1,18 @@
 """Help/docs consistency test — bind the plugin's documentation to its implementation.
 
 The manual pages under ``docs/man/`` are the single source of usage truth, and
-``scripts/flags.py`` is the single source of truth for which flags the skills
-accept (ADR-0013). These tests fail the moment the two drift apart, so the
+``scripts/flags.py`` is the single source of truth for which flags each skill
+accepts (ADR-0013). These tests fail the moment the two drift apart, so the
 documentation can never silently diverge from the flag surface — the maintainer
 guarantee of spec.md user story 57.
 
 Each test asserts one binding: every skill has a manual page; every flag a
-manual page documents is in the registry, and every registry flag is documented
-for both skills; the ``help`` overview carries each manual page's NAME line; and
+manual page documents is in that skill's own registry entry, and every flag in
+a skill's registry entry is documented in its own manual page (``clone`` and
+``pull`` share one surface by design, ADR-0013; ``mkwp`` — a standalone
+scaffold skill, not part of the shared transfer engine — has an unrelated one,
+so the binding is per skill, never a blanket cross-check against every other
+skill's flags); the ``help`` overview carries each manual page's NAME line; and
 every README link into ``docs/man/`` resolves to a real file.
 """
 
@@ -125,23 +129,44 @@ def test_every_skill_has_a_manpage(skill: str) -> None:
     assert (MAN_DIR / f"{skill}.md").is_file(), f"skill {skill!r} has no manual page"
 
 
+def test_registry_covers_every_skill() -> None:
+    """``flags.SKILL_FLAGS`` carries an entry for every skill directory — a
+    skill with no registry entry would otherwise ``KeyError`` inside the
+    per-skill tests below instead of failing with a clear message."""
+
+    missing = set(SKILLS) - set(flags.SKILL_FLAGS)
+    assert not missing, f"flags.SKILL_FLAGS has no entry for: {sorted(missing)}"
+
+
+def test_clone_and_pull_share_one_flag_surface() -> None:
+    """``clone`` and ``pull`` accept exactly the same flags (ADR-0013) — a
+    drift between the two would silently break the "one shared transfer
+    engine" guarantee that both skills present identically."""
+
+    assert flags.SKILL_FLAGS["clone"] == flags.SKILL_FLAGS["pull"]
+
+
 @pytest.mark.parametrize("skill", SKILLS)
 def test_documented_flags_are_all_in_the_registry(skill: str) -> None:
-    """No manual page documents a flag the registry does not accept."""
+    """No manual page documents a flag that skill's own registry entry does
+    not accept — checked against ``flags.SKILL_FLAGS[skill]``, never the
+    flattened ``flags.ALL_FLAGS``, so ``mkwp``'s unrelated surface is never
+    cross-checked against ``clone``/``pull``'s and vice versa."""
 
     documented = _options_flags(MAN_DIR / f"{skill}.md")
-    undocumented = documented - flags.ALL_FLAGS
+    undocumented = documented - flags.SKILL_FLAGS[skill]
     assert not undocumented, (
-        f"{skill}.md documents flags absent from the registry: {sorted(undocumented)}"
+        f"{skill}.md documents flags absent from its registry entry: {sorted(undocumented)}"
     )
 
 
 @pytest.mark.parametrize("skill", SKILLS)
 def test_every_registry_flag_is_documented(skill: str) -> None:
-    """Every registry flag is documented in every skill's OPTIONS table."""
+    """Every flag in a skill's own registry entry is documented in its
+    OPTIONS table."""
 
     documented = _options_flags(MAN_DIR / f"{skill}.md")
-    missing = flags.ALL_FLAGS - documented
+    missing = flags.SKILL_FLAGS[skill] - documented
     assert not missing, f"{skill}.md omits registry flags: {sorted(missing)}"
 
 
