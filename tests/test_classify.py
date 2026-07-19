@@ -465,3 +465,50 @@ def test_a_malformed_attachment_record_fails_loudly() -> None:
     assert result.returncode != 0
     assert result.stdout == b""
     assert result.stderr.startswith(b"classify:")
+
+
+def test_a_blob_subdirectory_missing_its_size_fails_loudly() -> None:
+    # Arrange — an uploads subdirectory element lacking its 'size_bytes'. The blob
+    # heuristic reads that field directly, so without a per-element guard it raises
+    # a raw KeyError; the fail-loud contract promises the same branded `classify:`
+    # diagnostic here as for defines, tables, and attachments — the #3 -> #4 seam
+    # hands these list elements through unvalidated.
+    document = {"uploads": {"subdirectories": [{"path": "galleries"}]}}
+
+    # Act.
+    result = run_classify(json.dumps(document).encode())
+
+    # Assert.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"classify:")
+
+
+def test_a_non_object_blob_subdirectory_fails_loudly() -> None:
+    # Arrange — a non-object subdirectory element the raw discovery seam can pass
+    # through unvalidated; indexing 'size_bytes' into it raises a raw TypeError
+    # without the branded per-element guard.
+    document = {"uploads": {"subdirectories": ["not-an-object"]}}
+
+    # Act.
+    result = run_classify(json.dumps(document).encode())
+
+    # Assert.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"classify:")
+
+
+def test_a_non_string_thumbnail_size_fails_loudly() -> None:
+    # Arrange — an attachment whose 'sizes' holds a non-string element. The
+    # exclude-set joins each size onto the original's directory, so a non-string
+    # size raises a raw TypeError from the path join without a per-element guard.
+    document = {"attachments": [{"file": "2021/03/holiday.jpg", "sizes": [123]}]}
+
+    # Act.
+    result = run_classify(json.dumps(document).encode())
+
+    # Assert.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"classify:")

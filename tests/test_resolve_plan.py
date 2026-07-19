@@ -129,11 +129,16 @@ def resolve(payload: dict[str, Any]) -> dict[str, Any]:
     return plan
 
 
-def save(resolved: dict[str, Any]) -> dict[str, Any]:
+def save(
+    resolved: dict[str, Any], saved_plan: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """Run the helper's ``save`` operation over a resolved plan and return the
-    persisted saved-plan document — the decisions-only round-trip subject."""
+    persisted saved-plan document — the decisions-only round-trip subject. The
+    optional ``saved_plan`` is the committed plan being overwritten, so a key a
+    prior run settled for a decision this skill does not walk (a clone-derived
+    ``target`` on a pull re-save) is carried forward rather than dropped."""
 
-    payload = {"operation": "save", "resolved": resolved}
+    payload = {"operation": "save", "resolved": resolved, "saved_plan": saved_plan}
     result = run_resolve(payload)
     assert result.returncode == 0, result.stderr.decode()
     saved: dict[str, Any] = json.loads(result.stdout)
@@ -493,6 +498,26 @@ def test_a_clone_plan_round_trips_including_the_project_name_target() -> None:
     assert rewritten == written
     assert decision(replayed, "project_name")["value"] == "example"
     assert decision(replayed, "project_name")["source"] == "saved"
+
+
+def test_a_pull_resave_preserves_the_clone_saved_target() -> None:
+    # Arrange: a clone settles the plan and commits it, recording the DDEV project
+    # under 'target' — the field docs/spec.md requires the committed saved plan to
+    # carry. The operator later runs a pull, which reads that same committed plan.
+    clone_written = save(resolve(envelope(skill="clone")))
+    assert clone_written["target"] == "example"
+
+    # Act: the pull re-resolves against the committed plan and persists the
+    # accepted result back over the same file (SKILL step 3 writes it verbatim).
+    pull_replay = resolve(envelope(skill="pull", saved_plan=clone_written))
+    pull_written = save(pull_replay, saved_plan=clone_written)
+
+    # Assert: the pull re-save carries the clone-derived target forward instead of
+    # dropping it — a refresh must not silently strip the committed DDEV project
+    # that clone (the only skill that derives project_name) recorded, while the
+    # pull-only decisions it does walk are still persisted.
+    assert pull_written["target"] == "example"
+    assert pull_written["deletion_mirroring"] == "off"
 
 
 # --- The mass-send valve is never silently defeated on replay -----------------
