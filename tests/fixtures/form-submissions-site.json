@@ -1,0 +1,76 @@
+{
+  "liveness": {
+    "home_url": "https://forms.example.net",
+    "abspath": "/srv/www/forms/",
+    "php_version": "8.2.18",
+    "server_software": "nginx/1.24.0"
+  },
+  "exec": {
+    "exec_available": true,
+    "disable_functions": "",
+    "exec_roundtrip": "ok"
+  },
+  "discovery": {
+    "home_url": "https://forms.example.net",
+    "site_url": "https://forms.example.net",
+    "root_path": "/srv/www/forms/",
+    "content_path": "/srv/www/forms/wp-content",
+    "uploads_base": "/srv/www/forms/wp-content/uploads",
+    "core_version": "6.5.2",
+    "php_version": "8.2.18",
+    "server_software": "nginx/1.24.0",
+    "disk_free_bytes": 10737418240,
+    "root_writable": true,
+    "table_prefix": "wp_",
+    "database": {
+      "version": "8.0.36",
+      "version_comment": "MySQL Community Server - GPL",
+      "default_collation": "utf8mb4_0900_ai_ci",
+      "total_size_bytes": 41943040,
+      "tables": [
+        "wp_posts",
+        "wp_postmeta",
+        "wp_options",
+        "wp_gf_entry",
+        "wp_gf_entry_meta",
+        "wp_gf_draft_submissions"
+      ],
+      "top_tables": [
+        {"name": "wp_posts", "size_bytes": 20971520},
+        {"name": "wp_options", "size_bytes": 8388608}
+      ],
+      "content_tables_innodb": true,
+      "connection": {
+        "DB_HOST": "127.0.0.1:3306",
+        "DB_NAME": "forms",
+        "DB_USER": "forms_user",
+        "DB_PASSWORD": "form-submissions-secret-do-not-emit",
+        "DB_CHARSET": "utf8mb4",
+        "DB_COLLATE": ""
+      }
+    },
+    "uploads_subdirectories": [
+      {"path": "2024", "size_bytes": 20971520}
+    ],
+    "active_plugins": [
+      "gravityforms/gravityforms.php"
+    ],
+    "dropins": [],
+    "themes": ["twentytwentyfour"],
+    "mass_send": {
+      "engines": [],
+      "unrecognised": {"sending_cron_scheduled": false, "pending_queue_size": 0}
+    },
+    "attachments": [],
+    "binaries": {
+      "mysqldump": true,
+      "mysql": true,
+      "openssl": true,
+      "tar": true,
+      "gzip": true,
+      "sha256sum": true,
+      "nohup": true,
+      "bash": true
+    }
+  }
+}

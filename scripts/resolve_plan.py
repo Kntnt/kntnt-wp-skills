@@ -99,6 +99,11 @@ PERSISTED_METADATA_KEYS: frozenset[str] = frozenset({"source"})
 # absence of a pin — it defers to the live mass-send valve every run.
 MAIL_RISK_ADAPTIVE = "risk_adaptive"
 
+# The category classify.py tags a form-submission table with — the fold target
+# the user_submissions gate moves into db_table_content on a resolved carry
+# (ADR-0014).
+USER_SUBMISSIONS_CATEGORY = "user_submissions"
+
 
 class ResolveError(Exception):
     """Raised when the envelope is malformed — not an object, missing a required
@@ -384,6 +389,69 @@ def gate_list(
     return [decision.id for decision in decisions if decision.id not in pins]
 
 
+def fold_user_submissions(table_split: Any, carry: bool) -> Any:
+    """Fold a carry/empty choice for the ``user_submissions`` gate into a table
+    split, moving every classify.py-tagged ``user_submissions`` table from the
+    empty (schema-only) list into the full-data one when ``carry`` is true.
+
+    Without this fold, ``db_table_content`` would keep serving classify.py's
+    unmodified split regardless of how the operator answers the user_submissions
+    gate: classify.py already puts every form-submission table in the empty list,
+    and the gate itself only records a value — nothing else moves those tables,
+    so a resolved carry would leave the dump exactly as empty as the privacy
+    default (ADR-0014). A false ``carry``, or a split not shaped as classify.py's
+    ``{"full": [...], "empty": [...]}`` object (an answer that overrode
+    ``db_table_content`` directly, or an upstream document a live layer never
+    reached), is returned unchanged.
+    """
+
+    if not carry or not isinstance(table_split, dict):
+        return table_split
+    empty = table_split.get("empty")
+    if not isinstance(empty, list):
+        return table_split
+
+    full = list(table_split.get("full", []))
+    remaining_empty = []
+    for entry in empty:
+        if isinstance(entry, dict) and entry.get("category") == USER_SUBMISSIONS_CATEGORY:
+            full.append(entry.get("name"))
+        else:
+            remaining_empty.append(entry)
+
+    return {**table_split, "full": full, "empty": remaining_empty}
+
+
+def apply_user_submissions_gate(resolved: list[dict[str, Any]]) -> None:
+    """Fold the resolved ``user_submissions`` decision into ``db_table_content``,
+    in place, so a carry actually changes what every downstream consumer of the
+    table split reads — the pack script's content/empty table lists, the
+    dump-sanity empty-set — rather than only adding a value to the plan JSON
+    that nothing else consumes.
+
+    Both fields are folded independently: the resolved ``value`` from
+    user_submissions' resolved value (so the fold reflects this run's actual
+    choice, including a this-run answer), and the ``recommendation`` from
+    user_submissions' recommendation (so a gate walked before the operator
+    answers user_submissions still shows a split consistent with what is
+    currently on record, mirroring the "recommendation predates the answer"
+    contract every other decision honours). Either decision missing from this
+    skill's list (neither ever is — both are in ``BOTH``) is a no-op.
+    """
+
+    table_entry = next((entry for entry in resolved if entry["id"] == "db_table_content"), None)
+    submissions_entry = next((entry for entry in resolved if entry["id"] == "user_submissions"), None)
+    if table_entry is None or submissions_entry is None:
+        return
+
+    table_entry["value"] = fold_user_submissions(
+        table_entry["value"], submissions_entry["value"] == "carry"
+    )
+    table_entry["recommendation"] = fold_user_submissions(
+        table_entry["recommendation"], submissions_entry["recommendation"] == "carry"
+    )
+
+
 def mail_valve_defeated(decisions: list[dict[str, Any]], context: Context) -> bool:
     """Whether a saved concrete mail mode is silently overriding the live mass-send
     valve. True only when discovery found a poised campaign (the valve wants
@@ -443,6 +511,10 @@ def resolve(envelope: dict[str, Any]) -> dict[str, Any]:
 
     decisions = active_decisions(skill)
     resolved = [resolve_decision(decision, context) for decision in decisions]
+
+    # A resolved carry for user_submissions must change what db_table_content
+    # actually carries, not just add a value to the plan JSON nothing reads.
+    apply_user_submissions_gate(resolved)
 
     # A replay must not silently deliver live mail into a freshly-poised campaign
     # a saved concrete mode masks — re-surface the mail gate on that collision.

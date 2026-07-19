@@ -261,8 +261,8 @@ def test_table_classification_respects_a_non_default_prefix() -> None:
 
 
 def test_a_form_submission_table_is_classified_under_user_submissions() -> None:
-    # Arrange — a discovery document naming a Weforms/WS Form submission table and
-    # its meta sibling. Form-entry tables are neither regenerable nor operational
+    # Arrange — a discovery document naming a WS Form submission table and its
+    # meta sibling. Form-entry tables are neither regenerable nor operational
     # (real names, emails, messages) so they earn their own classification family,
     # distinct from the four silently-emptied operational categories (ADR-0014).
     document = {"database": {
@@ -309,6 +309,27 @@ def test_every_documented_form_plugin_family_is_classified_under_user_submission
     for name in names:
         assert by_name.get(name) == "user_submissions", name
     assert tables["full"] == []
+
+
+def test_gravity_forms_draft_submissions_are_classified_under_user_submissions() -> None:
+    # Arrange — Gravity Forms' save-and-continue drafts land in their own table,
+    # not under the gf_entry prefix the pattern set already covers, yet a draft
+    # holds the same real field values, email address, and IP as a completed
+    # entry — the same privacy-sensitive content the user_submissions family
+    # exists to gate (ADR-0014).
+    document = {"database": {
+        "table_prefix": "wp_",
+        "tables": ["wp_posts", "wp_gf_draft_submissions"],
+    }}
+
+    # Act.
+    tables = classify_document(document)["tables"]
+
+    # Assert — the draft table is gated with the rest of the family, not carried
+    # in full as an unrecognised content table.
+    by_name = {entry["name"]: entry["category"] for entry in tables["empty"]}
+    assert by_name.get("wp_gf_draft_submissions") == "user_submissions"
+    assert "wp_posts" in tables["full"]
 
 
 def test_user_submission_classification_respects_a_non_default_prefix() -> None:

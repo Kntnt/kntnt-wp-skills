@@ -90,8 +90,11 @@ OPERATIONAL_TABLE_PATTERNS: dict[str, tuple[str, ...]] = {
 
 # The user-submission table family: form/entry data from WS Form, Fluent Forms,
 # Formidable, WPForms, and Gravity Forms — real names, emails, and messages, the
-# most privacy-sensitive content the transfer handles. Matched the same way as
-# the operational patterns (after prefix-stripping), but kept as its own family
+# most privacy-sensitive content the transfer handles. Gravity Forms' save-and-
+# continue drafts (`gf_draft_submissions`) are included too: a draft holds the
+# same real field values, email address, and IP as a completed entry, and lands
+# in its own table outside the `gf_entry` prefix. Matched the same way as the
+# operational patterns (after prefix-stripping), but kept as its own family
 # rather than folded into OPERATIONAL_TABLE_PATTERNS: unlike those four, which
 # are silently emptied, this one earns a standalone carry/empty gate, default
 # empty for privacy minimisation (ADR-0014).
@@ -109,6 +112,7 @@ USER_SUBMISSION_TABLE_PATTERNS: tuple[str, ...] = (
     "gf_entry",
     "gf_entry_meta",
     "gf_entry_notes",
+    "gf_draft_submissions",
 )
 
 # A subdirectory is a heavy blob only when it clears an absolute floor *and*

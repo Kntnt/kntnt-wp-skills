@@ -482,6 +482,85 @@ def test_the_saved_plan_persists_the_empty_default_when_never_overridden() -> No
     assert written["user_submissions"] == "empty"
 
 
+# --- The user_submissions gate's resolved choice folds into db_table_content --
+#
+# A resolved 'carry' must change what the dump actually carries, not merely add
+# a value to the plan JSON: classify.py already puts every user-submission table
+# in the empty (schema-only) split, and nothing downstream re-derives the fold on
+# its own, so the resolved plan itself is where a carry has to take effect
+# (ADR-0014).
+
+
+def test_a_carry_answer_moves_user_submission_tables_from_empty_into_the_content_split() -> None:
+    # Arrange: a site with Gravity Forms entry tables, this run answers carry.
+    plan = resolve(
+        envelope("form-submissions-site.json", answers={"user_submissions": "carry"})
+    )
+
+    # Act.
+    tables = decision(plan, "db_table_content")["value"]
+
+    # Assert: the form-submission tables moved into the full-data list and no
+    # longer appear in the empty one — the resolved value is what the pack
+    # script's content/empty table lists and the dump-sanity check both read.
+    assert "wp_gf_entry" in tables["full"]
+    assert "wp_gf_entry_meta" in tables["full"]
+    empty_names = {entry["name"] for entry in tables["empty"]}
+    assert "wp_gf_entry" not in empty_names
+    assert "wp_gf_entry_meta" not in empty_names
+
+
+def test_the_empty_default_leaves_user_submission_tables_in_the_empty_split() -> None:
+    # Arrange & Act: no override, so user_submissions keeps its privacy default.
+    plan = resolve(envelope("form-submissions-site.json"))
+
+    # Assert: the form-submission tables stay schema-only, unaffected by the fold.
+    tables = decision(plan, "db_table_content")["value"]
+    empty_names = {entry["name"] for entry in tables["empty"]}
+    assert {"wp_gf_entry", "wp_gf_entry_meta"} <= empty_names
+    assert "wp_gf_entry" not in tables["full"]
+
+
+def test_a_saved_carry_choice_folds_into_the_db_table_content_recommendation_too() -> None:
+    # Arrange: a prior run's saved plan already settled on carry for this site —
+    # the fold must reach the gate's recommendation, not only the resolved value,
+    # so the db_table_content gate the operator sees does not contradict the
+    # choice already on record.
+    plan = resolve(
+        envelope("form-submissions-site.json", saved_plan={"user_submissions": "carry"})
+    )
+
+    # Act.
+    tables = decision(plan, "db_table_content")
+
+    # Assert: both fields show the folded split.
+    assert "wp_gf_entry" in tables["value"]["full"]
+    assert "wp_gf_entry" in tables["recommendation"]["full"]
+
+
+def test_a_this_run_carry_answer_does_not_retroactively_fold_the_recommendation() -> None:
+    # Arrange: the saved plan settled on empty; this run answers carry. The
+    # db_table_content recommendation mirrors the recommendation layer (built-in
+    # < live < saved), never the this-run answer — the same "recommendation
+    # predates the answer" contract every other decision honours (see
+    # test_this_run_answer_overrides_saved_config).
+    plan = resolve(
+        envelope(
+            "form-submissions-site.json",
+            saved_plan={"user_submissions": "empty"},
+            answers={"user_submissions": "carry"},
+        )
+    )
+
+    # Act.
+    tables = decision(plan, "db_table_content")
+
+    # Assert: the resolved value is folded, the recommendation is not.
+    assert "wp_gf_entry" in tables["value"]["full"]
+    empty_recommendation_names = {entry["name"] for entry in tables["recommendation"]["empty"]}
+    assert "wp_gf_entry" in empty_recommendation_names
+
+
 # --- Live-derived and skill-specific decisions --------------------------------
 
 
