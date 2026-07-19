@@ -25,6 +25,8 @@ Every flag `mkwp` itself accepts for site identity, ownership, and content is de
 
 **Value beyond the raw command:** by default `mkwp` recommends adding **Novamira** to `--plugins` — the free control-channel plugin `clone`/`pull` need the moment this site becomes a production site they reach ([ADR-0001](../../docs/adr/0001-novamira-mcp-sole-control-channel.md)). If the parked companion-plugin epic ([issue #24](https://github.com/Kntnt/kntnt-wp-skills/issues/24)) ever replaces the control channel, this recommendation switches to the companion plugin instead.
 
+**Known upstream caveat.** `mkwp` 1.7.0 has a live-verified defect where a `--dirname` that differs from `NAME` breaks the scaffold outright (a database-connection error before `wp-config.php` is ever written), because `mkwp`'s own `ddev config` call lets DDEV register the project under the directory's name while `mkwp` still assumes the project is registered under `NAME`. This skill checks for the failure and diagnoses it precisely rather than surfacing a raw error dump; the same risk applies to `clone`'s own `--dirname` usage (issue #11) whenever a production host's derived directory name differs from its derived project slug.
+
 **Passwords are never gathered.** `mkwp` never offers or passes `--password`: the first user's password is always `mkwp`'s own random generation, and it is never echoed back into this skill's context — only `mkwp`'s own on-screen report shows it, which the operator reads directly.
 
 `mkwp` is user-invoked only: it never runs on its own, because it writes a new local site and runs `mkwp`'s own DDEV scaffold ([ADR-0002](../../docs/adr/0002-skills-user-invoked-only.md)).
