@@ -731,6 +731,62 @@ def test_directory_name_falls_back_on_a_path_traversal_host() -> None:
         assert project["directory_name"] == "site", f"{url!r} reduced to {host!r}"
 
 
+def test_directory_name_falls_back_on_shell_metacharacters() -> None:
+    # Arrange — production-DB-controlled home_url bytes (issue #11): the
+    # skills flow runs `mkwp <name> --dirname=<directory_name>` and shell
+    # metacharacters riding through verbatim are an injection shape the
+    # PATH_UNSAFE_DIRECTORY_NAMES floor (only "." and "..") never catches.
+    cases = [
+        "https://example.com$(whoami).test/x",
+        "https://example.com;rm -rf ~.test/x",
+        "https://example com.test/x",
+        "https://example.com'.test/x",
+        "https://example.com`id`.test/x",
+    ]
+
+    # Act & Assert — every shell-metacharacter host floors to the fallback,
+    # exactly like the "."/".." floor.
+    for url in cases:
+        project = classify_document({"site": {"home_url": url}})["project_name"]
+        assert project["directory_name"] == "site", url
+
+
+def test_directory_name_falls_back_on_a_leading_hyphen() -> None:
+    # Arrange — a host beginning with "-" is the option-injection shape: passed
+    # verbatim as `mkwp <name> --dirname=-rf`, a leading-hyphen value can be
+    # read as a flag by the argument parser rather than a positional value.
+    project = classify_document({"site": {"home_url": "https://-evil.test"}})[
+        "project_name"
+    ]
+
+    # Assert.
+    assert project["directory_name"] == "site"
+
+
+def test_directory_name_normalises_case_before_the_charset_check() -> None:
+    # Arrange — hosts are case-insensitive, so an uppercase host must not be
+    # floored merely for carrying uppercase ASCII letters; only bytes outside
+    # [a-z0-9.-] (after lowercasing) are unsafe.
+    project = classify_document({"site": {"home_url": "https://WWW.SMOLTEK.COM/"}})[
+        "project_name"
+    ]
+
+    # Assert — the safe charset check passes; case itself is preserved
+    # verbatim, per test_directory_name_strips_scheme_userinfo_port_and_path_but_keeps_case.
+    assert project["directory_name"] == "WWW.SMOLTEK.COM"
+
+
+def test_directory_name_keeps_a_legitimate_host_unchanged() -> None:
+    # Arrange & Act — the issue's worked example: a legitimate host with only
+    # lowercase letters, digits, dots, and hyphens must pass through unchanged.
+    project = classify_document({"site": {"home_url": "https://www.smoltek.com/"}})[
+        "project_name"
+    ]
+
+    # Assert.
+    assert project["directory_name"] == "www.smoltek.com"
+
+
 # --- Whole-document contract -------------------------------------------------
 
 

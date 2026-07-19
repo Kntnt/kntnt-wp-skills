@@ -145,6 +145,14 @@ FALLBACK_NAME = "site"
 # operator's current directory.
 PATH_UNSAFE_DIRECTORY_NAMES = frozenset({".", ".."})
 
+# The conservative charset a directory name must stay within once lowercased
+# (hosts are case-insensitive) — anything else is a shell-metacharacter shape
+# ($, ;, spaces, quotes, backticks) that the confirm-and-quote gate in
+# skills/clone/SKILL.md is the operator's only defense against, since this
+# value is carried verbatim into "mkwp --dirname=<...>" under --yes (issue
+# #11: production-DB-controlled home_url bytes reach a shell command).
+DIRECTORY_NAME_SAFE_CHARSET = re.compile(r"^[a-z0-9.\-]+$")
+
 
 class ClassifyError(Exception):
     """Raised when the input is malformed — not an object, or a field that must
@@ -482,12 +490,26 @@ def derive_directory_name(home_url: str) -> str:
     likewise when the extracted host is itself traversal-shaped (``.`` or
     ``..``), the path-safety floor :data:`PATH_UNSAFE_DIRECTORY_NAMES` closes,
     since this value is carried verbatim into ``mkwp --dirname=<...>``.
+
+    A third floor guards the same shell-command destination against
+    production-DB-controlled bytes (issue #11): a host that, once lowercased
+    for the case-insensitive check, holds anything outside
+    :data:`DIRECTORY_NAME_SAFE_CHARSET` (a shell metacharacter — ``$``, ``;``,
+    a space, a quote, a backtick) or starts with ``-`` (the option-injection
+    shape) floors to :data:`FALLBACK_NAME` exactly like the traversal-shaped
+    floor above. Case itself survives unchanged in the returned value; only
+    the *check* is case-insensitive.
     """
 
     host = _extract_host(home_url)
     if host in PATH_UNSAFE_DIRECTORY_NAMES:
         return FALLBACK_NAME
-    return host or FALLBACK_NAME
+    if not host:
+        return FALLBACK_NAME
+    lowered = host.lower()
+    if lowered.startswith("-") or not DIRECTORY_NAME_SAFE_CHARSET.match(lowered):
+        return FALLBACK_NAME
+    return host
 
 
 def build_project_name(home_url: str) -> dict[str, str]:
