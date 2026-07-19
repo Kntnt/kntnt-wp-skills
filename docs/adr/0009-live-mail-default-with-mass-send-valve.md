@@ -24,3 +24,11 @@ Rejected alternatives:
 
 - **Honour the saved `live` permanently (never re-gate).** Rejected: it defeats the mass-send valve entirely — the saved preference, however stale, would silently override the one hazard the whole ADR exists to catch.
 - **Silently auto-capture on the collision** — let the fresh valve override the stale saved `live` without asking, preserving `--yes`'s silence. Safe (it never blasts the list), but rejected in favour of asking: a saved concrete `live` is the operator's *deliberate* recorded choice for this site, so the tool confirms before overriding it rather than switching mail behaviour silently, and it errs toward a confirmation on the mass-harm channel. The non-pausing unattended path stays available by design via `--yes --live-mail` / `--capture-mail`.
+
+## Note (2026-07-19): per-submission form-to-service integrations are out of the valve's scope by design
+
+The mass-send valve is built to catch exactly one shape of hazard: a *poised* bulk campaign queued or scheduled against a real recipient list. It was never built to, and does not, catch a **per-submission** integration — a form plugin's active service add-on (e.g. WS Form's Mailchimp add-on) that writes a single form submission straight to a live third-party service the instant an operator submits the form locally. There is no queue, no schedule, and no campaign for the valve to observe; the hazard fires on the one act of testing the form, which the valve's discovery scan cannot distinguish from any other harmless local click.
+
+Decision: per-submission form-to-service integrations are **out of the mass-send valve's scope by design**, not a gap in it, and are covered instead by the mandated form-to-service bullet in the always-emitted risk warning (issue #20): `scripts/classify.py` detects each active form-plugin-with-service-add-on pairing by name pattern, and both `skills/clone/SKILL.md` and `skills/pull/SKILL.md` list every finding's concrete consequence ("submitting form X locally writes to live service Y") before the destructive local steps. This keeps the valve narrow and reliable for the one hazard it is built to catch, while giving the operator the same informed-not-silent posture this ADR already commits to for mail, cron, and user data.
+
+Recorded under explicit operator ADR authority (2026-07-19).

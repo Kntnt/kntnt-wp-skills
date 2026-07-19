@@ -106,7 +106,14 @@ Immediately after the checksums pass, delete **both** remote directories over th
 
 ## 8. Risk warning (always emitted)
 
-Before the destructive local steps, always emit the risk warning itemising the copy's outward-reaching behaviours: the resolved mail mode (a live mailer can send real mail), a running cron (can fire real webhooks, capture real payments, post to connected social accounts, re-validate a licence from the dev domain), and the real user data now in the database. Interactive waits for the operator's confirmation to proceed; `--yes` prints it for the record and proceeds.
+Before the destructive local steps, always emit the risk warning itemising the copy's outward-reaching behaviours:
+
+- The resolved mail mode — a live mailer can send real mail.
+- A running cron — can fire real webhooks, capture real payments, post to connected social accounts, or re-validate a licence from the dev domain.
+- The real user data now in the database.
+- **Mandatory:** each per-submission form-to-service integration `classifications.integrations.form_to_service` detected — a form plugin's active service add-on (e.g. WS Form's Mailchimp add-on) fires on a single submit and is invisible to the mass-send valve, which only watches a poised bulk campaign ([ADR-0009](../../docs/adr/0009-live-mail-default-with-mass-send-valve.md)). List every finding's `warning` verbatim, one per bullet — e.g. "submitting form WS Form locally writes to live service Mailchimp" — so submitting a form on the local copy is never mistaken for harmless.
+
+Interactive waits for the operator's confirmation to proceed; `--yes` prints it for the record and proceeds.
 
 ## 9. Import and localise
 
