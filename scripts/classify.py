@@ -410,7 +410,8 @@ def derive_project_name(home_url: str) -> str:
     domain (a subdomain, a multi-part TLD).
     """
 
-    # Strip a leading www. label, then take the main (first) label.
+    # Reduce to the bare host, strip a leading www. label, then take the main
+    # (first) label.
     host = _extract_host(home_url)
     if host.lower().startswith("www."):
         host = host[len("www."):]
