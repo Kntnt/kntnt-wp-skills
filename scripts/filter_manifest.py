@@ -52,14 +52,20 @@ def is_excluded(path: str, exclusions: tuple[str, ...]) -> bool:
 
 
 def _exclusions(raw: dict[str, Any]) -> tuple[str, ...]:
-    """Parse the resolved exclusion prefixes, defaulting to none when absent —
-    an empty scope is a legitimate "everything in scope" run, not an error. A
-    trailing slash is normalised away so a prefix matches the same paths
-    however the caller spelled it, and a non-string entry fails loudly rather
-    than crashing the later prefix check."""
+    """Parse the resolved exclusion prefixes, requiring the field to be
+    present. This helper is the single surviving scope-enforcement point after
+    issues #17 and #18 (see the module docstring): the raw, unfiltered
+    ``templates/manifest.php`` output is exactly ``{"entries": [...]}``, with no
+    ``exclusions`` key at all, so a caller that pipes that raw response through
+    without first merging in the resolved exclusion set must fail loudly rather
+    than have the omission silently read as "nothing excluded". An *explicit*
+    empty list, in contrast, is the legitimate "everything in scope" run and is
+    accepted. A trailing slash is normalised away so a prefix matches the same
+    paths however the caller spelled it, and a non-string entry fails loudly
+    rather than crashing the later prefix check."""
 
     if "exclusions" not in raw:
-        return ()
+        raise FilterError("input: missing required field 'exclusions'")
     value = raw["exclusions"]
     if not isinstance(value, list):
         raise FilterError(

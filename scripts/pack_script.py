@@ -159,11 +159,20 @@ def _dump_block(inputs: PackInputs) -> str:
 
 def _archive_block(inputs: PackInputs) -> str:
     """Render the file archive: an anchored exclude file with wildcards disabled
-    when an exclusion list applies, streamed straight through encryption to
-    files.enc. An explicit include list (the pull delta path) already carries no
-    exclusion list — it was scope-filtered locally against the exclude paths
-    before the archive set was even built — so there is nothing left to exclude
-    and the tar invocation drops the exclude-file flags entirely."""
+    when ``exclude_paths`` is non-empty, streamed straight through encryption to
+    files.enc; the exclude-file flags are dropped entirely when it is empty.
+
+    This function keys purely on ``exclude_paths`` being empty — it cannot tell
+    from the resolved-inputs shape alone whether ``archive_paths`` is the whole
+    tree (clone) or an explicit include list (the pull delta path). The pull
+    delta path is *contracted*, by ``skills/pull/SKILL.md`` prose, to always pair
+    an explicit include list with an empty exclude list — it was scope-filtered
+    locally before the archive set was even built, so there would be nothing
+    left to exclude. That contract is asserted nowhere in code: a caller that
+    reverts to pairing an include list with a non-empty exclude list is
+    indistinguishable here from clone's legitimate archive-roots-plus-exclusions
+    shape, and the exclude file would silently return.
+    """
 
     # An empty transfer set still yields a valid (empty) archive rather than a
     # tar invocation with no operands.
@@ -196,8 +205,8 @@ def generate_pack_script(config: Mapping[str, Any]) -> str:
 
     # Bake the resolved locations and tunables as shell variables; every
     # interpolated value is shell-quoted so odd characters cannot break out.
-    # EXCLUDE_FILE is only declared when an exclusion list applies — an explicit
-    # include list has nothing for it to name.
+    # EXCLUDE_FILE is only declared when exclude_paths is non-empty — the pull
+    # delta path is contracted to arrive with none, but nothing here verifies it.
     exclude_file_var = 'EXCLUDE_FILE="$WORKDIR/exclude.txt"\n' if inputs.exclude_paths else ""
     header = (
         "#!/usr/bin/env bash\n"
@@ -248,10 +257,10 @@ def generate_pack_script(config: Mapping[str, Any]) -> str:
     )
 
     # The exclusion list is a heredoc of full anchored relative paths; the quoted
-    # delimiter keeps the shell from expanding anything inside. An explicit
-    # include list (the pull delta path) arrives already scope-filtered against
-    # the exclude paths, so there is nothing left to exclude — the heredoc is
-    # skipped entirely rather than writing and matching against an empty file.
+    # delimiter keeps the shell from expanding anything inside. Contracted to be
+    # empty on the pull delta path (already scope-filtered locally before the
+    # archive set was built, per skills/pull/SKILL.md — unverified here), so the
+    # heredoc is skipped entirely rather than writing and matching an empty file.
     exclude = ""
     if inputs.exclude_paths:
         exclude_body = "\n".join(inputs.exclude_paths)
