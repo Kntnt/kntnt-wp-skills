@@ -282,14 +282,22 @@ def test_import_and_localise_follow_the_spec_order() -> None:
     backup, dump sanity check, import, URL-scoped search-replace, the
     plugins-loaded flush, the restart, then the new baseline write."""
 
+    # The baseline write is anchored on its step-15-only heading, not on
+    # ``last-sync.json``: pull *reads* the stored ``last-sync.json`` in the step-4
+    # diff (and names it in the config overview) before *writing* it here, so a
+    # first-occurrence anchor on the filename would point at the read, not the
+    # write. Clone has no such earlier mention; pull always does.
+    # ``dump_sanity`` is anchored on its ``uv run`` drive site in step 9.2, not the
+    # bare path token that the seam-list description in "How the engine works"
+    # carries first (the same distinction the health-check ordering test draws).
     order = (
         r"ddev export-db",
-        r"scripts/dump_sanity\.py",
+        r"uv run scripts/dump_sanity\.py",
         r"ddev import-db",
         r"ddev wp search-replace",
         r"ddev wp rewrite flush",
         r"ddev restart",
-        r"last-sync\.json",
+        r"Write the new baseline",
     )
     positions = [_pos(step) for step in order]
     assert positions == sorted(positions), (
@@ -370,7 +378,10 @@ def test_new_baseline_is_written_with_its_scope() -> None:
     assert "templates/manifest.php" in SKILL_TEXT, "the baseline is not emitted by manifest.php"
     assert "last-sync.json" in SKILL_TEXT, "the baseline is not stored as last-sync.json"
     assert re.search(r"scope", SKILL_TEXT, re.IGNORECASE), "the baseline scope is not stored"
-    assert _pos(r"ddev restart") < _pos(r"last-sync\.json"), (
+
+    # Anchored on the step-15 write heading — see the ordering test for why the
+    # ``last-sync.json`` filename is not a safe write anchor at pull.
+    assert _pos(r"ddev restart") < _pos(r"Write the new baseline"), (
         "the baseline write must be the last localise step"
     )
 
@@ -383,7 +394,7 @@ def test_final_flush_loads_plugins_before_the_restart_and_baseline() -> None:
     assert re.search(r"plugins loaded", SKILL_TEXT, re.IGNORECASE)
     plugins_loaded = _pos(r"plugins loaded")
     assert _pos(r"ddev wp search-replace") < plugins_loaded < _pos(r"ddev restart")
-    assert _pos(r"ddev restart") < _pos(r"last-sync\.json")
+    assert _pos(r"ddev restart") < _pos(r"Write the new baseline")
 
 
 def test_verify_phase_uses_live_state_and_documents_the_operator_residual() -> None:
@@ -391,7 +402,7 @@ def test_verify_phase_uses_live_state_and_documents_the_operator_residual() -> N
     greps, a database check) after the baseline write, and the real-site smoke is
     documented as the operator's residual."""
 
-    assert _pos(r"last-sync\.json") < _pos(r"ddev wp db check")
+    assert _pos(r"Write the new baseline") < _pos(r"ddev wp db check")
     assert re.search(r"critical error", SKILL_TEXT, re.IGNORECASE)
     assert re.search(r"residual|manual .*smoke", SKILL_TEXT, re.IGNORECASE)
 

@@ -6,23 +6,128 @@ description: >
   production. Trigger only on the explicit invocations `/pull`,
   `/kntnt-wp-skills:pull`, or an unmistakable request to refresh an existing
   local copy from production (in any language — the examples here are English
-  only). Because it will execute code on production and overwrite the local
+  only). Because it executes code on production and overwrites the local
   database, it is user-invoked only and never auto-triggers; when in doubt, ask
-  first. Not yet implemented — currently a no-op stub.
+  first.
 ---
 
 # pull
 
-**Status: not yet implemented — this is a stub.** The specification in `docs/spec.md` is not yet implemented, so this skill performs no work: it does not contact production, call the Novamira MCP, run any health check, back up or overwrite the local database, or touch any file. It exists only so the plugin's wiring can be tested.
+Refresh an existing local DDEV copy of a production WordPress site. `pull` and its sibling `clone` run **one shared transfer engine** — discovery, packing on production, download, verification, remote cleanup, import, and localisation — and differ only at the bookends. A clone is a pull with no baseline; a pull always has one, so only the delta moves: it takes a rollback backup of the local database first, diffs production against the stored baseline so only new and changed files are packed, and re-applies the local state — the inactive plugin set, the object-cache drop-in — afterwards. Every run begins with a **health check** that fails early and cheaply, then walks the operator through a series of **gates** whose recommendations come from the deterministic helpers; `--yes` runs the whole thing unattended and prints a full record. A **risk warning** is always emitted before the destructive local steps.
+
+Read `docs/spec.md` (the specification), `CONTEXT.md` (the glossary — its terms are used verbatim below), and `docs/implementation-notes.md` (the invocation-level literals) alongside this file. Where a literal here and the spec diverge, the spec wins.
 
 ## 0. Help gate
 
-If the arguments are `help`, `--help`, or `-h`, run `uv run "${CLAUDE_PLUGIN_ROOT}/scripts/help.py" pull`, emit its output verbatim as Markdown, and stop. Do nothing else.
+If the arguments are `help`, `--help`, or `-h`, run `uv run "${CLAUDE_PLUGIN_ROOT}/scripts/help.py" pull`, emit its output verbatim as Markdown, and stop. Do nothing else — no control-channel call, no file operation.
 
-## Otherwise
+## How the engine works
 
-Tell the operator, briefly and in one short message, that the `pull` skill is wired up but not yet implemented: once built it will refresh an existing local DDEV copy from production (see `docs/spec.md`), and today it makes no changes. Then stop. Do not run any command, MCP call, or file operation, and do not begin the procedure described in `docs/spec.md`.
+**Control channel.** Production is reached **solely** through the Novamira MCP server connected to the live site — never SSH ([ADR-0001](../../docs/adr/0001-novamira-mcp-sole-control-channel.md)). The abilities used are `execute-php`, `run-wp-cli`, `read-file`, `write-file`, and `list-directory`. `run-wp-cli` always takes its arguments as a **JSON array** — a single string silently returns the WP-CLI help text with exit 0. Never deactivate or delete Novamira on production; it is the control channel.
 
-## Planned behaviour (not active)
+**The deterministic helper seam.** Every computation that needs neither production nor DDEV is done by a helper script under `${CLAUDE_PLUGIN_ROOT}/scripts/`, invoked with `uv run` and fed JSON on stdin. **Never compute a diff, a classification, a resolved plan, a pack script, or a dump verdict by hand** — the model orchestrates gates and control-channel calls, the helpers decide the shapes ([ADR-0005](../../docs/adr/0005-decision-backbone-gates-and-layered-defaults.md)). The seam is:
 
-The full specification — the shared transfer engine, the decisions and their defaults, the safety rails, and every platform constraint — lives in `docs/spec.md`. When the engine helpers under `scripts/` and the `pack.sh` template exist, this file will orchestrate them; until then it stays a stub.
+- `scripts/discovery.py` — parses the raw health-check and discovery output into the one canonical discovery document.
+- `scripts/classify.py` — turns that document into the table split, the define classes, the flagged blobs, the thumbnail exclude-set, and the derived project name.
+- `scripts/resolve_plan.py` — resolves the ordered decision list over the layered defaults (`resolve`), and reduces an accepted plan back to the saved plan (`save`).
+- `scripts/baseline_diff.py` — diffs production's current manifest against the stored baseline and returns the new/changed set to pack and the production-deleted set the deletion gate draws from.
+- `scripts/pack_script.py` — generates the production-side `pack.sh` from resolved inputs.
+- `scripts/dump_sanity.py` — verdicts the decrypted dump against the discovered prefix before the import.
+
+The production-side probes and scans are PHP payloads under `${CLAUDE_PLUGIN_ROOT}/templates/`, sent over `execute-php`; their raw JSON is piped straight into the helpers.
+
+**Run modes.** Interactive walks each gate. `--yes` accepts every recommendation, never pauses, and prints the full decided-and-done record. **Replay** engages automatically when a saved plan exists: interactive collapses to a single *Replay the saved plan?* gate, `--yes` replays silently — except the mass-send valve, which re-surfaces the mail gate even on a silent replay when a freshly-poised campaign would otherwise be masked ([ADR-0009](../../docs/adr/0009-live-mail-default-with-mass-send-valve.md)).
+
+**The gate shape.** Every decision is a **recommendation** behind an accept-or-override gate — *"Recommended: X. Accept? [Y/n]"*. `Y` accepts; `n` reveals the alternatives. Even multi-valued decisions take this shape. The recommendation is whatever `scripts/resolve_plan.py` resolved for that decision; a declined gate records the operator's answer, which the resolver layers above the recommendation.
+
+**Persistent config.** Two per-project files at the local project root: the saved plan `.kntnt-wp-skills.json` (settled per-site answers, committed, all keys optional) and the derived, gitignored `.kntnt-wp-skills/` (baseline manifest `last-sync.json`, rollback backups, trash). The saved plan stores **decisions, never computed lists**, so nothing in it goes stale.
+
+## 1. Health check
+
+Mandatory step 0 of the engine, before any heavy work. On any failure, abort with a precise remediation message — never a stack trace.
+
+1. **Locate the server.** Find the connected Novamira server whose reported home URL matches the target production URL. If several or none match, ask the operator which to use; never guess.
+2. **Prove the channel is live.** Send `templates/liveness.php` over `execute-php`; it returns the home URL, `ABSPATH`, the PHP version, and the server software. A connected-but-dead channel fails here.
+3. **Verify it targets production.** Confirm the returned home URL and root path are production's, **not** the local DDEV site — the verify-targets-prod safety rail. If the channel targets the local site, abort: the production-side steps must never run against the wrong site.
+4. **Probe process spawning.** Send `templates/exec-probe.php`: `function_exists('exec')`, the `disable_functions` list, and a live `exec('printf ok')` round-trip. A working `run-wp-cli` does **not** prove this (Novamira may run WP-CLI in-process). If spawning is blocked, abort with the precise cause — the detached pack job would die silently otherwise.
+5. **Preflight the download path.** Send `templates/download-preflight.php`: it writes a tiny **extension-less** test file into a throwaway docroot directory; fetch it over HTTPS from the local side with `curl -fsS`, then delete it. This exercises permissions, extension rules, basic auth, and WAF/CDN behaviour before the multi-gigabyte pack — managed hosts commonly 404 archive extensions.
+6. **Sweep stranded workspaces.** Send `templates/stranded-sweep.php` to list and remove leftover `kntnt-wp-skills-*` working and download directories from an aborted earlier run (belt-and-braces with the self-destruct timer).
+
+## 2. Discovery
+
+One read-only production scan. Send `templates/discovery.php` over `execute-php`; it echoes a single JSON object — sizes and versions, the table prefix, the database flavour and collation, InnoDB status, active plugins and any multilingual plugin, the drop-ins and themes, the core version, the mass-send risk scan, the raw attachment metadata, the wp-config defines, and the required-binary probe. The **database password is never returned** — the connection is rebuilt from an allowlist of non-secret constants, so the one secret that unlocks everything never enters model context.
+
+Combine the discovery output with the liveness and exec-probe outputs into one JSON envelope and pipe it to `uv run scripts/discovery.py`; it validates the input and writes the **canonical discovery document** (redacting any secret define value at the boundary). Pipe that document to `uv run scripts/classify.py` to get the classifications: the full-data / empty table split, the portable vs auto-excluded defines, the flagged heavy blobs, the thumbnail exclude-set, and the derived project name. If either helper exits non-zero, stop and report its stderr diagnostic — a malformed scan never rides into the run.
+
+## 3. Resolve the plan and walk the gates
+
+Assemble the resolve envelope — `{ "operation": "resolve", "skill": "pull", "flags": [...], "discovery": <document>, "classifications": <classifications>, "saved_plan": <.kntnt-wp-skills.json or null>, "answers": {} }` — and run `uv run scripts/resolve_plan.py`. It returns the run mode, whether this is a replay, the ordered **gate** list, and for every decision its **recommendation**, resolved value, and source layer (built-in < live derivation < saved config < this-run answer, with a flag pinning above all four; `--yes` stops at the saved-config layer). The pull decision list carries the bookend decisions clone does not: the preserved inactive plugin set, the object-cache mode, and deletion mirroring.
+
+Walk the returned gates in order. For each, present the recommendation and accept on `Y`; on `n`, reveal the alternatives and record the operator's answer, then re-run `scripts/resolve_plan.py` with that answer in `answers` so the resolved value and every dependent recommendation stay consistent. In `--yes` mode present nothing — every recommendation is accepted — and accumulate the record. When a saved plan exists, present only the single *Replay the saved plan?* gate (plus the mail gate if the valve re-surfaced it).
+
+The mail decision leads with its `findings`: when the mass-send valve flipped, the gate opens with the loud, specific warning naming the engine, the campaign, and the recipient count. Once the walk is done, persist the accepted plan by running `scripts/resolve_plan.py` with `{ "operation": "save", "resolved": <resolved plan> }` and writing the result to `.kntnt-wp-skills.json` — decisions only, never the computed lists.
+
+## 4. Pull bookends — verify the prefix, diff the baseline
+
+The pull-only setup over the local site that already exists. Both steps run before the pack: the prefix guard fails cheaply, and the diff decides what the pack even contains.
+
+- **Verify the table prefix.** Read the local table prefix from the marked block in `wp-config.php` and compare it to production's `table_prefix` from discovery. On a **mismatch, abort before any pack or import** — importing production's tables under a prefix the local install does not read leaves WordPress finding zero tables (platform constraint 12). This is the pull manual page's before-import guarantee; because the local prefix already exists and persists, the later marked-block step writes no prefix at pull — it only relies on the match this step already proved.
+- **Diff the baseline.** Read the stored baseline `.kntnt-wp-skills/last-sync.json` (path → size + mtime, and the scope it was taken under). Send `templates/manifest.php` — with the resolved exclusion scope injected — over `execute-php` to emit production's current in-scope manifest. Combine the two into `{ "baseline": <stored last-sync.json>, "current": <emitted manifest> }` and run `uv run scripts/baseline_diff.py`; it returns `new_or_changed` (the set to pack and pull) and `production_deleted` (the set the deletion gate draws from), the deletion set already restricted to paths still in scope this run (the scope-intersection rule, [ADR-0006](../../docs/adr/0006-baseline-manifest-diff-with-scope.md)). **Never diff the local filesystem** — local mtimes are unreliable through the archive-and-sync chain, so both sides of the diff are production mtimes (platform constraint 19). Keep the emitted current manifest: it becomes this run's new baseline once localisation succeeds.
+
+Only `new_or_changed` is packed and transferred, but **the database is always dumped in full** — trimmed by the empty-table classification it is small and not worth diffing.
+
+## 5. Pack on production (background job)
+
+Generate the production-side pack script — **never assemble this shell by hand**. Build the resolved inputs (working dir, download dir, database name, source root, the **archive set — for pull the `new_or_changed` paths from `scripts/baseline_diff.py`, not the whole tree** — the anchored exclude paths from the classifications, the content-table and empty-table lists, the InnoDB consistency flag) and pipe them to `uv run scripts/pack_script.py`; it emits `pack.sh`.
+
+All packing happens in a working dir **outside the docroot** — `sys_get_temp_dir()`, else a writable dir above `ABSPATH`, else (last resort) a docroot dir mitigated by immediate cleanup ([ADR-0008](../../docs/adr/0008-encrypted-artifacts-outside-docroot.md)). Over the control channel, write into that working dir: the passphrase file `pass.key` (`random_bytes(32)` as hex, mode `0600`), the `.my.cnf` (mode `0600`, built from the DB constants so the **database password never appears on a command line** — consumed via `--defaults-extra-file`), and the generated `pack.sh`. The **passphrase** is passed to OpenSSL by file reference, never as an argument, and is fetched later only over the authenticated `read-file` channel — never web-served over HTTP.
+
+Launch the detached job: `nohup bash pack.sh >> pack.log 2>&1 & echo $!`. The script dumps the database **in full** in two live-safe passes (`--single-transaction --quick --skip-lock-tables`; full data for the content tables, `--no-data` for the empty-classified ones — a non-InnoDB content table drops `--single-transaction` with a logged caveat), gzips and encrypts to `db.enc`, archives only the new/changed set through an anchored exclude file (`--anchored --no-wildcards`) straight into `files.enc`, checksums both final names into `SHA256`, publishes the three artifacts world-readable into the docroot download dir, and `touch`es `DONE`. It runs under `set -euo pipefail` with a trap that on failure publishes a `FAILED` marker plus the log tail, and arms a detached self-destruct that removes both directories after a delay even if the client never returns.
+
+**Poll** for the echoed PID: check for `DONE`, `FAILED`, and process liveness (`kill -0 $PID`) up to an explicit maximum wait. On `FAILED`, surface the log tail and abort. A dead process or an exhausted wait aborts with the tail rather than hanging.
+
+## 6. Download, verify, decrypt
+
+Fetch `SHA256` first, then `db.enc` and `files.enc`, each with `curl -fSL -C - --retry 3` into the local scratch area. Verify with `sha256sum -c SHA256` — the artifact names match their creation-time names exactly, never renamed, so the **checksum** verification is honest. A truncated or corrupted transfer is caught here, before anything touches the local site. Then fetch `pass.key` over the authenticated `read-file` ability (never over HTTP), decrypt both artifacts with `openssl enc -d -aes-256-cbc -pbkdf2 -pass file:<local pass.key>`, and `gunzip` the database dump.
+
+## 7. Close the exposure window
+
+Immediately after the checksums pass, delete **both** remote directories over the control channel — the docroot download dir and the outside-docroot working dir, including `pass.key` and `.my.cnf` — and verify they are gone. The self-destruct timer and the next health check's sweep are the backstops; this explicit deletion keeps the exposure window to minutes even so.
+
+## 8. Risk warning (always emitted)
+
+Before the destructive local steps, always emit the risk warning itemising the copy's outward-reaching behaviours: the resolved mail mode (a live mailer can send real mail), a running cron (can fire real webhooks, capture real payments, post to connected social accounts, re-validate a licence from the dev domain), and the real user data now in the database. Interactive waits for the operator's confirmation to proceed; `--yes` prints it for the record and proceeds.
+
+## 9. Import and localise
+
+Local and destructive. Run in this exact order — the order is a safety rail ([spec](../../docs/spec.md) *Import and localise*):
+
+1. **Rollback backup (pull only, before anything destructive).** Back up the local database with `ddev export-db` to the durable, gitignored `.kntnt-wp-skills/backups/local-pre-import-<timestamp>.sql.gz` **before any destructive local step** — a bad refresh is then one import away from undone. Keep its path for the report (review point 18 in `docs/implementation-notes.md`).
+2. **Sanity-check the dump.** Run `uv run scripts/dump_sanity.py` with the discovered prefix and the empty-classified tables against the decrypted dump: the content table created under the prefix, its inserts present, every empty-classified table created but empty. Abort on any failure — a wrong-prefix dump leaves WordPress finding nothing.
+3. **Import.** `ddev import-db` the decrypted dump; verify table and post counts afterwards.
+4. **Extract the files.** Extract `files.enc`'s decrypted archive over the content directory as a **merge**: the local `wp-config.php` and local-only files survive; production's plugin, theme, and media files in the new/changed set overwrite.
+5. **Deletions, if enabled (off by default).** Deletion mirroring is **off by default** ([ADR-0010](../../docs/adr/0010-deletion-mirroring-opt-in-trash.md)); when the remembered per-site answer is Yes, itemise the two sources — the `production_deleted` set from the diff and the plugin/theme **drift** (local plugins/themes with no production counterpart, as a checklist) — and move confirmed items to the timestamped local trash `.kntnt-wp-skills/trash/<timestamp>/`, **never a hard `rm`**, reversible until emptied, and report the path. Under `--yes` nothing is ever removed **without a saved Yes** already on record — a `--yes` run never turns a No, or an unanswered default, into a deletion.
+6. **Object-cache drop-in (pull only).** Resolve the drop-in by the **ownership rule** — no local drop-in → nothing; a different owner than production → keep local; the same owner → take production's — then **verify a real request succeeds** and **auto-remove** the object-cache drop-in on failure, reporting it. A production drop-in pointing at a loopback cache host is fatal against DDEV (platform constraint 16).
+7. **Write the marked block.** Write the chosen portable defines into the marked block the skills own in `wp-config.php` (the prefix was already verified in step 4 and is not rewritten at pull). **Surface** in the report any **new production define** of the portable class the classifier found — configuration drift brought to attention rather than silently ignored.
+8. **Apply mail and cron.** For the resolved mail mode, either keep the existing mailer or install the capture mu-plugin `templates/kntnt-wp-skills-mailpit.php` into `wp-content/mu-plugins` (it short-circuits `wp_mail` at top priority to DDEV's Mailpit, catching API mailers that never touch sendmail). For cron, `--no-cron` writes `define('DISABLE_WP_CRON', true);` into the marked block; otherwise leave it running.
+9. **Re-apply the preserved inactive set (pull only).** Re-apply the **preserved inactive** plugin set — derived from live local state this run — with `ddev wp plugin deactivate <list> --skip-plugins --skip-themes`, so plugin and theme code is **skipped during deactivation** and an object-cache plugin cannot re-drop its drop-in mid-step. Tools you keep off stay off.
+10. **URL-scoped search-replace.** One pass per source URL form, each `ddev wp search-replace '<old>' '<new>' --all-tables --skip-columns=guid --report-changed-only --skip-plugins --skip-themes`. The forms, in order: `https://www.<domain>`, `http://www.<domain>`, `https://<domain>`, `http://<domain>`, the protocol-relative `//www.<domain>` and `//<domain>`, and the **escaped-slash** forms `https:\/\/www.<domain>`, `https:\/\/<domain>`, `http:\/\/www.<domain>`, `http:\/\/<domain>` that page builders store inside JSON. **Never the bare domain** — it corrupts `user@domain` email addresses. Serialised objects wp-cli safely skips keep the old domain; harmless.
+11. **Set the URLs.** Set the `home` and `siteurl` options explicitly to the DDEV URL.
+12. **Regenerate thumbnails (metadata-driven delta).** `ddev wp media regenerate` scoped to the affected attachment IDs — the **metadata-driven delta** at pull (compare each attachment's registered sizes against the files on disk, so newly registered sizes appear without regenerating the whole library), with `--regenerate-all` as the escape hatch that forces the lot ([ADR-0011](../../docs/adr/0011-metadata-driven-thumbnail-regeneration.md)).
+13. **Flush with plugins loaded.** `ddev wp rewrite flush --hard` — **without** `--skip-plugins`, so the flush runs with **plugins loaded**. A flush that skips plugins silently drops multilingual and custom routes, 404ing every localised subpage.
+14. **Restart.** `ddev restart` to clear the PHP-process caches a `wp cache flush` cannot reach.
+15. **Write the new baseline.** Store the current manifest kept in step 4 — path, size, mtime per file, and the **scope** it was taken under — as `.kntnt-wp-skills/last-sync.json` (the `templates/manifest.php` output), the baseline the next `pull` diffs against.
+
+## 10. Verify (smoke)
+
+Smoke-test from **live state, never assumption**. Build the URL list from the copy's own database: the front page plus a couple of real published URLs; only if discovery found an active multilingual plugin, add the localised home and a real localised subpage — the canary for the rewrite-flush bug. Fetch each and assert a success response and the **absence** of `There has been a critical error`, `Fatal error`, and `Error establishing a database` in the HTML. Run `ddev wp db check`. Confirm the object-cache state (the ownership-rule outcome held) and the expected active-plugin count (the preserved inactive set held). Filter cosmetic WP-CLI/MariaDB deprecation notices from the report — they are never failures.
+
+## 11. Cleanup and report
+
+Remove the large local scratch artifacts (the decrypted dump and archive). Production is already state-neutral — the remote directories were deleted in step 7 and nothing was left running.
+
+Report the full decided-and-done record. For pull specifically: report the **rollback backup** path (the durable `.kntnt-wp-skills/backups/` file the refresh can be undone from), the trash path if the deletion gate moved anything, the object-cache outcome, and any surfaced define drift.
+
+## Testing note
+
+This orchestration is a **human-verified residual** ([spec](../../docs/spec.md) *Testing Decisions*): the deterministic helpers it drives are unit-tested at the seam, the engine's own verify phase (step 10) is the in-run verification, and a **manual** end-to-end smoke — a clone followed by a pull against a real site — is the operator's residual before release. Nothing in this file reaches a live site during the automated suite.
