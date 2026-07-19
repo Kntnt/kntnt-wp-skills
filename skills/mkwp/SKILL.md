@@ -27,6 +27,8 @@ Run `mkwp --help` locally. If the command is not found on `PATH` at all, that is
 
 If the verdict's `ok` is `false`, abort immediately and print `reason` and `remediation` verbatim — no gate, no further step, no fabricated stack trace. The operator installs or upgrades binaries; this skill does not.
 
+**Known gap: this guard alone is not the "local portion" of `clone`/`pull`'s dependency step.** This version guard only proves `mkwp` itself is present and new enough — it never checks `ddev` on `PATH`, whether its container backend (Docker/Colima) actually responds, or the other required CLI tools, even though the scaffold below (§4) drives `mkwp`'s own `ddev config` and first `ddev start` and would otherwise fail silently deep inside them against a stopped backend — exactly the failure mode `clone`/`pull`'s dependency step exists to prevent (issue #23). Closing this gap — giving `mkwp` its own equivalent local-dependency check before scaffolding — is flagged here as a known scope gap for a follow-up issue, not silently assumed covered by either #22 or #23's implementation.
+
 ## 2. Settle NAME
 
 `NAME` is the one value with no sensible universal default — it is the site's own identity, both the `mkwp` positional argument and (sanitised by `mkwp` itself) the DDEV project slug. Take it from context when the conversation already names the site unambiguously (an explicit `/kntnt-wp-skills:mkwp <name>` argument, or the operator naming the project in the preceding turns); otherwise ask directly, even under `--yes` — there is nothing to recommend here, so `--yes` cannot skip it silently.

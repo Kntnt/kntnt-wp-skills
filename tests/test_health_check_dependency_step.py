@@ -82,23 +82,27 @@ REQUIRED_ABILITY_TERMS: tuple[str, ...] = (
 )
 
 
-def _pos(text: str, pattern: str, label: str, doc_name: str) -> int:
-    """First match position of a case-insensitive ``pattern`` in ``text``,
-    failing loudly with the missing anchor when it is absent."""
+def _pos(text: str, pattern: str, label: str, doc_name: str, start: int = 0) -> int:
+    """First match position of a case-insensitive ``pattern`` in ``text`` at
+    or after ``start``, failing loudly with the missing anchor when it is
+    absent."""
 
-    match = re.search(pattern, text, re.IGNORECASE)
+    match = re.search(pattern, text[start:], re.IGNORECASE)
     assert match is not None, f"{doc_name} is missing the {label} anchor /{pattern}/"
-    return match.start()
+    return start + match.start()
 
 
-def _dependency_window(doc_name: str, path: Path, size: int = 2200) -> str:
-    """The text window starting at the dependency step's own anchor, wide
-    enough to cover its local and production sub-bullets but not so wide it
-    bleeds into the next numbered step's own content."""
+def _dependency_window(doc_name: str, path: Path) -> str:
+    """The text window starting at the dependency step's own anchor and
+    ending exactly at the next step's anchor ("Prove the channel is live"),
+    so the window can never bleed into that step's own content — an edit
+    that dropped a term from the dependency step could otherwise keep this
+    suite green only because the term still appears further down the page."""
 
     text = path.read_text(encoding="utf-8")
     start = _pos(text, DEPENDENCY_ANCHOR[doc_name], "dependency step", doc_name)
-    return text[start : start + size]
+    end = _pos(text, LIVE_ANCHOR, "prove-channel-is-live", doc_name, start=start)
+    return text[start:end]
 
 
 @pytest.mark.parametrize("doc_name, path", DOCS_UNDER_TEST)
@@ -186,6 +190,29 @@ def test_dependency_step_states_the_remediation_contract(
     assert re.search(r"gate", window), (
         f"{doc_name}'s dependency step never offers a safely agent-runnable "
         "fix behind its own accept-or-override gate"
+    )
+
+
+@pytest.mark.parametrize("doc_name, path", DOCS_UNDER_TEST)
+def test_dependency_step_never_auto_accepts_the_fix_gate_under_yes(
+    doc_name: str, path: Path
+) -> None:
+    """The agent-runnable-fix gate is an ordinary accept-or-override gate,
+    and `--yes` accepts every ordinary gate unattended — but installing
+    system software with no operator present is exactly the consent this
+    step's own "rather than assuming consent" clause forbids. The dependency
+    step must pin this explicitly: under `--yes` the fix gate is never
+    auto-accepted, and the run aborts with the remediation message instead of
+    running the fix."""
+
+    window = _dependency_window(doc_name, path).lower()
+    assert "--yes" in window, (
+        f"{doc_name}'s dependency step never mentions `--yes` when pinning "
+        "the agent-runnable-fix gate's behaviour"
+    )
+    assert re.search(r"never (run|install|auto-accept)|not auto-accepted", window), (
+        f"{doc_name}'s dependency step never states that `--yes` must not "
+        "silently run the agent-runnable fix"
     )
 
 
