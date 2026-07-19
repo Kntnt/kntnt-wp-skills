@@ -45,7 +45,7 @@ The task prompt tells you which sub-tasks to run:
 - `anomalies`: a list of the `fail`/`attention` checks' `id` and `detail`, empty when none
 - `evidence_path`, `evidence_sha256` — the written expectations file and/or the full JSON report; the SHA256 lets the orchestrator confirm the file it reads back is the one this evidence block describes
 
-Any non-empty `anomalies` list makes `status` `FAILED`, even if `scripts/smoke_test.py`'s own exit code were somehow zero — an `attention` finding is reported but does not by itself flip `status`; a `fail` finding always does.
+`status` is `FAILED` iff `anomalies` contains at least one `fail`-severity check, or `scripts/smoke_test.py` itself exits non-zero — mirroring the script's own exit-code contract (0 iff no `fail`; `attention` and `skip` never affect it). An `attention` entry always rides along in `anomalies` for visibility, but never by itself flips `status` to `FAILED`.
 
 ## Hard rules
 

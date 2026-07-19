@@ -29,7 +29,7 @@ The task prompt gives you:
 
 ## What to do
 
-1. Send `templates/discovery.php` over the `execute-php` MCP ability against `mcp_server`. It echoes one JSON object: sizes and versions, the table prefix, the database flavour and collation, InnoDB status, active plugins and any multilingual plugin, drop-ins, themes, the core version, the mass-send risk scan, raw attachment metadata, wp-config defines, and the required-binary probe.
+1. Send `templates/discovery.php` over the `execute-php` MCP ability against `mcp_server`. It echoes one JSON object: sizes and versions, the table prefix, the database flavour and collation, InnoDB status, active plugins and any multilingual plugin, drop-ins, themes, the core version, the mass-send risk scan, raw attachment metadata, cheap entity counts (published posts, pages, attachments, users), wp-config defines, and the required-binary probe.
 2. Combine that output with the given `liveness` and `exec_probe` into one JSON envelope and pipe it to `uv run "${plugin_root}/scripts/discovery.py"`. Write its stdout to `<scratchpad_dir>/discovery.json`.
 3. Pipe that document to `uv run "${plugin_root}/scripts/classify.py"`. Write its stdout to `<scratchpad_dir>/classifications.json`.
 4. If either helper exits non-zero, do not retry or guess at a fix — stop and return `FAILED` with the helper's stderr verbatim.

@@ -113,6 +113,44 @@ def test_template_withholds_secret_define_values_at_the_source() -> None:
     assert "secret" in value_expression.lower()
 
 
+def test_template_collects_cheap_entity_counts_for_the_verify_phase() -> None:
+    """The payload must gather production's published-post, published-page,
+    attachment, and user counts via cheap COUNT queries, and echo them under
+    an 'entity_counts' key — the raw material scripts/discovery.py's
+    build_document() and scripts/smoke_test.py's generate_expectations()
+    need to assemble the verify phase's counts.* expectations from a live
+    fact, not from nothing (docs/spec.md's Verify section already promises
+    this; nothing collected it until now)."""
+
+    source = _TEMPLATE.read_text(encoding="utf-8")
+
+    # Each count is a cheap COUNT(*) query, not a full row fetch.
+    assert source.count("COUNT(*)") >= 4
+    assert "post_type = 'post'" in source
+    assert "post_status = 'publish'" in source
+    assert "post_type = 'page'" in source
+    assert "post_type = 'attachment'" in source
+    assert "{$wpdb->users}" in source
+
+    # The attachment count must never filter on post_status — WP_Query's own
+    # default 'inherit' status includes file-less rows, the same population
+    # the verifying `wp post list --post_type=attachment --format=count`
+    # counts (commit d5a1210's rationale for never deriving the count from
+    # the raw attachment list either).
+    attachment_query_start = source.index("post_type = 'attachment'")
+    attachment_query = source[max(0, attachment_query_start - 200) : attachment_query_start + 40]
+    assert "post_status" not in attachment_query
+
+    # The counts are echoed under their own top-level key, in the exact shape
+    # scripts/discovery.py's build_entity_counts() consumes.
+    assert "'entity_counts'" in source
+    assert "'published_posts'" in source
+    assert "'published_pages'" in source
+
+    # The collection must run before the echo, not be dead code after it.
+    assert source.index("$entity_counts = [") < source.index("echo json_encode(")
+
+
 def test_wp_config_fallback_respects_the_parent_directory_rule() -> None:
     """The one-directory-above-ABSPATH wp-config.php fallback must not fire when
     the parent is itself a nested WordPress root (has its own wp-settings.php)

@@ -257,6 +257,28 @@ def build_defines(raw_defines: list[Any]) -> list[dict[str, Any]]:
     return defines
 
 
+def build_entity_counts(raw: dict[str, Any]) -> dict[str, int]:
+    """Carry production's cheap entity counts — published posts, published
+    pages, attachments, and users — from ``templates/discovery.php``'s
+    ``entity_counts`` section into the canonical document, so
+    ``scripts/smoke_test.py``'s ``generate_expectations`` has a live fact to
+    source ``counts.*`` from instead of nothing (docs/spec.md's Verify
+    section already promised these counts; before this section existed,
+    nothing collected them). Each field defaults to zero when the scan omits
+    the whole section, so a document built from a pre-existing fixture or an
+    older scan still parses; a present-but-malformed count fails loud, the
+    same "optionality is about presence, never about shape" contract every
+    other optional field follows.
+    """
+
+    return {
+        "published_posts": _optional(raw, "published_posts", int, 0, "entity_counts"),
+        "published_pages": _optional(raw, "published_pages", int, 0, "entity_counts"),
+        "attachments": _optional(raw, "attachments", int, 0, "entity_counts"),
+        "users": _optional(raw, "users", int, 0, "entity_counts"),
+    }
+
+
 def _poised_finding(engine: dict[str, Any]) -> str:
     """Compose the loud, specific warning for one poised engine. A positive
     recipient count is named; a zero count means the engine could not size the
@@ -427,6 +449,9 @@ def build_document(raw: Any) -> dict[str, Any]:
             _optional(discovery, "mass_send", dict, {}, "discovery")
         ),
         "attachments": _optional(discovery, "attachments", list, [], "discovery"),
+        "entity_counts": build_entity_counts(
+            _optional(discovery, "entity_counts", dict, {}, "discovery")
+        ),
         "defines": build_defines(
             _optional(discovery, "defines", list, [], "discovery")
         ),

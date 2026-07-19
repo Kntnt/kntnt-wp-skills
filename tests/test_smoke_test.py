@@ -840,6 +840,40 @@ def test_generate_expectations_derives_versions_and_prefix_from_discovery():
     assert "rollbackBackup" not in expectations
 
 
+def test_generate_expectations_subtracts_pulls_preserved_inactive_plugins_from_the_active_count():
+    """Same defect class as the object-cache drop-in fix (commit d5a1210):
+    pull's step 9.9 re-applies the preserved-inactive plugin set — plugins
+    discovery found active on production that the operator's local copy
+    deliberately keeps deactivated (spec.md pull step 9). Deriving
+    ``activePluginCount`` from ``len(discovery.plugins.active)`` alone
+    ignores that outcome and FAILs a correct pull, which genuinely leaves
+    fewer plugins active locally than production reports. When
+    ``preservedInactivePlugins`` names a subset of the active list, those
+    plugins are subtracted from the count."""
+
+    envelope = {
+        "discovery": {"plugins": {"active": ["a/a.php", "b/b.php", "c/c.php"]}},
+        "preservedInactivePlugins": ["b/b.php"],
+    }
+
+    expectations = smoke_test.generate_expectations(envelope)
+
+    assert expectations["activePluginCount"] == 2
+
+
+def test_generate_expectations_keeps_the_raw_active_count_when_nothing_is_preserved_inactive():
+    """Clone never walks the preserved-inactive-set bookend (spec.md, Clone
+    bookends: "no preserved inactive set"), so an envelope that never
+    supplies ``preservedInactivePlugins`` leaves the count exactly as
+    discovery reports it."""
+
+    envelope = {"discovery": {"plugins": {"active": ["a/a.php", "b/b.php"]}}}
+
+    expectations = smoke_test.generate_expectations(envelope)
+
+    assert expectations["activePluginCount"] == 2
+
+
 def test_generate_expectations_marks_pull_mode_with_rollback_backup():
     envelope = {"discovery": {}, "mode": "pull"}
 
@@ -995,6 +1029,52 @@ def test_generate_expectations_carries_supplementary_facts_the_discovery_documen
     }
 
 
+def test_generate_expectations_sources_entity_counts_from_the_discovery_document():
+    """docs/spec.md's Verify section promises entity counts assembled "from
+    what this run already knows" — now that ``templates/discovery.php``
+    collects them (review finding: nothing did before), the canonical
+    discovery document's own ``entity_counts`` section is a live fact
+    ``generate_expectations`` sources directly, without the caller having to
+    separately supply an ``entityCounts`` envelope key from nowhere."""
+
+    envelope = {
+        "discovery": {
+            "entity_counts": {
+                "published_posts": 361,
+                "published_pages": 62,
+                "attachments": 214,
+                "users": 7,
+            },
+        },
+    }
+
+    expectations = smoke_test.generate_expectations(envelope)
+
+    assert expectations["counts"] == {
+        "publishedPosts": 361,
+        "publishedPages": 62,
+        "attachments": 214,
+        "users": 7,
+    }
+
+
+def test_generate_expectations_lets_the_entity_counts_override_take_precedence():
+    """The explicit ``entityCounts`` envelope override (e.g. a hand-supplied
+    re-verification) still wins over the discovery-sourced counts — the same
+    "this-run answer overrides the default" precedence every other override
+    in this module follows."""
+
+    envelope = {
+        "discovery": {"entity_counts": {"published_posts": 361, "users": 7}},
+        "entityCounts": {"publishedPosts": 999},
+    }
+
+    expectations = smoke_test.generate_expectations(envelope)
+
+    assert expectations["counts"]["publishedPosts"] == 999
+    assert expectations["counts"]["users"] == 7
+
+
 def test_generate_expectations_derives_table_split_from_classifications():
     """Pins the classifications shape this derivation is sensitive to:
     ``empty`` is a list of ``{"name", "category"}`` dicts, ``full`` is a
@@ -1056,6 +1136,67 @@ def test_generate_expectations_table_split_matches_classify_pys_real_output():
 
     assert expectations["tables"]["operationalEmpty"] == ["wp_relevanssi"]
     assert expectations["tables"]["contentNonEmpty"] == ["wp_options", "wp_posts", "wp_users"]
+
+
+def test_generate_expectations_prefers_the_resolved_table_content_over_raw_classifications():
+    """Same defect class as the object-cache drop-in fix (commit d5a1210): a
+    correct copy where the operator accepted CARRY at the user-submissions
+    gate (issue #12, ADR-0014) has ``resolve_plan.py`` fold the tagged tables
+    out of ``db_table_content``'s empty list into its full-data one — but
+    ``classifications.tables.empty`` (``classify.py``'s raw, un-folded split)
+    still lists them empty. Deriving ``tables.operationalEmpty`` from the raw
+    split ignores the resolved plan's actual outcome and FAILs a correct
+    carry: the copy genuinely holds rows in a table the expectations document
+    still asserts empty. When ``resolvedTableContent`` is supplied — the
+    resolved plan's ``db_table_content`` decision value, the same
+    ``{"full", "empty"}`` shape ``classifications.tables`` uses — it takes
+    precedence over ``classifications`` for the table split."""
+
+    envelope = {
+        "discovery": {"database": {"table_prefix": "wp_"}},
+        "classifications": {
+            "tables": {
+                "empty": [
+                    {"name": "wp_relevanssi", "category": "search_index"},
+                    {"name": "wp_gf_entry", "category": "user_submissions"},
+                ],
+                "full": ["wp_posts", "wp_options", "wp_users"],
+            }
+        },
+        "resolvedTableContent": {
+            "empty": [
+                {"name": "wp_relevanssi", "category": "search_index"},
+            ],
+            "full": ["wp_posts", "wp_options", "wp_users", "wp_gf_entry"],
+        },
+    }
+
+    expectations = smoke_test.generate_expectations(envelope)
+
+    # The carried table must not be expected empty — a correct copy that
+    # genuinely holds its rows must never FAIL dropin/table checks.
+    assert expectations["tables"]["operationalEmpty"] == ["wp_relevanssi"]
+    assert "wp_gf_entry" not in expectations["tables"]["operationalEmpty"]
+
+
+def test_generate_expectations_falls_back_to_classifications_when_no_resolved_table_content():
+    """Without ``resolvedTableContent`` (e.g. clone/pull assembling from a
+    site that never walked the user_submissions gate), the raw
+    ``classifications`` split is still honoured exactly as before."""
+
+    envelope = {
+        "discovery": {"database": {"table_prefix": "wp_"}},
+        "classifications": {
+            "tables": {
+                "empty": [{"name": "wp_relevanssi", "category": "search_index"}],
+                "full": ["wp_posts"],
+            }
+        },
+    }
+
+    expectations = smoke_test.generate_expectations(envelope)
+
+    assert expectations["tables"]["operationalEmpty"] == ["wp_relevanssi"]
 
 
 def test_generate_expectations_omits_fields_it_has_nothing_to_derive():

@@ -376,3 +376,61 @@ def test_a_non_string_active_plugin_fails_loudly() -> None:
     assert result.stdout == b""
     assert result.stderr.startswith(b"discovery:")
     assert b"active_plugins" in result.stderr
+
+
+def test_entity_counts_are_carried_from_the_raw_scan() -> None:
+    # Arrange — templates/discovery.php's new entity_counts section (review
+    # finding: nothing collected published-post/page/attachment/user counts
+    # before, leaving the Verify section's promised counts.* expectations with
+    # nothing to source).
+    payload = load_fixture("representative-site.json")
+    payload["discovery"]["entity_counts"] = {
+        "published_posts": 361,
+        "published_pages": 62,
+        "attachments": 214,
+        "users": 7,
+    }
+
+    # Act.
+    result = run_on(payload)
+    document: dict[str, Any] = json.loads(result.stdout)
+
+    # Assert — the four counts survive intact into the canonical document.
+    assert result.returncode == 0
+    assert document["entity_counts"] == {
+        "published_posts": 361,
+        "published_pages": 62,
+        "attachments": 214,
+        "users": 7,
+    }
+
+
+def test_entity_counts_default_to_zero_when_the_scan_omits_the_section() -> None:
+    # Arrange & Act — the representative fixture predates this section, so the
+    # document must still build with every count defaulting to zero rather than
+    # failing loud on an absent optional section.
+    document = document_for("representative-site.json")
+
+    # Assert.
+    assert document["entity_counts"] == {
+        "published_posts": 0,
+        "published_pages": 0,
+        "attachments": 0,
+        "users": 0,
+    }
+
+
+def test_a_non_integer_entity_count_fails_loudly() -> None:
+    # Arrange — a malformed count must not ride through into the document
+    # (AC1: never a half-built document on stdout).
+    payload = load_fixture("representative-site.json")
+    payload["discovery"]["entity_counts"] = {"published_posts": "oops"}
+
+    # Act.
+    result = run_on(payload)
+
+    # Assert.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"discovery:")
+    assert b"published_posts" in result.stderr

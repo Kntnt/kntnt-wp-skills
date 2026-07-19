@@ -104,6 +104,27 @@ foreach ( $attachment_rows as $row ) {
 	$attachments[] = [ 'id' => (int) $row['id'], 'file' => $row['file'], 'sizes' => $sizes ];
 }
 
+// Gather the cheap entity counts the verify phase's expectations document
+// needs (spec.md, Verify): published posts, published pages, attachments,
+// and users. The attachment count deliberately carries no post_status
+// filter — WP_Query's own default 'inherit' status includes file-less rows,
+// the same population the verifying `wp post list --post_type=attachment
+// --format=count` counts, never the raw $attachments list's length (that
+// list is scoped to the thumbnail exclude-set's INNER JOIN, a different,
+// narrower population).
+$entity_counts = [
+	'published_posts' => (int) $wpdb->get_var(
+		"SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'post' AND post_status = 'publish'"
+	),
+	'published_pages' => (int) $wpdb->get_var(
+		"SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'page' AND post_status = 'publish'"
+	),
+	'attachments'      => (int) $wpdb->get_var(
+		"SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'attachment'"
+	),
+	'users'            => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->users}" ),
+];
+
 // Parse production's wp-config for its defines: locate the file and extract
 // every declared constant's name by a light regex — good enough to find a
 // define() call however it is wrapped in a conditional guard — then resolve
@@ -237,6 +258,7 @@ echo json_encode( [
 		],
 	],
 	'attachments'            => $attachments,
+	'entity_counts'          => $entity_counts,
 	'defines'                => $wp_config_defines,
 	'binaries'               => $binaries,
 ] );

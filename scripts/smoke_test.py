@@ -781,21 +781,37 @@ def generate_expectations(envelope: Mapping[str, Any]) -> dict[str, Any]:
       tables in :data:`_ALWAYS_POPULATED_CORE_TABLES` — never the whole
       full-carry list, since "carried in full" only means the transfer did
       not silently empty a table, not that production actually put rows
-      in it.
+      in it. Superseded by ``resolvedTableContent`` when both are given.
+    - ``resolvedTableContent`` (optional) — the resolved plan's
+      ``db_table_content`` decision value (``resolve_plan.py``), the same
+      ``{"full", "empty"}`` shape ``classifications.tables`` uses. Takes
+      precedence over ``classifications`` for the table split. An operator
+      who accepted CARRY at the user_submissions gate (ADR-0014) has
+      ``resolve_plan.py`` fold those tables out of the empty list into the
+      full-data one; ``classifications.tables.empty`` alone never reflects
+      that fold (it is ``classify.py``'s raw, un-folded split), so deriving
+      ``tables.operationalEmpty`` from it would FAIL a correct copy that
+      genuinely carries the accepted tables.
     - ``localUrl`` (optional) — the local DDEV URL; not derivable from
       discovery alone (that is ``classify.py``'s ``project_name.ddev_url``).
+    ``counts`` is primarily sourced from ``discovery.entity_counts`` —
+    ``templates/discovery.php``'s cheap ``COUNT(*)`` queries for published
+    posts, published pages, attachments, and users, threaded through by
+    ``scripts/discovery.py``. ``attachments`` in particular is **never**
+    derived from discovery's raw attachment list — that list exists to
+    derive the thumbnail exclude-set's metadata
+    (``templates/discovery.php``'s query is an INNER JOIN on
+    ``_wp_attached_file`` with no post_status filter), a different
+    population from the verifying check's own
+    ``wp post list --post_type=attachment --format=count`` (WP_Query's
+    default ``inherit`` status, including file-less rows) — deriving the
+    count from the list would FAIL a correct copy on a site with trashed
+    media (``MEDIA_TRASH``) or a broken attachment row.
+
     - ``entityCounts`` (optional) — ``{"publishedPosts", "publishedPages",
-      "attachments", "users"}``; every one of these is a supplementary
-      live-state fact the caller observes directly. ``attachments`` in
-      particular is **never** derived from discovery's raw attachment list —
-      that list exists to derive the thumbnail exclude-set's metadata
-      (``templates/discovery.php``'s query is an INNER JOIN on
-      ``_wp_attached_file`` with no post_status filter), a different
-      population from the verifying check's own
-      ``wp post list --post_type=attachment --format=count`` (WP_Query's
-      default ``inherit`` status, including file-less rows) — deriving the
-      count from the list would FAIL a correct copy on a site with trashed
-      media (``MEDIA_TRASH``) or a broken attachment row.
+      "attachments", "users"}``; a per-key override the caller may supply
+      directly (e.g. a hand-edited re-verification), taking precedence over
+      whatever ``discovery.entity_counts`` reports.
     - ``sampleUrls`` (optional) — the local-URL-mapped smoke-test URL list;
       discovery carries no sample URLs of its own.
     - ``productionHost`` (optional) — paired with ``localUrl`` into the
@@ -807,6 +823,13 @@ def generate_expectations(envelope: Mapping[str, Any]) -> dict[str, Any]:
       absent (``excludedDropins``) and present (below) at once is
       self-contradictory. Never supplied at clone, where the ownership rule
       never runs and every discovered drop-in stays excluded.
+    - ``preservedInactivePlugins`` (optional) — pull step 9.9's
+      preserved-inactive plugin set: plugins ``discovery.plugins.active``
+      reports active on production that the local copy deliberately keeps
+      deactivated. Subtracted from ``activePluginCount``, which otherwise
+      unconditionally takes ``len(discovery.plugins.active)`` and would FAIL
+      a correct pull that genuinely leaves fewer plugins active locally.
+      Never supplied at clone, where no preserved-inactive bookend runs.
     - ``mode`` (optional, ``"clone"`` or ``"pull"``, default ``"clone"``) —
       only ``"pull"`` adds the ``rollbackBackup`` expectation, since a
       rollback backup is a pull-only artifact.
@@ -852,47 +875,67 @@ def generate_expectations(envelope: Mapping[str, Any]) -> dict[str, Any]:
     if local_url:
         expectations["localUrl"] = local_url
 
-    # Entity counts: every one is a supplementary live-state fact the caller
-    # observes directly — including attachments, which is deliberately never
-    # derived from discovery's raw attachment list (a differently-scoped,
-    # differently-populated query — see the docstring above).
+    # Entity counts: sourced from the discovery document's own entity_counts
+    # section (templates/discovery.php's cheap COUNT queries) — including
+    # attachments, which is deliberately never derived from discovery's raw
+    # attachment list (a differently-scoped, differently-populated query —
+    # see the docstring above). The optional entityCounts envelope override
+    # still wins per key, the same "this-run answer overrides the default"
+    # precedence every other override in this function follows.
     counts: dict[str, Any] = {}
-    entity_counts = envelope.get("entityCounts") or {}
+    discovery_entity_counts = discovery.get("entity_counts")
+    if isinstance(discovery_entity_counts, dict):
+        for snake_key, camel_key in (
+            ("published_posts", "publishedPosts"),
+            ("published_pages", "publishedPages"),
+            ("attachments", "attachments"),
+            ("users", "users"),
+        ):
+            if snake_key in discovery_entity_counts:
+                counts[camel_key] = discovery_entity_counts[snake_key]
+    entity_counts_override = envelope.get("entityCounts") or {}
     for key in ("publishedPosts", "publishedPages", "attachments", "users"):
-        if key in entity_counts:
-            counts[key] = entity_counts[key]
+        if key in entity_counts_override:
+            counts[key] = entity_counts_override[key]
     if counts:
         expectations["counts"] = counts
 
     # The table split: the total count is discovery's own enumeration; the
-    # empty/non-empty name lists need the optional classifications section.
-    # The full-carry list is never taken whole into contentNonEmpty — it
-    # only means "not silently emptied by this transfer", not "known to
-    # hold rows in production" — see _ALWAYS_POPULATED_CORE_TABLES above.
+    # empty/non-empty name lists need either the resolved plan's own
+    # db_table_content decision (preferred — it already reflects a resolved
+    # user_submissions CARRY, ADR-0014) or, absent that, the optional raw
+    # classifications section. The full-carry list is never taken whole into
+    # contentNonEmpty — it only means "not silently emptied by this
+    # transfer", not "known to hold rows in production" — see
+    # _ALWAYS_POPULATED_CORE_TABLES above.
     tables: dict[str, Any] = {}
     all_tables = database.get("tables")
     if isinstance(all_tables, list) and all_tables:
         tables["total"] = len(all_tables)
+    resolved_table_content = envelope.get("resolvedTableContent")
     classifications = envelope.get("classifications")
-    if isinstance(classifications, dict):
-        table_split = classifications.get("tables")
-        if isinstance(table_split, dict):
-            prefix = database.get("table_prefix", "")
-            empty = table_split.get("empty")
-            if isinstance(empty, list):
-                tables["operationalEmpty"] = sorted(
-                    entry["name"] for entry in empty if isinstance(entry, dict) and "name" in entry
-                )
-            full = table_split.get("full")
-            if isinstance(full, list) and full:
-                non_empty = sorted(
-                    str(name)
-                    for name in full
-                    if isinstance(name, str)
-                    and _table_suffix(prefix, name) in _ALWAYS_POPULATED_CORE_TABLES
-                )
-                if non_empty:
-                    tables["contentNonEmpty"] = non_empty
+    table_split = (
+        resolved_table_content
+        if isinstance(resolved_table_content, dict)
+        else classifications.get("tables") if isinstance(classifications, dict) else None
+    )
+    if isinstance(table_split, dict):
+        prefix = database.get("table_prefix", "")
+        empty = table_split.get("empty")
+        if isinstance(empty, list):
+            tables["operationalEmpty"] = sorted(
+                entry["name"] for entry in empty if isinstance(entry, dict) and "name" in entry
+            )
+        full = table_split.get("full")
+        if isinstance(full, list) and full:
+            non_empty = sorted(
+                str(name)
+                for name in full
+                if isinstance(name, str)
+                and _table_suffix(prefix, name) in _ALWAYS_POPULATED_CORE_TABLES
+            )
+            if non_empty:
+                tables["contentNonEmpty"] = non_empty
     if tables:
         expectations["tables"] = tables
 
@@ -928,13 +971,21 @@ def generate_expectations(envelope: Mapping[str, Any]) -> dict[str, Any]:
         expectations["localAssetCheck"] = {"url": local_url, "productionHost": production_host}
 
     # Always-on expectations for a completed run: a clean database, the
-    # active-plugin count discovery already reports, and the two persistent
-    # files every accepted plan writes.
+    # active-plugin count discovery already reports minus pull's
+    # preserved-inactive set (the plugins production shows active that the
+    # local copy deliberately leaves deactivated — step 9.9), and the two
+    # persistent files every accepted plan writes.
     expectations["dbCheck"] = True
 
     active = plugins.get("active")
     if isinstance(active, list):
-        expectations["activePluginCount"] = len(active)
+        preserved_inactive = envelope.get("preservedInactivePlugins")
+        held_back = (
+            len(set(active) & set(preserved_inactive))
+            if isinstance(preserved_inactive, list)
+            else 0
+        )
+        expectations["activePluginCount"] = len(active) - held_back
 
     expectations["savedPlan"] = True
     expectations["baseline"] = True
