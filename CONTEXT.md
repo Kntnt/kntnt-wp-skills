@@ -24,7 +24,7 @@ The shared machinery `clone` and `pull` run — discovery, packing on production
 The Novamira MCP server on the production site — the sole way the skills reach production. There is no SSH.
 
 **Health check**:
-Mandatory step 0 of every run: verify the channel is live, targets production, can spawn processes, and can serve downloads — before any heavy work.
+Mandatory step 0 of every run: verify every local and production dependency the run needs, that the channel is live, targets production, can spawn processes, and can serve downloads — before any heavy work, with guided remediation on anything missing.
 
 **Discovery**:
 The read-only production scan (one `execute-php` call) that feeds every live-derived recommendation: sizes, versions, prefix, drop-ins, the mass-send risk scan, the thumbnail exclude-list.

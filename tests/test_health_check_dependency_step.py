@@ -145,8 +145,7 @@ def test_dependency_step_lists_required_local_tools(doc_name: str, path: Path) -
     window = _dependency_window(doc_name, path).lower()
     for term in REQUIRED_LOCAL_TOOL_TERMS:
         assert term in window, (
-            f"{doc_name}'s dependency step never names the required local "
-            f"tool {term!r}"
+            f"{doc_name}'s dependency step never names the required local tool {term!r}"
         )
 
 

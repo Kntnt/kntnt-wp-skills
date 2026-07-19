@@ -23,7 +23,7 @@ If the arguments are `help`, `--help`, or `-h`, run `uv run "${CLAUDE_PLUGIN_ROO
 
 ## 1. Version guard
 
-Run `mkwp --help` locally. If the command is not found on `PATH` at all, that is itself the failure — do not fabricate help output. Pipe the result to `uv run "${CLAUDE_PLUGIN_ROOT}/scripts/mkwp_guard.py"` as `{ "helpOutput": <the captured stdout, or null when mkwp was not found> }`. This is the **one place** the guard's pass/fail verdict and remediation are computed — `clone`'s own equivalent step (§1.7 of its health check) and the shared dependency health check (issue #23, once it lands) read the same helper rather than re-deriving the check.
+Run `mkwp --help` locally. If the command is not found on `PATH` at all, that is itself the failure — do not fabricate help output. Pipe the result to `uv run "${CLAUDE_PLUGIN_ROOT}/scripts/mkwp_guard.py"` as `{ "helpOutput": <the captured stdout, or null when mkwp was not found> }`. This is the **one place** the guard's pass/fail verdict and remediation are computed — `clone`'s own equivalent step (§1 of its health check, the dependency step) reads the same helper rather than re-deriving the check.
 
 If the verdict's `ok` is `false`, abort immediately and print `reason` and `remediation` verbatim — no gate, no further step, no fabricated stack trace. The operator installs or upgrades binaries; this skill does not.
 
