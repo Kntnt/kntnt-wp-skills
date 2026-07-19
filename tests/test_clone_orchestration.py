@@ -30,6 +30,8 @@ import flags
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 CLONE_SKILL: Path = REPO_ROOT / "skills" / "clone" / "SKILL.md"
 SKILL_TEXT: str = CLONE_SKILL.read_text(encoding="utf-8")
+SPEC: Path = REPO_ROOT / "docs" / "spec.md"
+SPEC_TEXT: str = SPEC.read_text(encoding="utf-8")
 
 # The deterministic helpers the clone flow must drive rather than compute by hand
 # (spec "The deterministic helper seam"). ``baseline_diff.py`` is deliberately
@@ -87,6 +89,16 @@ def _pos_after(pattern: str, start: int) -> int:
     match = re.search(pattern, SKILL_TEXT[start:], re.IGNORECASE)
     assert match is not None, f"clone SKILL.md is missing an anchor for /{pattern}/ after {start}"
     return start + match.start()
+
+
+def _spec_pos(pattern: str) -> int:
+    """First match position of a case-insensitive ``pattern`` in the specification's
+    clone bookends, failing loudly with the missing anchor when it is absent — the
+    ``docs/spec.md`` counterpart to ``_pos``."""
+
+    match = re.search(pattern, SPEC_TEXT, re.IGNORECASE)
+    assert match is not None, f"docs/spec.md is missing an anchor for /{pattern}/"
+    return match.start()
 
 
 def _referenced_paths() -> set[str]:
@@ -182,6 +194,36 @@ def test_yes_mode_is_unattended_and_prints_the_full_record() -> None:
 
     assert "--yes" in SKILL_TEXT
     assert re.search(r"record", SKILL_TEXT, re.IGNORECASE), "no decided-and-done record"
+
+
+def test_engine_pin_precedes_the_first_ddev_start() -> None:
+    """Issue #14: the clone bookends order scaffold, then the discovered database
+    engine/version pin in ``.ddev/config.yaml``, then the first ``ddev start`` — no
+    step may bring DDEV up before the pin lands. A smoke test once let `mkwp`
+    settle on DDEV's default MariaDB (11.8) against a production 11.4, costing a
+    ``ddev delete -O`` plus reconfigure-and-restart cycle to undo after the fact."""
+
+    scaffold = _pos(r"mkwp <name>")
+    pin = _pos(r"ddev config --database=")
+    start = _pos(r"ddev start")
+    assert scaffold < pin < start, (
+        "clone SKILL.md must order the mkwp scaffold, then the `ddev config "
+        "--database=` engine pin, then the first `ddev start`"
+    )
+
+
+def test_spec_clone_bookends_order_scaffold_pin_then_first_start() -> None:
+    """Issue #14: the specification's clone bookends carry the same explicit
+    ordering as the SKILL, so the two documents cannot silently diverge on which
+    step brings DDEV up for the first time."""
+
+    scaffold = _spec_pos(r"scaffold with `mkwp`")
+    pin = _spec_pos(r"ddev config --database=")
+    start = _spec_pos(r"ddev start")
+    assert scaffold < pin < start, (
+        "docs/spec.md must order the mkwp scaffold, then the `ddev config "
+        "--database=` engine pin, then the first `ddev start`"
+    )
 
 
 def test_nothing_heavy_runs_before_the_health_check() -> None:
