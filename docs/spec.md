@@ -92,7 +92,7 @@ The sole channel to production is the **Novamira MCP** server connected to the l
 ### The deterministic helper seam
 
 - All computation that needs neither production nor DDEV lives in a single helper surface: Python standalone scripts (inline dependency metadata, run via `uv`, per the project coding standard) invoked as a CLI taking JSON in and emitting JSON (or a generated script) out.
-- The helper surface owns: the baseline diff, plan resolution over the layered defaults, the define/table/blob classifications, the thumbnail exclude-set computation, the project-name derivation, the generation of the production-side pack script, the dump sanity checks, saved-plan reading and writing, and the manpage echo.
+- The helper surface owns: the baseline diff, plan resolution over the layered defaults, the define/table/blob classifications, the thumbnail exclude-set computation, the project- and directory-name derivation, the generation of the production-side pack script, the dump sanity checks, saved-plan reading and writing, and the manpage echo.
 - The model orchestrates gates and MCP calls; it never computes a diff, a classification, an exclusion set, or a shell script by hand. This realises [ADR-0005](./adr/0005-decision-backbone-gates-and-layered-defaults.md)'s "the AI writes recommendations but never decides freely" as a code boundary, and it is the seam all automated tests exercise (see Testing Decisions).
 
 ### Subagent delegation
