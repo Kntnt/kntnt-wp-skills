@@ -33,6 +33,7 @@ from typing import Any
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "classify.py"
 DISCOVERY = Path(__file__).resolve().parent.parent / "scripts" / "discovery.py"
+BASELINE_DIFF = Path(__file__).resolve().parent.parent / "scripts" / "baseline_diff.py"
 
 
 def run_classify(raw: bytes) -> subprocess.CompletedProcess[bytes]:
@@ -289,9 +290,11 @@ def test_a_heavy_outlier_subdirectory_is_flagged() -> None:
     # Arrange & Act.
     flagged = classify_fixture("classify-full-site.json")["blobs"]["flagged"]
 
-    # Assert — the multi-gigabyte gallery stands out and is offered for exclusion.
+    # Assert — the multi-gigabyte gallery stands out and is offered for exclusion,
+    # anchored at the WordPress root so the exclusion actually bites in tar and the
+    # baseline diff (which both work in root-relative paths).
     paths = {entry["path"] for entry in flagged}
-    assert "galleries" in paths
+    assert "wp-content/uploads/galleries" in paths
 
 
 def test_ordinary_subdirectories_are_not_flagged() -> None:
@@ -300,8 +303,8 @@ def test_ordinary_subdirectories_are_not_flagged() -> None:
 
     # Assert — the year directories are not heavy outliers.
     paths = {entry["path"] for entry in flagged}
-    assert "2024" not in paths
-    assert "2023" not in paths
+    assert "wp-content/uploads/2024" not in paths
+    assert "wp-content/uploads/2023" not in paths
 
 
 def test_the_blob_heuristic_is_deterministic() -> None:
@@ -337,12 +340,13 @@ def test_registered_derivatives_are_excluded() -> None:
     exclude = set(classify_through_discovery("representative-site.json")["thumbnails"]["exclude"])
 
     # Assert — exactly the DB-known generated sizes, resolved beside their
-    # original.
+    # original and anchored at the WordPress root (the exclusion set's one anchor,
+    # shared with the pack tar and the baseline manifest).
     assert exclude == {
-        "2024/05/banner-150x150.jpg",
-        "2024/05/banner-300x200.jpg",
-        "2024/05/banner-1024x683.jpg",
-        "2024/05/banner-1920x1080-150x150.jpg",
+        "wp-content/uploads/2024/05/banner-150x150.jpg",
+        "wp-content/uploads/2024/05/banner-300x200.jpg",
+        "wp-content/uploads/2024/05/banner-1024x683.jpg",
+        "wp-content/uploads/2024/05/banner-1920x1080-150x150.jpg",
     }
 
 
@@ -352,8 +356,8 @@ def test_registered_originals_are_kept() -> None:
 
     # Assert — an original named like a size (banner-1920x1080.jpg) is kept,
     # because it is _wp_attached_file, not a derivative (ADR-0011).
-    assert "2024/05/banner.jpg" not in exclude
-    assert "2024/05/banner-1920x1080.jpg" not in exclude
+    assert "wp-content/uploads/2024/05/banner.jpg" not in exclude
+    assert "wp-content/uploads/2024/05/banner-1920x1080.jpg" not in exclude
 
 
 def test_a_same_named_original_is_kept_while_its_derivatives_are_excluded() -> None:
@@ -362,12 +366,13 @@ def test_a_same_named_original_is_kept_while_its_derivatives_are_excluded() -> N
     exclude = set(classify_fixture("classify-thumbnail-collision.json")["thumbnails"]["exclude"])
 
     # Assert — the original wins the collision and is kept, while every genuine
-    # derivative (including the colliding one's own children) is excluded.
-    assert "2020/01/photo-300x200.jpg" not in exclude
-    assert "2020/01/photo.jpg" not in exclude
+    # derivative (including the colliding one's own children) is excluded, each
+    # anchored at the WordPress root.
+    assert "wp-content/uploads/2020/01/photo-300x200.jpg" not in exclude
+    assert "wp-content/uploads/2020/01/photo.jpg" not in exclude
     assert exclude == {
-        "2020/01/photo-1024x768.jpg",
-        "2020/01/photo-300x200-150x150.jpg",
+        "wp-content/uploads/2020/01/photo-1024x768.jpg",
+        "wp-content/uploads/2020/01/photo-300x200-150x150.jpg",
     }
 
 
@@ -381,10 +386,149 @@ def test_a_side_loaded_thumbnail_named_file_is_never_excluded() -> None:
     # Act.
     exclude = set(classify_document(document)["thumbnails"]["exclude"])
 
-    # Assert — only the registered derivative is excluded; the look-alike
-    # side-load is carried whole because it cannot be regenerated.
-    assert exclude == {"2021/03/holiday-150x150.jpg"}
-    assert "2021/03/random-150x150.jpg" not in exclude
+    # Assert — only the registered derivative is excluded (root-anchored); the
+    # look-alike side-load is carried whole because it cannot be regenerated.
+    assert exclude == {"wp-content/uploads/2021/03/holiday-150x150.jpg"}
+    assert "wp-content/uploads/2021/03/random-150x150.jpg" not in exclude
+
+
+# --- Exclusion-path anchoring ------------------------------------------------
+#
+# The exclusion set (flagged blobs and the thumbnail exclude-set) has exactly one
+# consumer-facing anchor: WordPress-root-relative paths (e.g.
+# "wp-content/uploads/gallery"). The pack script's `tar --exclude-from --anchored
+# -C "$SOURCE_ROOT"` and the baseline manifest's root-relative entries both silently
+# no-match anything spelled otherwise, so a producer that emitted uploads-relative
+# or bare-basename paths would defeat the blob gate and corrupt the deletion diff
+# with no test going red. These tests pin that anchor at the producer.
+
+
+def test_the_exclusion_anchor_is_derived_from_a_custom_content_directory() -> None:
+    # Arrange — a non-standard layout where the uploads directory sits under a
+    # custom content directory, not the default wp-content/uploads. The anchor must
+    # come from the document's own root_path and uploads_base, never a hard-coded
+    # assumption, or the exclusion is mis-anchored on every non-default site.
+    document = {
+        "site": {
+            "home_url": "https://example.test",
+            "root_path": "/srv/app/",
+            "uploads_base": "/srv/app/content/uploads",
+        },
+        "uploads": {"subdirectories": [
+            {"path": "2024", "size_bytes": 104857600},
+            {"path": "galleries", "size_bytes": 6442450944},
+        ]},
+        "attachments": [
+            {"id": 1, "file": "2024/05/banner.jpg", "sizes": ["banner-150x150.jpg"]},
+        ],
+    }
+
+    # Act.
+    classifications = classify_document(document)
+
+    # Assert — both producers anchor at "content/uploads" (uploads relative to the
+    # site root), the exact prefix the derivation yields from the two paths.
+    blob_paths = {entry["path"] for entry in classifications["blobs"]["flagged"]}
+    assert blob_paths == {"content/uploads/galleries"}
+    assert classifications["thumbnails"]["exclude"] == [
+        "content/uploads/2024/05/banner-150x150.jpg"
+    ]
+
+
+def test_the_exclusion_anchor_defaults_to_the_standard_layout_when_paths_absent() -> None:
+    # Arrange — a minimal or hand-authored document that omits the absolute
+    # root_path and uploads_base. The classifier falls back to the standard
+    # single-site location wp-content/uploads (the same layout manifest.php assumes),
+    # so the anchor is still correct for the overwhelmingly common case.
+    document = {
+        "uploads": {"subdirectories": [
+            {"path": "2024", "size_bytes": 104857600},
+            {"path": "galleries", "size_bytes": 6442450944},
+        ]},
+        "attachments": [
+            {"id": 1, "file": "2024/05/banner.jpg", "sizes": ["banner-150x150.jpg"]},
+        ],
+    }
+
+    # Act.
+    classifications = classify_document(document)
+
+    # Assert.
+    blob_paths = {entry["path"] for entry in classifications["blobs"]["flagged"]}
+    assert blob_paths == {"wp-content/uploads/galleries"}
+    assert classifications["thumbnails"]["exclude"] == [
+        "wp-content/uploads/2024/05/banner-150x150.jpg"
+    ]
+
+
+def test_an_uploads_directory_outside_the_root_fails_loudly() -> None:
+    # Arrange — an uploads_base that is not under root_path. The anchored-exclude
+    # scheme cannot express such a layout as a root-relative prefix, so silently
+    # emitting a wrong anchor is exactly the failure mode to avoid; it must fail
+    # loudly with a `classify:` diagnostic instead.
+    document = {
+        "site": {
+            "home_url": "https://example.test",
+            "root_path": "/var/www/html/",
+            "uploads_base": "/mnt/media/uploads",
+        },
+        "attachments": [
+            {"id": 1, "file": "2024/05/banner.jpg", "sizes": ["banner-150x150.jpg"]},
+        ],
+    }
+
+    # Act.
+    result = run_classify(json.dumps(document).encode())
+
+    # Assert.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"classify:")
+
+
+def test_the_exclusion_set_actually_bites_in_the_baseline_diff() -> None:
+    # Arrange — the seam the integration review flagged: classify PRODUCES the
+    # exclusion set and baseline_diff CONSUMES it as the run's scope. Wire the real
+    # producer output straight into the real consumer, so a future anchor drift on
+    # either side reddens here rather than silently defeating the deletion rule.
+    document = {
+        "uploads": {"subdirectories": [
+            {"path": "2024", "size_bytes": 104857600},
+            {"path": "galleries", "size_bytes": 6442450944},
+        ]},
+        "attachments": [
+            {"id": 1, "file": "2024/05/banner.jpg", "sizes": ["banner-150x150.jpg"]},
+        ],
+    }
+    classifications = classify_document(document)
+    exclusions = [entry["path"] for entry in classifications["blobs"]["flagged"]]
+    exclusions += classifications["thumbnails"]["exclude"]
+
+    # Act — a baseline holding a file inside the excluded gallery, an excluded
+    # thumbnail, and a plain in-scope file, all now gone from production; the diff
+    # runs under the exclusion set as this run's scope.
+    diff_input = {
+        "baseline": {"scope": {"exclusions": []}, "entries": [
+            {"path": "wp-content/uploads/galleries/huge.jpg", "size": 1, "mtime": 1.0},
+            {"path": "wp-content/uploads/2024/05/banner-150x150.jpg", "size": 1, "mtime": 1.0},
+            {"path": "wp-content/uploads/2024/05/banner.jpg", "size": 1, "mtime": 1.0},
+        ]},
+        "current": {"scope": {"exclusions": exclusions}, "entries": []},
+    }
+    diff = subprocess.run(
+        [sys.executable, str(BASELINE_DIFF)],
+        input=json.dumps(diff_input).encode(),
+        capture_output=True,
+    )
+    assert diff.returncode == 0, diff.stderr.decode()
+    deleted = set(json.loads(diff.stdout)["production_deleted"])
+
+    # Assert — the classifier's anchor matches the manifest's: the gallery file and
+    # the excluded thumbnail are out of scope (protected from the deletion diff),
+    # while the plain original is in scope and reported deleted.
+    assert "wp-content/uploads/galleries/huge.jpg" not in deleted
+    assert "wp-content/uploads/2024/05/banner-150x150.jpg" not in deleted
+    assert "wp-content/uploads/2024/05/banner.jpg" in deleted
 
 
 # --- Project-name derivation -------------------------------------------------
@@ -425,8 +569,13 @@ def test_canonical_document_in_yields_every_classification() -> None:
     # Assert — one call over the canonical document produces every recommendation
     # input the engine needs.
     assert classifications["project_name"]["name"] == "example"
-    assert {entry["path"] for entry in classifications["blobs"]["flagged"]} == {"galleries"}
-    assert "2024/05/banner-150x150.jpg" in classifications["thumbnails"]["exclude"]
+    assert {entry["path"] for entry in classifications["blobs"]["flagged"]} == {
+        "wp-content/uploads/galleries"
+    }
+    assert (
+        "wp-content/uploads/2024/05/banner-150x150.jpg"
+        in classifications["thumbnails"]["exclude"]
+    )
     assert "wp_posts" in classifications["tables"]["full"]
     assert classifications["tables"]["empty"] == []
     assert "WP_MEMORY_LIMIT" in portable_names(classifications)
