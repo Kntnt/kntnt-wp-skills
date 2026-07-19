@@ -26,6 +26,10 @@ from as one JSON object on stdout. It computes:
 - ``thumbnails`` — the exclude-set of DB-known generated sizes, with a registered
   original always kept even when its name collides with a derivative and
   side-loaded files never excluded (ADR-0011).
+- ``integrations`` — per-submission form-to-service integrations (a form
+  plugin's active service add-on) detected by name pattern against the active
+  plugins list; each fires on a single form submit and so is invisible to the
+  mass-send valve, which only watches for a poised bulk campaign (ADR-0009).
 - ``project_name`` — the name-derivation recommendation: the local DDEV project
   name (a sanitised, hostname-safe slug) and the clone's directory name (the
   production host verbatim), both derived from the production URL.
@@ -114,6 +118,29 @@ USER_SUBMISSION_TABLE_PATTERNS: tuple[str, ...] = (
     "gf_entry_notes",
     "gf_draft_submissions",
 )
+
+# Per-submission form-to-service integrations (issue #20): a form plugin's
+# active service add-on writes each submission straight to a live third-party
+# service, invisible to the mass-send valve (ADR-0009) because it fires on a
+# single submit, never a queued campaign. Detection is name-pattern-based
+# against the active-plugins list already collected: an add-on's directory
+# slug characteristically starts with its host form plugin's slug and ends
+# with the connected service's slug — WS Form's own add-on distribution
+# scheme, and the shape Gravity Forms' official add-ons share without the
+# hyphen. This is the initial pattern set the issue names; extending either
+# registry covers a newly observed pairing without touching the matching
+# logic.
+FORM_PLUGIN_PREFIXES: dict[str, str] = {
+    "ws-form": "WS Form",
+    "wpforms": "WPForms",
+    "gravityforms": "Gravity Forms",
+    "fluentform": "Fluent Forms",
+}
+SERVICE_CONNECTOR_SUFFIXES: dict[str, str] = {
+    "mailchimp": "Mailchimp",
+    "hubspot": "HubSpot",
+    "zapier": "Zapier",
+}
 
 # A subdirectory is a heavy blob only when it clears an absolute floor *and*
 # stands out from its peers — both together, so a uniformly large library is not
@@ -453,6 +480,55 @@ def _extract_host(home_url: str) -> str:
     return without_scheme.split("/", 1)[0].rsplit("@", 1)[-1].split(":", 1)[0]
 
 
+def detect_form_to_service_integrations(active_plugins: list[Any]) -> list[dict[str, str]]:
+    """Detect per-submission form-to-service integrations from the active-plugins
+    list.
+
+    A finding fires when one active plugin's directory slug both starts with a
+    recognised form-plugin prefix and ends with a recognised service-connector
+    suffix — the shape a form plugin's own service add-on takes (WS Form's own
+    add-on distribution scheme; Gravity Forms' official add-ons the same way
+    without the hyphen). The bare host slug itself never matches, since a host
+    plugin's own presence carries no service and is not a hazard on its own.
+
+    Presence alone is the signal, mirroring ``detect_multilingual`` in
+    discovery.py: an add-on plugin cannot function without its host, and it is
+    the mere ability to fire a submission at the live service — not any
+    particular form's configuration, invisible to a plugin scan — that makes
+    this a risk. Each finding carries the matched plugin entry, the form and
+    service labels, and the ready-composed consequence sentence the
+    risk-warning step lists verbatim, so classification — not the runtime
+    skill — decides the wording (ADR-0005). A non-string entry earns the
+    branded ``classify:`` fail-loud diagnostic rather than an uncaught
+    traceback, since the raw discovery seam passes these list elements through
+    without validating each one.
+    """
+
+    findings: list[dict[str, str]] = []
+    for index, plugin in enumerate(active_plugins):
+        if not isinstance(plugin, str):
+            raise ClassifyError(
+                f"plugins.active[{index}]: expected str, got {type(plugin).__name__}"
+            )
+        slug = plugin.split("/", 1)[0]
+        for prefix, form in FORM_PLUGIN_PREFIXES.items():
+            if slug == prefix or not slug.startswith(prefix):
+                continue
+            for suffix, service in SERVICE_CONNECTOR_SUFFIXES.items():
+                if slug.endswith(suffix):
+                    findings.append({
+                        "plugin": plugin,
+                        "form": form,
+                        "service": service,
+                        "warning": (
+                            f"submitting form {form} locally writes to live "
+                            f"service {service}"
+                        ),
+                    })
+
+    return findings
+
+
 def derive_project_name(home_url: str) -> str:
     """Derive the local DDEV project name from the production URL: strip the
     scheme and a leading ``www.``, take the main label, and sanitise to the
@@ -539,6 +615,7 @@ def classify(document: Any) -> dict[str, Any]:
     site = _object(document.get("site", {}), "site")
     database = _object(document.get("database", {}), "database")
     uploads = _object(document.get("uploads", {}), "uploads")
+    plugins = _object(document.get("plugins", {}), "plugins")
 
     # Anchor the exclusion set at the WordPress root once, so the flagged blobs and
     # the thumbnail exclude-set share the one spelling their consumers match against.
@@ -556,6 +633,11 @@ def classify(document: Any) -> dict[str, Any]:
             "exclude": thumbnail_exclude_set(
                 uploads_prefix, _list(document, "attachments", "input")
             )
+        },
+        "integrations": {
+            "form_to_service": detect_form_to_service_integrations(
+                _list(plugins, "active", "plugins")
+            ),
         },
         "project_name": build_project_name(site.get("home_url", "")),
     }
