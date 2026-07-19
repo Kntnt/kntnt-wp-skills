@@ -74,6 +74,17 @@ WORKING_DIR_ABORT_PATTERN: re.Pattern[str] = re.compile(
     re.IGNORECASE,
 )
 
+# The docroot-only read channel named as the retrieval mechanism — whether by
+# its ability name (`read-file`) or by a paraphrase of it ("the authenticated
+# file-read ability"). Both name the same docroot-only ability the execute-php
+# prescription supersedes for outside-docroot IO, so a negative assertion must
+# catch either spelling, not just the backticked one.
+READ_FILE_CHANNEL_PATTERN: re.Pattern[str] = re.compile(
+    r"(?:over|through)\s+(?:the\s+\S+\s+)*"
+    r"(?:`read-file`|(?:authenticated\s+)?file-read ability)",
+    re.IGNORECASE,
+)
+
 
 def _text(path: Path) -> str:
     """Read a documentation file as UTF-8 text."""
@@ -183,8 +194,8 @@ def test_skill_download_step_fetches_pass_key_over_execute_php(skill: str) -> No
     # A clause explaining *why* read-file cannot be used is fine; naming it as
     # the channel actually taken — "over" immediately followed by `read-file`
     # — is the regression the smoke tests hit.
-    assert not re.search(r"over\s+(?:the\s+\S+\s+)?`read-file`", sentence), (
-        f"{skill}/SKILL.md still routes the pass.key fetch over read-file: {sentence!r}"
+    assert not READ_FILE_CHANNEL_PATTERN.search(sentence), (
+        f"{skill}/SKILL.md still routes the pass.key fetch over the docroot-only read channel: {sentence!r}"
     )
 
 
@@ -202,6 +213,24 @@ def test_spec_states_docroot_only_limit_and_execute_php_prescription() -> None:
     assert "file_put_contents" in text, "spec.md never mentions file_put_contents"
     assert PASS_KEY_PROHIBITION_PATTERN.search(text), (
         "spec.md does not forbid copying pass.key into the docroot"
+    )
+
+
+def test_spec_passphrase_fetch_over_execute_php() -> None:
+    """AC: the spec's pack-on-production section (~line 181) must describe the
+    passphrase fetch-back over `execute-php`, matching spec.md:104 and both
+    SKILL.md files/implementation-notes.md — never over the docroot-only
+    read channel, whether named `read-file` or paraphrased as "the
+    authenticated file-read ability"."""
+
+    text = _text(SPEC)
+    sentence = _sentence_containing(text, "fetched locally")
+    assert sentence, "spec.md dropped the passphrase fetched-locally sentence"
+    assert "execute-php" in sentence, (
+        f"spec.md's passphrase fetch step does not name execute-php: {sentence!r}"
+    )
+    assert not READ_FILE_CHANNEL_PATTERN.search(sentence), (
+        f"spec.md still routes the passphrase fetch over the docroot-only read channel: {sentence!r}"
     )
 
 
@@ -263,6 +292,6 @@ def test_implementation_notes_download_step_fetches_pass_key_over_execute_php() 
     assert "execute-php" in sentence, (
         f"implementation-notes.md's pass.key fetch step does not name execute-php: {sentence!r}"
     )
-    assert not re.search(r"over\s+(?:the\s+\S+\s+)?`read-file`", sentence), (
-        f"implementation-notes.md still routes the pass.key fetch over read-file: {sentence!r}"
+    assert not READ_FILE_CHANNEL_PATTERN.search(sentence), (
+        f"implementation-notes.md still routes the pass.key fetch over the docroot-only read channel: {sentence!r}"
     )
