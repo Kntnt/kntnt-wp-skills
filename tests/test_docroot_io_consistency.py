@@ -43,6 +43,7 @@ SKILL_FILES: dict[str, Path] = {
 }
 SPEC: Path = REPO_ROOT / "docs" / "spec.md"
 ADR_0008: Path = REPO_ROOT / "docs" / "adr" / "0008-encrypted-artifacts-outside-docroot.md"
+IMPLEMENTATION_NOTES: Path = REPO_ROOT / "docs" / "implementation-notes.md"
 
 # The docroot-only statement: read-file and write-file named together with
 # "docroot-only" close enough to bind the claim to those two abilities, not to
@@ -172,4 +173,23 @@ def test_adr_0008_carries_a_note_on_execute_php_retrieval_and_the_prohibition() 
     assert "execute-php" in text, "ADR-0008 does not record execute-php as the retrieval mechanism"
     assert PASS_KEY_PROHIBITION_PATTERN.search(text), (
         "ADR-0008 does not record the prohibition on copying pass.key into the docroot"
+    )
+
+
+def test_implementation_notes_download_step_fetches_pass_key_over_execute_php() -> None:
+    """`docs/implementation-notes.md` is read alongside the SKILL.md files as the
+    invocation-level literals reference (per both skills' own instructions), so
+    its download-step literal must name `execute-php` too — leaving it stale
+    would contradict the SKILL.md text a reader is told to read right next to
+    it. The historic security-review reconciliation appendix is a separate,
+    explicitly-labelled record and is not held to this."""
+
+    text = _text(IMPLEMENTATION_NOTES)
+    sentence = _sentence_containing(text, "Fetch `pass.key`")
+    assert sentence, "implementation-notes.md dropped the pass.key fetch literal"
+    assert "execute-php" in sentence, (
+        f"implementation-notes.md's pass.key fetch step does not name execute-php: {sentence!r}"
+    )
+    assert not re.search(r"over\s+(?:the\s+\S+\s+)?`read-file`", sentence), (
+        f"implementation-notes.md still routes the pass.key fetch over read-file: {sentence!r}"
     )
