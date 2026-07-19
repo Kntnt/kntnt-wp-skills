@@ -81,3 +81,31 @@ def test_template_records_path_size_and_mtime_per_entry() -> None:
     assert "'path'" in source
     assert "'size'" in source
     assert "'mtime'" in source
+
+
+def test_template_walk_tolerates_unreadable_subtrees() -> None:
+    """Unfiltered, the walk can no longer be pruned around a hazard (a
+    root-owned cache dir, a permission-restricted upload subtree) — the
+    operator's old escape hatch (exclude the unreadable dir) is gone now that
+    exclusions never reach production. ``RecursiveDirectoryIterator`` throws
+    ``UnexpectedValueException`` from ``getChildren()`` when a subdirectory
+    can't be opened; without ``CATCH_GET_CHILD`` that exception propagates out
+    of the whole walk and the payload dies. ``LEAVES_ONLY`` is passed
+    explicitly (it is the default) because the constructor's flags parameter
+    can only be set positionally after the mode."""
+
+    source = _TEMPLATE.read_text(encoding="utf-8")
+
+    assert "RecursiveIteratorIterator::LEAVES_ONLY" in source
+    assert "RecursiveIteratorIterator::CATCH_GET_CHILD" in source
+
+
+def test_template_json_encode_substitutes_invalid_utf8() -> None:
+    """A single invalid-UTF-8 filename anywhere in the now-unprunable tree
+    must not make ``json_encode()`` return ``false`` and the whole payload
+    echo nothing — invalid bytes are substituted instead of aborting the
+    encode."""
+
+    source = _TEMPLATE.read_text(encoding="utf-8")
+
+    assert "JSON_INVALID_UTF8_SUBSTITUTE" in source

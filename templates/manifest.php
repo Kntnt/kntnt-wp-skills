@@ -28,9 +28,19 @@ $root        = rtrim( ABSPATH, '/' ) . '/';
 $content_dir = WP_CONTENT_DIR;
 
 // Walk the whole content tree — no pruning, since no exclusion payload travels
-// to production; the resolved scope is applied locally afterwards.
+// to production; the resolved scope is applied locally afterwards. Unfiltered,
+// the walk can no longer be pruned around a hazard, so CATCH_GET_CHILD is the
+// operator's replacement escape hatch: a permission-denied subdirectory (a
+// root-owned cache dir, a restricted upload subtree) throws
+// UnexpectedValueException from getChildren(), and without this flag that
+// exception would propagate out of the whole walk and kill the payload rather
+// than just skipping the one unreadable subtree.
 $directory = new RecursiveDirectoryIterator( $content_dir, FilesystemIterator::SKIP_DOTS );
-$walker    = new RecursiveIteratorIterator( $directory );
+$walker    = new RecursiveIteratorIterator(
+	$directory,
+	RecursiveIteratorIterator::LEAVES_ONLY,
+	RecursiveIteratorIterator::CATCH_GET_CHILD
+);
 
 // Record path, size, and mtime for every file under the content tree — the
 // size+mtime quick-check pair the diff compares, once the caller has filtered
@@ -48,4 +58,7 @@ foreach ( $walker as $file ) {
 	];
 }
 
-echo json_encode( [ 'entries' => $entries ] );
+// Substitute rather than abort on an invalid-UTF-8 filename anywhere in the
+// now-unprunable tree — without this flag a single such name makes
+// json_encode() return false and the whole payload echo nothing.
+echo json_encode( [ 'entries' => $entries ], JSON_INVALID_UTF8_SUBSTITUTE );

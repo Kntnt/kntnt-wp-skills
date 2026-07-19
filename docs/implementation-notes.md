@@ -37,6 +37,7 @@ This file preserves the invocation-level literals from the superseded design-and
 - Only the locally-filtered result — never the raw walk — is combined with the stored baseline for `scripts/baseline_diff.py`, and only the locally-filtered result is persisted as the next run's baseline.
 - The exclusion set never travels to production as part of a manifest request: a real site's set can run into the thousands of entries (one smoke test measured 6,135 / ~436KB), which is wasteful to embed in a production payload and bloats agent context. Requesting the unfiltered tree keeps the *request* small; the harness auto-saves the (potentially large) *response* to file.
 - Scope semantics are unchanged from the former production-side filter — an exact match or a path-segment-aware descendant of an exclusion prefix.
+- Unfiltered, the walk can no longer be pruned around a hazard, so `templates/manifest.php` builds its `RecursiveIteratorIterator` with `RecursiveIteratorIterator::CATCH_GET_CHILD` — a permission-denied subdirectory (a root-owned cache dir, a restricted upload subtree) would otherwise throw `UnexpectedValueException` and abort the whole walk with no exclusion-based recovery; the flag skips just that subtree instead. `json_encode()` on the final payload passes `JSON_INVALID_UTF8_SUBSTITUTE`, so a single invalid-UTF-8 filename anywhere in the tree substitutes rather than making the encode return `false` and the payload echo nothing.
 
 ## Pack (production side)
 
