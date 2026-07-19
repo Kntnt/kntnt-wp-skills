@@ -11,8 +11,8 @@ This file preserves the invocation-level literals from the superseded design-and
 
 - Liveness probe: one trivial `execute-php` returning `home_url()`, `ABSPATH`, `phpversion()`, and `$_SERVER['SERVER_SOFTWARE']`.
 - Exec probe (independent of `run-wp-cli`): check `function_exists('exec')`, inspect `disable_functions`, and run a live `exec('printf ok')` round-trip.
+- Stranded-workspace sweep (runs before the preflight below): look for leftover `kntnt-wp-skills-*` directories in both the outside-docroot temp base and the docroot download base, and remove them. Never concurrent with an in-flight preflight — a batched pair of calls must not let the sweep delete the preflight's own probe directory.
 - Download preflight: write a tiny **extension-less** test file into a throwaway docroot dir, fetch it with `curl -fsS` over HTTPS from the local side, then delete it.
-- Stranded-workspace sweep: look for leftover `kntnt-wp-skills-*` directories in both the outside-docroot temp base and the docroot download base, and remove them.
 
 ## Discovery
 

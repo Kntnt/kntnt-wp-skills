@@ -108,8 +108,8 @@ The sole channel to production is the **Novamira MCP** server connected to the l
 2. Prove the channel is live — not merely connected — with a trivial remote call returning the home URL, the WordPress root path, the PHP version, and the server software.
 3. Confirm the server targets production, not the local DDEV site (the verify-targets-prod safety rail).
 4. Probe process spawning with a live round-trip, and inspect the disabled-functions configuration; abort with a precise message if blocked (the native background-job fallback is deliberately deferred — [ADR-0001](./adr/0001-novamira-mcp-sole-control-channel.md)).
-5. Preflight the download path: write a tiny extension-less test file into a throwaway docroot directory, fetch it over HTTPS from the local side, delete it. This exercises permissions, extension rules, basic auth, WAF/CDN behaviour — before the heavy pack.
-6. Sweep production's temp and download bases for stranded workspaces from an aborted earlier run and remove them (belt-and-braces with the self-destruct timer).
+5. Sweep production's temp and download bases for stranded workspaces from an aborted earlier run and remove them (belt-and-braces with the self-destruct timer). Runs before the preflight (step 6) so a batched pair of calls can never delete the preflight's own probe directory; this sweep must never run concurrently with an in-flight preflight.
+6. Preflight the download path: write a tiny extension-less test file into a throwaway docroot directory, fetch it over HTTPS from the local side, delete it. This exercises permissions, extension rules, basic auth, WAF/CDN behaviour — before the heavy pack.
 7. On any failure, abort with a precise remediation message.
 
 ### Discovery (production, read-only)
