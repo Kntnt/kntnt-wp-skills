@@ -41,7 +41,7 @@ This file preserves the invocation-level literals from the superseded design-and
 
 ## Pack (production side)
 
-- Working dir preference order: `sys_get_temp_dir()/kntnt-wp-skills-<rand>` → a writable dir above `ABSPATH` → (last resort) a docroot dir, mitigated by immediate cleanup and the self-destruct timer.
+- Working dir preference order: `sys_get_temp_dir()/kntnt-wp-skills-<rand>` → a writable dir above `ABSPATH`. If neither is writable, abort rather than fall back to a working dir inside the docroot — `pass.key` is written into that same working dir and must never enter the docroot, not even transiently.
 - Working-dir contents: `pass.key` (mode `0600`), `.my.cnf` (mode `0600`, written from the DB constants so credentials never appear on a command line; consumed via `--defaults-extra-file`), `pack.sh`, `pack.log`.
 - Launch: `nohup bash pack.sh >> pack.log 2>&1 & echo $!` — the echoed PID is what the poll's liveness check uses.
 - Passphrase: PHP `random_bytes(32)` as hex into `pass.key`; passed to openssl as `-pass file:pass.key`, never as an argument.

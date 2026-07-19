@@ -57,6 +57,23 @@ PASS_KEY_PROHIBITION_PATTERN: re.Pattern[str] = re.compile(
     r"pass\.key[^.\n]*never[^.\n]*(?:copied|copy)[^.\n]*docroot", re.IGNORECASE
 )
 
+# The superseded last-resort fallback: a docroot working dir "mitigated by
+# immediate cleanup" — the exact prose the abort rule replaces. Its survival
+# anywhere in the docs directly contradicts the pass.key-never-in-docroot
+# prohibition, since pass.key is written into that same working dir.
+LAST_RESORT_FALLBACK_PATTERN: re.Pattern[str] = re.compile(
+    r"last resort[^.\n]*docroot", re.IGNORECASE
+)
+
+# The abort rule that replaces the fallback: the working dir preference order
+# ends in an abort, not a docroot fallback, when neither the system temp dir
+# nor a directory above ABSPATH is writable.
+WORKING_DIR_ABORT_PATTERN: re.Pattern[str] = re.compile(
+    r"abort[^.\n]*(?:working dir|fall back)[^.\n]*docroot"
+    r"|docroot[^.\n]*(?:working dir|fall back)[^.\n]*abort",
+    re.IGNORECASE,
+)
+
 
 def _text(path: Path) -> str:
     """Read a documentation file as UTF-8 text."""
@@ -185,6 +202,37 @@ def test_spec_states_docroot_only_limit_and_execute_php_prescription() -> None:
     assert "file_put_contents" in text, "spec.md never mentions file_put_contents"
     assert PASS_KEY_PROHIBITION_PATTERN.search(text), (
         "spec.md does not forbid copying pass.key into the docroot"
+    )
+
+
+def test_spec_working_dir_aborts_rather_than_falls_back_to_docroot() -> None:
+    """AC: `docs/spec.md`'s pack section must state the abort rule the branch's
+    SKILL.md files and ADR-0008 amendment establish — no writable dir above
+    ABSPATH means abort, never a last-resort docroot working dir — because
+    pass.key is written into that same working dir and must never enter the
+    docroot, not even transiently."""
+
+    text = _text(SPEC)
+    assert not LAST_RESORT_FALLBACK_PATTERN.search(text), (
+        "spec.md still describes the superseded last-resort docroot fallback"
+    )
+    assert WORKING_DIR_ABORT_PATTERN.search(text), (
+        "spec.md does not state that the working dir aborts rather than falls back to the docroot"
+    )
+
+
+def test_implementation_notes_working_dir_aborts_rather_than_falls_back_to_docroot() -> None:
+    """AC: `docs/implementation-notes.md`'s working-dir preference order must
+    match the abort rule, not the superseded last-resort docroot fallback —
+    the SKILL.md files it sits alongside already state the abort."""
+
+    text = _text(IMPLEMENTATION_NOTES)
+    assert not LAST_RESORT_FALLBACK_PATTERN.search(text), (
+        "implementation-notes.md still describes the superseded last-resort docroot fallback"
+    )
+    assert WORKING_DIR_ABORT_PATTERN.search(text), (
+        "implementation-notes.md does not state that the working dir aborts rather than "
+        "falls back to the docroot"
     )
 
 
