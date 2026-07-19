@@ -404,6 +404,7 @@ def build_document(raw: Any) -> dict[str, Any]:
             "total_size_bytes": _optional(
                 database, "total_size_bytes", int, 0, "database"
             ),
+            "tables": _string_list(database, "tables", "database"),
             "top_tables": _optional(database, "top_tables", list, [], "database"),
             "content_tables_innodb": _optional(
                 database, "content_tables_innodb", bool, False, "database"

@@ -28,8 +28,9 @@ is never blasted without a confirmation (ADR-0009).
 Two operations share the seam:
 
 - ``resolve`` (the default) turns the envelope into the resolved plan.
-- ``save`` turns an accepted resolved plan back into the saved plan — decisions
-  only, never the computed lists (the table split, the flagged blobs, the
+- ``save`` turns an accepted resolved plan back into the saved plan — the settled
+  decisions and the persisted per-site metadata (the source: MCP server and live
+  URL), never the computed lists (the table split, the flagged blobs, the
   thumbnail exclude-set, the ported defines' live values), so nothing in it goes
   stale as production evolves. Writing an accepted plan out and reading it back
   is an identity.
@@ -83,6 +84,14 @@ SAVED_KEYS: dict[str, str] = {
     "cron": "cron",
     "deletion_mirroring": "deletion_mirroring",
 }
+
+# Saved-plan keys the spec's persistent config records but that no gate resolves:
+# per-site metadata the runtime supplies from the operator's invocation, not a
+# decision layered over defaults. The saved plan carries them so the committed
+# file is the fully reproducible record the spec describes; carried forward across
+# re-saves so a skill that does not resupply one never strips it. Currently just
+# the source (MCP server and live URL) — docs/spec.md, Persistent config.
+PERSISTED_METADATA_KEYS: frozenset[str] = frozenset({"source"})
 
 # The mail modes that pin the decision at the saved layer; "risk_adaptive" is the
 # absence of a pin — it defers to the live mass-send valve every run.
@@ -447,29 +456,37 @@ def persisted_value(entry: dict[str, Any]) -> Any:
 
 
 def build_saved_plan(
-    resolved: dict[str, Any], prior: dict[str, Any] | None = None
+    resolved: dict[str, Any],
+    prior: dict[str, Any] | None = None,
+    source: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Reduce an accepted resolved plan to the saved plan — only the persistable
-    decisions, each under its saved-plan key, and never a computed list. Reading
-    the result back into :func:`resolve` reproduces the same decisions from the
-    saved layer, so the round-trip is an identity.
+    """Reduce an accepted resolved plan to the saved plan — the persistable
+    decisions each under its saved-plan key, plus the persisted per-site metadata,
+    and never a computed list. Reading the result back into :func:`resolve`
+    reproduces the same decisions from the saved layer, so the round-trip is an
+    identity.
 
     A key belonging to a decision this skill does not walk cannot appear in
     ``resolved`` — a pull never carries ``project_name``, so it cannot re-emit the
     clone-only ``target``. To keep the committed plan whole across skills, any
     known saved-plan key the ``prior`` committed plan already settled but this run
     does not produce is carried forward, so a pull re-save never silently strips
-    the DDEV ``target`` a preceding clone recorded (docs/spec.md: the saved plan
-    records the target DDEV project)."""
+    the DDEV ``target`` a preceding clone recorded, nor the ``source`` (MCP server
+    and live URL) the record needs (docs/spec.md, Persistent config).
+
+    ``source`` is the run's source record the runtime supplies from the operator's
+    invocation; when present it is written so the committed plan is a fully
+    reproducible record, otherwise a prior source stands, carried forward above."""
 
     decisions = resolved.get("decisions")
     if not isinstance(decisions, list):
         raise ResolveError("resolved plan must carry a 'decisions' list")
 
-    # Carry forward the known saved-plan keys the prior committed plan settled, so
-    # a decision this run does not walk survives the re-save; still only recognised
-    # keys, so no stale or computed value can ride in behind them.
-    known_keys = set(SAVED_KEYS.values())
+    # Carry forward the known saved-plan keys the prior committed plan settled — the
+    # decision keys and the persisted metadata alike — so a decision this run does
+    # not walk, or metadata it does not resupply, survives the re-save; still only
+    # recognised keys, so no stale or computed value can ride in behind them.
+    known_keys = set(SAVED_KEYS.values()) | PERSISTED_METADATA_KEYS
     saved: dict[str, Any] = {
         key: value for key, value in (prior or {}).items() if key in known_keys
     }
@@ -480,6 +497,12 @@ def build_saved_plan(
         key = SAVED_KEYS.get(entry["id"])
         if key is not None:
             saved[key] = persisted_value(entry)
+
+    # Record this run's source when the runtime supplied it, so the committed plan
+    # carries the MCP server and live URL the spec's persistent config requires.
+    if source is not None:
+        saved["source"] = source
+
     return saved
 
 
@@ -495,7 +518,12 @@ def run(envelope: Any) -> dict[str, Any]:
         prior = envelope.get("saved_plan")
         if prior is not None:
             prior = _object(prior, "saved_plan")
-        return build_saved_plan(_object(envelope.get("resolved", {}), "resolved"), prior)
+        source = envelope.get("source")
+        if source is not None:
+            source = _object(source, "source")
+        return build_saved_plan(
+            _object(envelope.get("resolved", {}), "resolved"), prior, source
+        )
     raise ResolveError(f"unknown operation {operation!r}")
 
 

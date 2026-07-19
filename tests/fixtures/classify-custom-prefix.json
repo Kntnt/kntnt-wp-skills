@@ -5,6 +5,7 @@
   },
   "database": {
     "table_prefix": "site7_",
+    "tables": ["site7_posts", "site7_relevanssi", "site7_options"],
     "top_tables": [
       {"name": "site7_posts", "size_bytes": 1000},
       {"name": "site7_relevanssi", "size_bytes": 5000},

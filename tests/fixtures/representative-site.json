@@ -27,6 +27,14 @@
       "version_comment": "MySQL Community Server - GPL",
       "default_collation": "utf8mb4_0900_ai_ci",
       "total_size_bytes": 268435456,
+      "tables": [
+        "wp_posts",
+        "wp_postmeta",
+        "wp_options",
+        "wp_users",
+        "wp_terms",
+        "wp_term_taxonomy"
+      ],
       "top_tables": [
         {"name": "wp_posts", "size_bytes": 104857600},
         {"name": "wp_postmeta", "size_bytes": 83886080},

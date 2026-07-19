@@ -27,8 +27,10 @@ $db_version         = (string) $wpdb->get_var( 'SELECT VERSION()' );
 $db_version_comment = (string) $wpdb->get_var( "SELECT @@version_comment" );
 $db_collation       = (string) $wpdb->get_var( "SELECT @@collation_database" );
 
-// Size the database: the grand total and the heaviest tables, for the report
-// and the operator's sense of the transfer.
+// Size the database and enumerate every table: the grand total, the complete
+// list of table names (the authoritative enumeration the classifier and the dump
+// carry, so every table exists locally — user story 16), and the heaviest tables
+// with their sizes (the capped report artifact for the operator's overview).
 $table_rows = $wpdb->get_results(
 	"SELECT table_name AS name, (data_length + index_length) AS size_bytes
 	 FROM information_schema.tables
@@ -37,10 +39,12 @@ $table_rows = $wpdb->get_results(
 	ARRAY_A
 );
 $total_size = 0;
+$all_tables = [];
 $top_tables = [];
 foreach ( $table_rows as $row ) {
-	$size        = (int) $row['size_bytes'];
+	$size = (int) $row['size_bytes'];
 	$total_size += $size;
+	$all_tables[] = $row['name'];
 	if ( count( $top_tables ) < 20 ) {
 		$top_tables[] = [ 'name' => $row['name'], 'size_bytes' => $size ];
 	}
@@ -170,6 +174,7 @@ echo json_encode( [
 		'version_comment'       => $db_version_comment,
 		'default_collation'     => $db_collation,
 		'total_size_bytes'      => $total_size,
+		'tables'                => $all_tables,
 		'top_tables'            => $top_tables,
 		'content_tables_innodb' => $content_tables_innodb,
 		// The password is deliberately omitted: it never enters model context

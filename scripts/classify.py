@@ -163,7 +163,8 @@ def _string_list(record: dict[str, Any], key: str, context: str) -> list[str]:
     non-string element. This is the per-element guard the thumbnail exclude-set
     needs so a stray non-string size never reaches the path join as a raw
     ``TypeError`` — the same branded fail-loud story :func:`_record` and
-    :func:`_field` give defines, tables, and attachments."""
+    :func:`_field` give defines and attachments, and the inline check in
+    :func:`classify_tables` gives the table enumeration."""
 
     values = _list(record, key, context)
     for index, value in enumerate(values):
@@ -233,18 +234,26 @@ def table_category(prefix: str, name: str) -> str | None:
 
 
 def classify_tables(prefix: str, tables: list[Any]) -> dict[str, list[Any]]:
-    """Split the tables into full-data and empty (schema-only) by category.
+    """Split every one of production's tables into full-data and empty
+    (schema-only) by category.
 
-    This is a content-only verdict: every table's structure is carried always, so
-    an empty-classified table is created locally and left with zero rows.
+    The input is the complete table enumeration (``database.tables``) — every
+    table name, never the heaviest-N report artifact (``top_tables``) — so the two
+    lists together cover every table: the "all tables, always" cornerstone the
+    dump relies on so the local copy never hits a missing table (user story 16).
+    This is a content-only verdict: every table's structure is carried regardless,
+    so an empty-classified table is created locally and left with zero rows. A
+    non-string entry earns the branded ``classify:`` fail-loud diagnostic rather
+    than an uncaught traceback from the pattern match, since the raw discovery seam
+    passes these list elements through without validating each one.
     """
 
     full: list[str] = []
     empty: list[dict[str, str]] = []
-    for index, table in enumerate(tables):
-        context = f"top_tables[{index}]"
-        record = _record(table, context)
-        name = _field(record, "name", str, context)
+    for index, name in enumerate(tables):
+        context = f"tables[{index}]"
+        if not isinstance(name, str):
+            raise ClassifyError(f"{context}: expected str, got {type(name).__name__}")
         category = table_category(prefix, name)
         if category is None:
             full.append(name)
@@ -381,7 +390,7 @@ def classify(document: Any) -> dict[str, Any]:
     return {
         "defines": classify_defines(_list(document, "defines", "input")),
         "tables": classify_tables(
-            database.get("table_prefix", ""), _list(database, "top_tables", "database")
+            database.get("table_prefix", ""), _list(database, "tables", "database")
         ),
         "blobs": flag_blobs(_list(uploads, "subdirectories", "uploads")),
         "thumbnails": {

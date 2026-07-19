@@ -5,6 +5,16 @@
   },
   "database": {
     "table_prefix": "wp_",
+    "tables": [
+      "wp_posts",
+      "wp_postmeta",
+      "wp_options",
+      "wp_users",
+      "wp_independent_analytics_pages",
+      "wp_rcb_consent",
+      "wp_fsmpt_email_logs",
+      "wp_relevanssi"
+    ],
     "top_tables": [
       {"name": "wp_posts", "size_bytes": 104857600},
       {"name": "wp_postmeta", "size_bytes": 83886080},
