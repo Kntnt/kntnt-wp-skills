@@ -36,7 +36,7 @@ The plugin assumes you have already put a few things in place. Each note says wh
 
 - DDEV up and running, which in turn needs Docker (or an equivalent such as OrbStack) and DDEV's own dependencies. These are DDEV concerns, not this plugin's.
 - The free Novamira plugin installed and enabled on the production site, with its MCP server connected in Claude Code. This is the only channel to production; the free AGPL build is sufficient, and Novamira Pro is not required.
-- `mkwp` available on your `PATH`, used by `clone` to scaffold the local site.
+- `mkwp` ≥ 1.5.0 on your `PATH`, used by `clone` to scaffold the local site. That version's `--dirname` flag is what lets the clone directory be named after the full production host while the DDEV project keeps a shorter, hostname-safe slug.
 
 ## Installation
 
@@ -53,7 +53,7 @@ Both skills are started by their slash command and run only when you invoke them
 
 ### Clone a new copy
 
-Run `/kntnt-wp-skills:clone` in an empty directory. The skill derives a local project name from the production URL, scaffolds the site with `mkwp` at production's exact core version, and brings down the database and media. After the import your local users are production's, so you log in with your production credentials.
+Run `/kntnt-wp-skills:clone` in an empty directory. The skill derives a local DDEV project name and a clone directory name (the full production host, e.g. `www.example.com`) from the production URL, scaffolds the site with `mkwp` at production's exact core version into that directory, and brings down the database and media. After the import your local users are production's, so you log in with your production credentials.
 
 ### Refresh an existing copy
 

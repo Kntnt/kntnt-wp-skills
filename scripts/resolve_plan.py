@@ -75,6 +75,7 @@ FLAG_PINS: dict[str, tuple[str, Any]] = {
 # plan stores decisions, never computed lists.
 SAVED_KEYS: dict[str, str] = {
     "project_name": "target",
+    "directory_name": "directory",
     "media_originals": "media",
     "heavy_blobs": "blobs",
     "wp_config_defines": "ported_defines",
@@ -151,6 +152,14 @@ def live_project_name(context: Context) -> Any:
     return context.classifications["project_name"]["name"]
 
 
+def live_directory_name(context: Context) -> Any:
+    """The clone's directory name the classifier derived from the production URL
+    — the sibling clone bookend, decided independently of :func:`live_project_name`
+    so the operator can correct either one without disturbing the other."""
+
+    return context.classifications["project_name"]["directory_name"]
+
+
 def live_table_content(context: Context) -> Any:
     """The full-data / empty (schema-only) table split the classifier computed.
     A live list, re-derived every run, so it is never persisted."""
@@ -205,6 +214,7 @@ def built_in_regeneration(context: Context) -> Any:
 # single source of truth for both the clone and the pull walks and their bookends.
 DECISIONS: tuple[Decision, ...] = (
     Decision("project_name", frozenset({CLONE}), const(None), live_project_name),
+    Decision("directory_name", frozenset({CLONE}), const(None), live_directory_name),
     Decision("db_table_structure", BOTH, const("all_tables_with_schema")),
     Decision("db_table_content", BOTH, const(None), live_table_content),
     Decision("table_prefix", BOTH, const(None), live_table_prefix),

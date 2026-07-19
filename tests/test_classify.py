@@ -626,6 +626,23 @@ def test_directory_name_falls_back_when_no_host_survives() -> None:
     assert project["directory_name"] == "site"
 
 
+def test_directory_name_falls_back_on_a_path_traversal_host() -> None:
+    # Arrange — URLs that reduce to the traversal-shaped hosts `.` and `..`: a
+    # verbatim directory name here would flow unattended into `mkwp
+    # --dirname=<...>` under `--yes` and resolve outside the operator's current
+    # directory.
+    cases = {
+        "https://../x": "..",
+        "https://./x": ".",
+    }
+
+    # Act & Assert — the path-safety floor rejects both, falling back to the
+    # same oddball floor `derive_project_name` uses.
+    for url, host in cases.items():
+        project = classify_document({"site": {"home_url": url}})["project_name"]
+        assert project["directory_name"] == "site", f"{url!r} reduced to {host!r}"
+
+
 # --- Whole-document contract -------------------------------------------------
 
 

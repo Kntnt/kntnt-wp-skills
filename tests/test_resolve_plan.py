@@ -54,6 +54,7 @@ PULL_DECISIONS = [
 ]
 CLONE_DECISIONS = [
     "project_name",
+    "directory_name",
     "db_table_structure",
     "db_table_content",
     "table_prefix",
@@ -416,15 +417,35 @@ def test_clone_walks_the_project_name_bookend_and_omits_pull_only_decisions() ->
     # Arrange & Act.
     plan = resolve(envelope(skill="clone"))
 
-    # Assert: clone opens with the project-name bookend and carries no preserved
-    # inactive set, object-cache derivation, or deletion mirroring.
+    # Assert: clone opens with the project-name and directory-name bookends and
+    # carries no preserved inactive set, object-cache derivation, or deletion
+    # mirroring.
     ids = [entry["id"] for entry in plan["decisions"]]
     assert ids == CLONE_DECISIONS
     assert decision(plan, "project_name")["value"] == "example"
+    assert decision(plan, "directory_name")["value"] == "www.example.com"
+
+
+def test_directory_name_is_a_decision_the_operator_corrects_independently_of_project_name() -> None:
+    # Arrange & Act: this run answers only the directory-name gate, declining
+    # the derived project name's sibling gate — the machinery the name-
+    # derivation gate relies on to let the operator correct either name on its
+    # own (issue #11).
+    plan = resolve(
+        envelope(skill="clone", answers={"directory_name": "my-custom-dir"})
+    )
+
+    # Assert: the directory-name answer lands as its own decision's resolved
+    # value, and the project-name decision it did not touch keeps its own live
+    # recommendation untouched.
+    assert decision(plan, "directory_name")["value"] == "my-custom-dir"
+    assert decision(plan, "directory_name")["source"] == "answer"
+    assert decision(plan, "project_name")["value"] == "example"
+    assert decision(plan, "project_name")["source"] == "live"
 
 
 def test_pull_carries_the_pull_only_decisions_and_no_project_name() -> None:
-    # Arrange & Act.
+    # Arrange & Act: directory_name is a clone-only bookend, like project_name.
     plan = resolve(envelope(skill="pull"))
 
     # Assert.
@@ -492,8 +513,9 @@ def test_an_accepted_plan_round_trips_to_an_identical_saved_plan() -> None:
 
 
 def test_a_clone_plan_round_trips_including_the_project_name_target() -> None:
-    # Arrange: a clone opens with the project-name bookend, which persists under
-    # the saved-plan 'target' key — a path the pull round-trip never exercises.
+    # Arrange: a clone opens with the project-name and directory-name bookends,
+    # which persist under the saved-plan 'target' and 'directory' keys — a path
+    # the pull round-trip never exercises.
     fresh = resolve(envelope(skill="clone"))
     written = save(fresh)
 
@@ -501,31 +523,39 @@ def test_a_clone_plan_round_trips_including_the_project_name_target() -> None:
     replayed = resolve(envelope(skill="clone", saved_plan=written))
     rewritten = save(replayed)
 
-    # Assert: the clone-derived project name is stored under 'target' and the
-    # decisions-only round-trip is an identity, resolving from the saved layer.
+    # Assert: the clone-derived names are stored under 'target' and 'directory'
+    # and the decisions-only round-trip is an identity, resolving both from the
+    # saved layer — so the operator's correction to either survives a replay.
     assert written["target"] == "example"
+    assert written["directory"] == "www.example.com"
     assert rewritten == written
     assert decision(replayed, "project_name")["value"] == "example"
     assert decision(replayed, "project_name")["source"] == "saved"
+    assert decision(replayed, "directory_name")["value"] == "www.example.com"
+    assert decision(replayed, "directory_name")["source"] == "saved"
 
 
 def test_a_pull_resave_preserves_the_clone_saved_target() -> None:
     # Arrange: a clone settles the plan and commits it, recording the DDEV project
-    # under 'target' — the field docs/spec.md requires the committed saved plan to
-    # carry. The operator later runs a pull, which reads that same committed plan.
+    # under 'target' and the clone directory under 'directory' — fields
+    # docs/spec.md requires the committed saved plan to carry. The operator later
+    # runs a pull, which reads that same committed plan.
     clone_written = save(resolve(envelope(skill="clone")))
     assert clone_written["target"] == "example"
+    assert clone_written["directory"] == "www.example.com"
 
     # Act: the pull re-resolves against the committed plan and persists the
     # accepted result back over the same file (SKILL step 3 writes it verbatim).
     pull_replay = resolve(envelope(skill="pull", saved_plan=clone_written))
     pull_written = save(pull_replay, saved_plan=clone_written)
 
-    # Assert: the pull re-save carries the clone-derived target forward instead of
-    # dropping it — a refresh must not silently strip the committed DDEV project
-    # that clone (the only skill that derives project_name) recorded, while the
-    # pull-only decisions it does walk are still persisted.
+    # Assert: the pull re-save carries the clone-derived target and directory
+    # forward instead of dropping them — a refresh must not silently strip the
+    # committed DDEV project or clone directory that clone (the only skill that
+    # walks project_name and directory_name) recorded, while the pull-only
+    # decisions it does walk are still persisted.
     assert pull_written["target"] == "example"
+    assert pull_written["directory"] == "www.example.com"
     assert pull_written["deletion_mirroring"] == "off"
 
 

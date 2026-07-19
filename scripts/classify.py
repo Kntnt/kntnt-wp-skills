@@ -108,6 +108,13 @@ DDEV_TLD = "ddev.site"
 # lets the operator correct either.
 FALLBACK_NAME = "site"
 
+# The traversal-shaped hosts a pathological home_url (e.g. "https://../x") can
+# reduce to. Unlike the project-name slug, the directory name is carried
+# verbatim into "mkwp --dirname=<...>" under --yes, so these two literal names
+# are floored to FALLBACK_NAME rather than allowed to resolve outside the
+# operator's current directory.
+PATH_UNSAFE_DIRECTORY_NAMES = frozenset({".", ".."})
+
 
 class ClassifyError(Exception):
     """Raised when the input is malformed — not an object, or a field that must
@@ -432,10 +439,16 @@ def derive_directory_name(home_url: str) -> str:
 
     Falls back to :data:`FALLBACK_NAME` when stripping leaves no host at all (an
     empty or host-less URL), the same oddball floor :func:`derive_project_name`
-    uses, so the confirm gate always has a name to present and correct.
+    uses, so the confirm gate always has a name to present and correct — and
+    likewise when the extracted host is itself traversal-shaped (``.`` or
+    ``..``), the path-safety floor :data:`PATH_UNSAFE_DIRECTORY_NAMES` closes,
+    since this value is carried verbatim into ``mkwp --dirname=<...>``.
     """
 
-    return _extract_host(home_url) or FALLBACK_NAME
+    host = _extract_host(home_url)
+    if host in PATH_UNSAFE_DIRECTORY_NAMES:
+        return FALLBACK_NAME
+    return host or FALLBACK_NAME
 
 
 def build_project_name(home_url: str) -> dict[str, str]:

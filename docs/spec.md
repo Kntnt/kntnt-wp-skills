@@ -70,7 +70,7 @@ The sole channel to production is the **Novamira MCP** server connected to the l
 50. As an operator, I want `--live-mail` and `--capture-mail` overrides, so that an unattended run can pin the mail behaviour either way.
 51. As an operator, I want cron left running by default with `--no-cron` to opt out, so that the copy behaves like production unless I say otherwise.
 52. As an operator, I want a risk warning always emitted itemising the copy's outward-reaching behaviours, so that the faithful-by-default posture is informed, never silent.
-53. As a clone operator, I want the local DDEV project name and the clone's directory name both derived from the production URL behind a confirm gate, so that naming is automatic but never wrong for an oddball domain.
+53. As a clone operator, I want the local DDEV project name and the clone's directory name both derived from the production URL behind their own confirm gates, so that naming is automatic but never wrong for an oddball domain.
 54. As a clone operator, I want the site scaffolded at production's exact core version, so that core files never need to be transferred.
 55. As a clone operator, I want to be told that local logins now use production credentials, and be offered removal of the scaffold's default themes and plugins, so that the copy starts clean and I am not locked out by surprise.
 56. As an operator, I want `help`, `--help`, or `-h` on either skill — and the plugin's help command — to print the skill's manual page verbatim, so that usage lives in one place and is always current.
@@ -212,7 +212,8 @@ Remove the large local scratch artifacts. The pull rollback backup already lives
 
 ### Clone bookends
 
-- Derive two names from the production URL: the local DDEV project name — strip scheme and www, take the main label, sanitise to the scaffolder's charset — and the clone's directory name — strip scheme, userinfo, port, and path, keeping `www.` and every dot verbatim. Present both as a gate so the operator can correct either independently; `--yes` accepts both. No public-suffix-list dependency; the gate covers oddball domains.
+- Derive two names from the production URL: the local DDEV project name — strip scheme and www, take the main label, sanitise to the scaffolder's charset — and the clone's directory name — strip scheme, userinfo, port, and path, keeping `www.` and every dot verbatim. Each is its own decision in the ordered gate list, so the operator can correct either independently; `--yes` accepts both. No public-suffix-list dependency; the gates cover oddball domains.
+- Before scaffolding, verify the local `mkwp` on `PATH` supports `--dirname` (the floor is `mkwp` ≥ 1.5.0); abort with a precise report naming the required version if it does not — the operator installs binaries, not the skill.
 - Scaffold with `mkwp` at production's exact core version into the derived directory name (`mkwp`'s `--dirname` flag), with the DDEV project registered under the derived project name; core files are never transferred.
 - Pin DDEV's database engine+version and PHP version to production's, and write production's table prefix into the marked block.
 - No pre-import backup, no preserved inactive set, no object-cache derivation — nothing local pre-exists.
@@ -234,7 +235,7 @@ Interactive is the default; `--yes` is autonomous; replay engages automatically 
 
 Two small per-project files at the local project root:
 
-- `.kntnt-wp-skills.json` — the saved plan: the settled per-site answers, committed so the copy is reproducible. All keys optional; a missing key falls back to the built-in default. It records the source (MCP server and live URL), the target DDEV project, the empty-table classification patterns, the scope decisions (media, excluded blobs), the ported defines, the plugin-preservation choice, the object-cache mode, the mail mode (risk-adaptive by default, or pinned live/capture), the cron choice, and the deletion-mirroring answer. There is deliberately no production-mutation key — mutating production is always a separate, explicit instruction.
+- `.kntnt-wp-skills.json` — the saved plan: the settled per-site answers, committed so the copy is reproducible. All keys optional; a missing key falls back to the built-in default. It records the source (MCP server and live URL), the target DDEV project, the clone's directory name, the empty-table classification patterns, the scope decisions (media, excluded blobs), the ported defines, the plugin-preservation choice, the object-cache mode, the mail mode (risk-adaptive by default, or pinned live/capture), the cron choice, and the deletion-mirroring answer. There is deliberately no production-mutation key — mutating production is always a separate, explicit instruction.
 - `.kntnt-wp-skills/` — derived, gitignored state: the baseline manifest with its scope, the pull rollback backups, and the trash.
 
 ### Help mechanism
