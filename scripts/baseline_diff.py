@@ -25,7 +25,13 @@ Three contracts matter above the rest:
   excluding the gallery) is out of scope for the deletion diff, so its
   still-present files are never mis-classified as deleted (ADR-0006).
 - Malformed input fails loudly: a non-zero exit and a diagnostic on stderr, never
-  a half-built document on stdout.
+  a half-built document on stdout. In particular, the ``current`` side must
+  carry a ``scope`` key: ``scripts/filter_manifest.py`` always emits one, while
+  the raw, unfiltered walk from ``templates/manifest.php`` never does, so its
+  absence is proof the local filter never ran (issue #27) and is rejected
+  rather than silently read as an empty exclusion set. The ``baseline`` side
+  still defaults an absent ``scope`` to empty — legitimate for the clone case,
+  where no baseline document exists yet.
 
 Detection is size + mtime, mirroring rsync's default quick-check: a size-only
 change and an mtime-only change both count as changed. An empty baseline is the
@@ -120,12 +126,24 @@ def _number(mapping: dict[str, Any], key: str, context: str) -> float:
     return float(value)
 
 
-def _exclusions(side: dict[str, Any], context: str) -> tuple[str, ...]:
-    """Parse the scope's anchored exclusion prefixes, defaulting to none when the
-    scope or its exclusions are absent. A trailing slash is normalised away so a
-    prefix matches the same paths however the emitter spelled it, and a
-    non-string entry fails loudly rather than crashing the later prefix check."""
+def _exclusions(side: dict[str, Any], context: str, *, require_scope: bool) -> tuple[str, ...]:
+    """Parse the scope's anchored exclusion prefixes. A trailing slash is
+    normalised away so a prefix matches the same paths however the emitter
+    spelled it, and a non-string entry fails loudly rather than crashing the
+    later prefix check.
 
+    When ``require_scope`` is true (the ``current`` side), an absent ``scope``
+    key fails loudly rather than defaulting to empty: ``scripts/filter_manifest.py``
+    always emits ``scope`` on its output, while the raw, unfiltered walk from
+    ``templates/manifest.php`` never does, so a missing key is proof the local
+    filter never ran (issue #27) — accepting it silently would over-pull every
+    excluded path and persist an unfiltered manifest as the next baseline. The
+    ``baseline`` side keeps defaulting an absent ``scope`` to empty, since an
+    absent baseline (the clone case, first run) is legitimate.
+    """
+
+    if require_scope and "scope" not in side:
+        raise DiffError(f"{context}: missing required field 'scope'")
     scope = _optional(side, "scope", dict, {}, context)
     raw_exclusions = _optional(scope, "exclusions", list, [], f"{context}.scope")
     for index, prefix in enumerate(raw_exclusions):
@@ -160,10 +178,15 @@ def _entries(side: dict[str, Any], context: str) -> dict[str, Entry]:
 
 def parse_manifest(raw: Any, key: str) -> Manifest:
     """Parse one required top-level manifest section — ``baseline`` or
-    ``current`` — into a :class:`Manifest`, validating its scope and entries."""
+    ``current`` — into a :class:`Manifest`, validating its scope and entries.
+
+    The ``current`` side must carry a ``scope`` key (see ``_exclusions``); the
+    ``baseline`` side may omit it, defaulting to an empty exclusion set.
+    """
 
     side = _require(raw, key, dict, "input")
-    return Manifest(exclusions=_exclusions(side, key), entries=_entries(side, key))
+    exclusions = _exclusions(side, key, require_scope=key == "current")
+    return Manifest(exclusions=exclusions, entries=_entries(side, key))
 
 
 def is_excluded(path: str, exclusions: tuple[str, ...]) -> bool:
