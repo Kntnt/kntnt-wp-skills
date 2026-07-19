@@ -213,7 +213,7 @@ In order:
 7. Write the chosen defines and (at clone) production's table prefix into the marked block; at pull, assert the prefix matches and abort on mismatch.
 8. Apply the resolved mail choice (keep the mailer, or install the capture mu-plugin) and the cron choice.
 9. Pull only: re-apply the preserved inactive set with plugin and theme code skipped during deactivation, so an object-cache plugin cannot re-drop its drop-in mid-step.
-10. URL-scoped search-replace across all tables, skipping the GUID column: passes for the secure/insecure and www/bare URL forms, the protocol-relative forms, and the escaped-slash forms that page builders store inside JSON — never the bare domain, which corrupts email addresses. Serialised objects the replace tool safely skips keep the old domain; harmless.
+10. URL-scoped search-replace across all tables, skipping the GUID column: passes for the secure/insecure and www/bare URL forms, the protocol-relative forms, the escaped-slash forms that page builders store inside JSON, and the double-escaped-slash forms that JSON-within-JSON storage produces — never the bare domain, which corrupts email addresses. Serialised objects the replace tool safely skips keep the old domain; harmless.
 11. Set the home and site URL options explicitly to the DDEV URL.
 12. Regenerate thumbnails for the affected attachments (all at clone; the metadata-driven delta at pull; `--regenerate-all` forces the lot).
 13. Flush rewrite rules with plugins loaded — a flush without them silently drops multilingual and custom routes, 404ing localised subpages.
@@ -283,7 +283,7 @@ The single source of truth for usage is one Markdown manpage per skill (NAME, SY
 - Never mutate production except the short-lived temp dirs, deleted immediately after the pull; any other production mutation is explicit, out of band, confirmed, and never part of `--yes`.
 - All remote packing outside the docroot; only encrypted artifacts briefly web-published; the passphrase never web-served; the database password never in context; self-destruct timer and health-check sweep as backstops.
 - Pre-import backup before the destructive local step at pull; deletions to trash, never hard removal.
-- URL-scoped search-replace only, including the escaped forms; final rewrite flush with plugins loaded.
+- URL-scoped search-replace only, including the escaped and double-escaped forms; final rewrite flush with plugins loaded.
 - Mail faithful by default with the mass-send valve; the risk warning is always emitted — interactive waits for confirmation, `--yes` prints it for the record and proceeds. Each detected per-submission form-to-service integration is a mandatory bullet in that warning, since the valve's poised-campaign scan cannot see a single local form submit ([ADR-0009](./adr/0009-live-mail-default-with-mass-send-valve.md)).
 
 ### Platform constraints (settled the hard way — build to them)
@@ -300,7 +300,7 @@ The single source of truth for usage is one Markdown manpage per skill (NAME, SY
 10. Archiving a live tree emits file-changed warnings — suppress that specific warning class.
 11. A MySQL 8 dump's modern collations crash a MariaDB import, and an unpinned PHP diverges from production — pin DDEV's database and PHP to discovery's findings.
 12. A non-default production table prefix leaves WordPress finding zero tables — write it at clone, verify it at pull.
-13. Bare-domain search-replace corrupts email addresses, and page-builder JSON stores escaped URLs a plain pass misses — URL-scoped passes only, including the escaped-slash forms.
+13. Bare-domain search-replace corrupts email addresses, and page-builder JSON stores escaped or double-escaped URLs a plain pass misses — URL-scoped passes only, including the escaped-slash and double-escaped-slash forms.
 14. A rewrite flush without plugins loaded drops multilingual and custom routes — the final flush loads plugins.
 15. A cache flush cannot clear the PHP-process caches — restart the DDEV project.
 16. A production object-cache drop-in pointing at a loopback cache host is fatal against DDEV — verify a request after writing it, auto-remove on failure.

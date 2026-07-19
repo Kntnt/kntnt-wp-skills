@@ -502,6 +502,7 @@ SAFETY_RAILS: dict[str, str] = {
     "passphrase-authenticated-not-http": r"passphrase",
     "encrypted-outside-docroot": r"outside the docroot",
     "escaped-json-search-replace": r"\\/\\/",
+    "double-escaped-json-search-replace": r"\\\\/\\\\/",
     "guid-column-skipped": r"guid",
     "risk-warning-always": r"risk warning",
     "bare-domain-never": r"bare domain",
@@ -513,6 +514,7 @@ SAFETY_RAILS: dict[str, str] = {
 def test_shared_engine_safety_rails_are_stated(rail: str, pattern: str) -> None:
     """Each safety rail the shared engine carries is stated in the pull
     orchestration — the risk warning, the outside-docroot packing, the secret
-    handling, and the URL-scoped search-replace including the escaped-JSON forms."""
+    handling, and the URL-scoped search-replace including the escaped-JSON and
+    double-escaped-JSON forms."""
 
     assert re.search(pattern, SKILL_TEXT, re.IGNORECASE), f"safety rail {rail!r} not stated"

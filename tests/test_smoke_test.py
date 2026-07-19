@@ -327,6 +327,28 @@ def test_check_local_asset_urls_catches_escaped_slash_production_host():
     assert result.status == "fail"
 
 
+def test_check_local_asset_urls_catches_double_escaped_slash_production_host():
+    """JSON-within-JSON storage (e.g. a cookie-banner config nested inside
+    another plugin's JSON option) doubles the escaping to ``\\\\/\\\\/`` —
+    the bare-host needle still catches it as a substring, since backslash
+    escaping never touches the host segment itself."""
+
+    fetch = fake_fetch_url(
+        {
+            "https://smoltek.ddev.site/": (
+                200,
+                '{"config":"{\\"cookieUrl\\":\\"https:\\\\/\\\\/www.smoltek.com\\\\/\\"}"}',
+            )
+        }
+    )
+
+    result = smoke_test.check_local_asset_urls(
+        {"url": "https://smoltek.ddev.site/", "productionHost": "www.smoltek.com"}, fetch
+    )
+
+    assert result.status == "fail"
+
+
 def test_check_local_asset_urls_passes_when_clean():
     fetch = fake_fetch_url(
         {"https://smoltek.ddev.site/": (200, '{"url":"https:\\/\\/smoltek.ddev.site\\/theme.css"}')}
