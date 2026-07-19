@@ -65,17 +65,22 @@ def _text(path: Path) -> str:
 
 
 def _sentence_containing(text: str, anchor: str) -> str | None:
-    """Return the single period-delimited sentence in ``text`` that contains
-    ``anchor``, or ``None`` when no sentence matches.
+    """Return the single sentence in ``text`` that contains ``anchor``, or
+    ``None`` when no sentence matches.
 
-    Bounds the search to one sentence so a downstream assertion checks what
-    *that* instruction names as its channel, not merely what the file mentions
-    somewhere else entirely.
+    A sentence boundary is a period followed by whitespace (or the end of the
+    text) — never a bare period — so an inline-code period with no trailing
+    space (`` `.my.cnf` ``, ``pass.key`) never truncates the match early.
+    Bounds the search to one full sentence so a downstream assertion checks
+    what *that* instruction names as its channel, not merely what the file
+    mentions somewhere else entirely, and so a negative assertion scans the
+    whole sentence rather than a prematurely truncated prefix of it.
     """
 
-    pattern = re.compile(rf"[^.\n]*{re.escape(anchor)}[^.\n]*\.", re.IGNORECASE)
-    match = pattern.search(text)
-    return match.group(0) if match else None
+    for sentence in re.split(r"(?<=\.)\s+", text):
+        if anchor.lower() in sentence.lower():
+            return sentence
+    return None
 
 
 def test_sentence_containing_does_not_truncate_at_inline_code_periods() -> None:
