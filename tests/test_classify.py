@@ -562,6 +562,70 @@ def test_project_name_sanitises_an_oddball_domain() -> None:
         assert project["name"] == expected, url
 
 
+# --- Directory-name derivation ------------------------------------------------
+
+
+def test_directory_name_and_project_name_reproduce_the_issue_example() -> None:
+    # Arrange & Act — the issue's worked example (#11): the full host survives
+    # for the clone directory, the sanitised main label survives for the DDEV
+    # project.
+    project = classify_document({"site": {"home_url": "https://www.smoltek.com/"}})[
+        "project_name"
+    ]
+
+    # Assert — directory_name keeps `www.` and the dot; name is unchanged.
+    assert project["directory_name"] == "www.smoltek.com"
+    assert project["name"] == "smoltek"
+
+
+def test_directory_name_keeps_a_plain_host_verbatim() -> None:
+    # Arrange & Act — a bare host with no `www.` label and no path.
+    project = classify_document({"site": {"home_url": "https://example.com"}})[
+        "project_name"
+    ]
+
+    # Assert — the host survives unchanged; no sanitisation applies to it.
+    assert project["directory_name"] == "example.com"
+
+
+def test_directory_name_strips_scheme_userinfo_port_and_path_but_keeps_case() -> None:
+    # Arrange — userinfo, a non-default port, a path and query, and mixed-case
+    # labels: none of these belong in a directory name, but the case is the
+    # operator's own, unlike the lowercase-and-sanitise project-name slug.
+    cases = {
+        "https://user:pass@WWW.Example.COM:8443/some/path?x=1": "WWW.Example.COM",
+        "http://example.org:80/": "example.org",
+        "www.smoltek.com": "www.smoltek.com",
+    }
+
+    # Act & Assert — only the bare host survives, verbatim, in every shape.
+    for url, expected in cases.items():
+        project = classify_document({"site": {"home_url": url}})["project_name"]
+        assert project["directory_name"] == expected, url
+
+
+def test_directory_name_keeps_an_idn_host_verbatim() -> None:
+    # Arrange & Act — an internationalised domain name: unicode labels the
+    # project-name sanitiser would mangle, but the directory name never does.
+    project = classify_document(
+        {"site": {"home_url": "https://www.xn--nxasmq6b.example"}}
+    )["project_name"]
+
+    # Assert — the punycode host passes through untouched.
+    assert project["directory_name"] == "www.xn--nxasmq6b.example"
+
+
+def test_directory_name_falls_back_when_no_host_survives() -> None:
+    # Arrange & Act — an oddball URL that reduces to no host at all.
+    project = classify_document({"site": {"home_url": "https:///no-host-here"}})[
+        "project_name"
+    ]
+
+    # Assert — the same fallback the project-name slug uses when nothing
+    # survives, so the confirm gate always has something to show and correct.
+    assert project["directory_name"] == "site"
+
+
 # --- Whole-document contract -------------------------------------------------
 
 
@@ -572,6 +636,7 @@ def test_canonical_document_in_yields_every_classification() -> None:
     # Assert — one call over the canonical document produces every recommendation
     # input the engine needs.
     assert classifications["project_name"]["name"] == "example"
+    assert classifications["project_name"]["directory_name"] == "www.example.com"
     assert {entry["path"] for entry in classifications["blobs"]["flagged"]} == {
         "wp-content/uploads/galleries"
     }
