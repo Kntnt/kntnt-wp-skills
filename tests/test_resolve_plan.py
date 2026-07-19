@@ -477,6 +477,82 @@ def test_an_accepted_plan_round_trips_to_an_identical_saved_plan() -> None:
     assert decision(replayed, "cron")["source"] == "saved"
 
 
+def test_a_clone_plan_round_trips_including_the_project_name_target() -> None:
+    # Arrange: a clone opens with the project-name bookend, which persists under
+    # the saved-plan 'target' key — a path the pull round-trip never exercises.
+    fresh = resolve(envelope(skill="clone"))
+    written = save(fresh)
+
+    # Act: read the saved plan back, re-resolve, and persist again.
+    replayed = resolve(envelope(skill="clone", saved_plan=written))
+    rewritten = save(replayed)
+
+    # Assert: the clone-derived project name is stored under 'target' and the
+    # decisions-only round-trip is an identity, resolving from the saved layer.
+    assert written["target"] == "example"
+    assert rewritten == written
+    assert decision(replayed, "project_name")["value"] == "example"
+    assert decision(replayed, "project_name")["source"] == "saved"
+
+
+# --- The mass-send valve is never silently defeated on replay -----------------
+
+
+def test_a_saved_live_mail_masking_a_fresh_campaign_regates_mail_on_interactive_replay() -> None:
+    # Arrange & Act: a prior run saved mail=live; on replay the site now carries a
+    # freshly-poised campaign the saved concrete value would blast past.
+    plan = resolve(envelope("poised-campaign-site.json", saved_plan={"mail": "live"}))
+
+    # Assert: the replay walk re-surfaces the mail gate alongside the replay gate,
+    # while the saved value it recommends stands and still leads with the finding.
+    assert plan["replay"] is True
+    assert plan["gates"] == ["replay", "mail"]
+    mail = decision(plan, "mail")
+    assert mail["value"] == "live"
+    assert mail["source"] == "saved"
+    assert any("Summer Sale 2026" in finding for finding in mail["findings"])
+
+
+def test_a_saved_live_mail_masking_a_fresh_campaign_regates_mail_under_yes_replay() -> None:
+    # Arrange & Act: the same collision under --yes, where the walk is otherwise
+    # silent — the one about-to-fire hazard the valve exists to catch (ADR-0009).
+    plan = resolve(
+        envelope("poised-campaign-site.json", flags=["--yes"], saved_plan={"mail": "live"})
+    )
+
+    # Assert: the otherwise-empty unattended replay still stops on the mail gate,
+    # so a real recipient list is never blasted without a confirmation.
+    assert plan["replay"] is True
+    assert plan["gates"] == ["mail"]
+    assert any("Summer Sale 2026" in finding for finding in decision(plan, "mail")["findings"])
+
+
+def test_a_this_run_live_mail_flag_is_not_regated_on_replay() -> None:
+    # Arrange & Act: --live-mail on this run is a deliberate, present override of
+    # the valve (ADR-0009), not a stale saved value, so it must not re-gate.
+    plan = resolve(
+        envelope(
+            "poised-campaign-site.json",
+            flags=["--yes", "--live-mail"],
+            saved_plan={"mail": "live"},
+        )
+    )
+
+    # Assert: the deliberate flag override leaves the unattended replay silent.
+    assert decision(plan, "mail")["source"] == "flag"
+    assert plan["gates"] == []
+
+
+def test_an_unattended_replay_without_a_campaign_stays_silent() -> None:
+    # Arrange & Act: a saved mail=live but no poised campaign — no about-to-fire
+    # hazard, so the valve does not re-gate and the replay stays silent.
+    plan = resolve(envelope(flags=["--yes"], saved_plan={"mail": "live"}))
+
+    # Assert.
+    assert plan["replay"] is True
+    assert plan["gates"] == []
+
+
 def test_the_saved_plan_stores_decisions_and_never_computed_lists() -> None:
     # Arrange & Act.
     written = save(resolve(envelope(skill="pull")))
@@ -513,4 +589,61 @@ def test_missing_discovery_document_fails_loudly() -> None:
     # section, never a half-built plan on stdout.
     assert result.returncode != 0
     assert b"discovery" in result.stderr.lower()
+    assert result.stdout == b""
+
+
+def test_a_present_but_malformed_discovery_document_fails_loudly() -> None:
+    # Arrange: a discovery section that is an object — so it passes the top-level
+    # shape check — but lacks the nested keys the live derivations read.
+    payload = envelope()
+    payload["discovery"] = {}
+
+    # Act.
+    result = run_resolve(payload)
+
+    # Assert: the fail-loud contract holds for a malformed inner shape too — the
+    # resolve_plan diagnostic rather than a raw traceback, a non-zero exit, and no
+    # half-built plan on stdout.
+    assert result.returncode != 0
+    assert b"resolve_plan:" in result.stderr
+    assert b"Traceback" not in result.stderr
+    assert result.stdout == b""
+
+
+def test_a_present_but_malformed_classifications_document_fails_loudly() -> None:
+    # Arrange: a classifications section that is an object but lacks the nested
+    # keys the live derivations read.
+    payload = envelope()
+    payload["classifications"] = {}
+
+    # Act.
+    result = run_resolve(payload)
+
+    # Assert.
+    assert result.returncode != 0
+    assert b"resolve_plan:" in result.stderr
+    assert b"Traceback" not in result.stderr
+    assert result.stdout == b""
+
+
+def test_an_unknown_operation_fails_loudly() -> None:
+    # Arrange & Act: an envelope naming an operation the seam does not implement.
+    result = run_resolve({"operation": "frobnicate"})
+
+    # Assert: the unknown operation is a loud contract violation, not a partial
+    # plan on stdout.
+    assert result.returncode != 0
+    assert b"unknown operation" in result.stderr.lower()
+    assert result.stdout == b""
+
+
+def test_invalid_json_input_fails_loudly() -> None:
+    # Arrange & Act: raw bytes that are not JSON at all reach the parser first.
+    result = subprocess.run(
+        [sys.executable, str(RESOLVE)], input=b"this is not json", capture_output=True
+    )
+
+    # Assert: the parser reports the malformed payload rather than crashing.
+    assert result.returncode != 0
+    assert b"json" in result.stderr.lower()
     assert result.stdout == b""
