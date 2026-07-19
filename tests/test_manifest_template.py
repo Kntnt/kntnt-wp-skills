@@ -100,6 +100,23 @@ def test_template_walk_tolerates_unreadable_subtrees() -> None:
     assert "RecursiveIteratorIterator::CATCH_GET_CHILD" in source
 
 
+def test_template_records_unreadable_directories_instead_of_silently_dropping_them() -> None:
+    """Issue #18: ``CATCH_GET_CHILD`` alone swallows an unreadable subtree with
+    no record of which directory failed, so ``baseline_diff.py`` misclassifies
+    every file under it as production-deleted. The walk must actively detect
+    an unreadable directory before it ever reaches the exception path — a
+    readability pre-check (``is_readable``/``is_executable``) on each
+    candidate subdirectory — and record its path into an ``unreadable`` list
+    the payload emits alongside ``entries``, rather than relying solely on the
+    swallowed exception for resilience."""
+
+    source = _TEMPLATE.read_text(encoding="utf-8")
+
+    assert "is_readable" in source
+    assert "is_executable" in source
+    assert "'unreadable'" in source or '"unreadable"' in source
+
+
 def test_template_json_encode_substitutes_invalid_utf8() -> None:
     """A single invalid-UTF-8 filename anywhere in the now-unprunable tree
     must not make ``json_encode()`` return ``false`` and the whole payload

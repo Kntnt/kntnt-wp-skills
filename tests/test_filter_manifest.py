@@ -100,14 +100,23 @@ def test_a_same_named_sibling_of_an_excluded_path_is_kept() -> None:
     ]
 
 
-def test_no_exclusions_keeps_every_entry() -> None:
-    # Arrange & Act — an empty resolved scope is a legitimate "everything in
-    # scope" run, not an error.
+def test_an_explicitly_empty_exclusions_list_fails_loudly() -> None:
+    # Arrange — per docs/spec.md, a real resolved exclusion set is never empty
+    # (the configuration file, drop-ins, and other always-excluded paths are
+    # always in it), so an explicit "exclusions": [] here — this is the single
+    # surviving scope-enforcement point after #17 x #18 — signals an upstream
+    # bug (a plan resolved with no exclusions merged in) rather than a
+    # legitimate everything-in-scope run, and must not be silently accepted.
     rows = [entry("wp-content/plugins/acme/acme.php"), entry("wp-content/themes/astra/style.css")]
-    result = filter_on({"entries": rows, "exclusions": []})
+
+    # Act.
+    result = run_filter(json.dumps({"entries": rows, "exclusions": []}).encode())
 
     # Assert.
-    assert len(result["entries"]) == 2
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"filter-manifest:")
+    assert b"exclusions" in result.stderr
 
 
 def test_a_missing_exclusions_field_fails_loudly() -> None:
@@ -116,9 +125,10 @@ def test_a_missing_exclusions_field_fails_loudly() -> None:
     # ``{"entries": [...]}``, so a caller that forgets to hand-merge in the
     # resolved exclusion set must not have that mistake silently accepted as
     # "nothing excluded" — every excluded path would then ride straight into
-    # ``new_or_changed`` and the next baseline. An explicit empty list is the
-    # legitimate everything-in-scope run and must still succeed (see
-    # ``test_no_exclusions_keeps_every_entry``).
+    # ``new_or_changed`` and the next baseline. Note that an *explicit* empty
+    # list is no longer treated as legitimate either (see
+    # ``test_an_explicitly_empty_exclusions_list_fails_loudly``) — a real
+    # resolved exclusion set is never empty.
     result = run_filter(json.dumps({"entries": [entry("wp-content/plugins/acme/acme.php")]}).encode())
 
     # Assert.
@@ -165,8 +175,9 @@ def test_malformed_json_input_fails_loudly() -> None:
 
 
 def test_a_missing_entries_field_fails_loudly() -> None:
-    # Arrange & Act.
-    result = run_filter(b'{"exclusions": []}')
+    # Arrange & Act — a valid, non-empty exclusions list isolates the
+    # missing-entries check from the separate empty-exclusions rejection.
+    result = run_filter(b'{"exclusions": ["wp-content/uploads/gallery"]}')
 
     # Assert.
     assert result.returncode != 0
@@ -177,8 +188,13 @@ def test_a_missing_entries_field_fails_loudly() -> None:
 
 def test_an_entry_without_a_path_fails_loudly() -> None:
     # Arrange — an entry missing its path cannot be tested against the
-    # exclusion set and would otherwise ride through silently.
-    payload = {"entries": [{"size": 1, "mtime": 1}], "exclusions": []}
+    # exclusion set and would otherwise ride through silently. A valid,
+    # non-empty exclusions list isolates this check from the separate
+    # empty-exclusions rejection.
+    payload = {
+        "entries": [{"size": 1, "mtime": 1}],
+        "exclusions": ["wp-content/uploads/gallery"],
+    }
 
     # Act.
     result = run_filter(json.dumps(payload).encode())
@@ -200,6 +216,68 @@ def test_a_non_string_exclusion_fails_loudly() -> None:
     assert result.stdout == b""
     assert result.stderr.startswith(b"filter-manifest:")
     assert b"exclusions" in result.stderr
+
+
+def test_an_unreadable_directory_reported_by_the_manifest_fails_loudly() -> None:
+    # Arrange — production's walk (templates/manifest.php) hit a permission-
+    # denied subtree it could not descend into and reported it under
+    # "unreadable" (issue #18: CATCH_GET_CHILD used to swallow this silently,
+    # so baseline_diff would misclassify every file under that subtree as
+    # production-deleted). A manifest carrying any such entry must abort the
+    # run rather than feed a silently-incomplete tree into the deletion gate.
+    payload = {
+        "entries": [entry("wp-content/plugins/acme/acme.php")],
+        "exclusions": ["wp-content/uploads/gallery"],
+        "unreadable": ["wp-content/uploads/restricted"],
+    }
+
+    # Act.
+    result = run_filter(json.dumps(payload).encode())
+
+    # Assert.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"filter-manifest:")
+    assert b"unreadable" in result.stderr
+    assert b"wp-content/uploads/restricted" in result.stderr
+
+
+def test_an_empty_unreadable_list_is_the_legitimate_clean_walk() -> None:
+    # Arrange & Act — production's walk completed with nothing unreadable; the
+    # ordinary "entries" is filtered as normal.
+    result = filter_on({
+        "entries": [entry("wp-content/plugins/acme/acme.php")],
+        "exclusions": ["wp-content/uploads/gallery"],
+        "unreadable": [],
+    })
+
+    # Assert.
+    assert [row["path"] for row in result["entries"]] == ["wp-content/plugins/acme/acme.php"]
+
+
+def test_a_missing_unreadable_field_is_treated_as_the_clean_walk() -> None:
+    # Arrange & Act — a manifest that omits "unreadable" entirely (e.g. an
+    # older fixture, or an already-hand-filtered payload) is not an error by
+    # itself; only a reported non-empty list aborts.
+    result = filter_on({
+        "entries": [entry("wp-content/plugins/acme/acme.php")],
+        "exclusions": ["wp-content/uploads/gallery"],
+    })
+
+    # Assert.
+    assert [row["path"] for row in result["entries"]] == ["wp-content/plugins/acme/acme.php"]
+
+
+def test_a_non_list_unreadable_field_fails_loudly() -> None:
+    # Arrange & Act.
+    payload = {"entries": [], "exclusions": [], "unreadable": "not-a-list"}
+    result = run_filter(json.dumps(payload).encode())
+
+    # Assert.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"filter-manifest:")
+    assert b"unreadable" in result.stderr
 
 
 def test_the_filtered_output_feeds_baseline_diff_unchanged() -> None:

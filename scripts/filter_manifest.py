@@ -24,7 +24,15 @@ WordPress root (the recent anchoring fix, commit de908bd) — the one spelling
 every consumer of the exclusion set shares.
 
 Malformed input fails loudly: a non-zero exit and a diagnostic on stderr,
-never a half-built document on stdout.
+never a half-built document on stdout. The same holds for two shapes that are
+well-formed JSON but not trustworthy input: a manifest reporting any
+``unreadable`` directory (``templates/manifest.php`` could not descend into
+it, so the tree it echoes is silently incomplete and would misclassify that
+subtree's files as production-deleted) and an explicitly empty
+``exclusions`` list (a real resolved exclusion set is never empty — the
+configuration file and drop-ins are always excluded — so an empty list
+signals an unresolved plan, not a legitimate everything-in-scope run). Both
+abort here, this helper's single surviving scope-enforcement point.
 """
 
 from __future__ import annotations
@@ -59,10 +67,13 @@ def _exclusions(raw: dict[str, Any]) -> tuple[str, ...]:
     ``exclusions`` key at all, so a caller that pipes that raw response through
     without first merging in the resolved exclusion set must fail loudly rather
     than have the omission silently read as "nothing excluded". An *explicit*
-    empty list, in contrast, is the legitimate "everything in scope" run and is
-    accepted. A trailing slash is normalised away so a prefix matches the same
-    paths however the caller spelled it, and a non-string entry fails loudly
-    rather than crashing the later prefix check."""
+    empty list is likewise rejected: per the specification, a real resolved
+    exclusion set is never empty (the configuration file, drop-ins, and the
+    other always-excluded paths are always in it), so `[]` here signals a plan
+    resolved without its exclusions merged in, not a legitimate
+    everything-in-scope run. A trailing slash is normalised away so a prefix
+    matches the same paths however the caller spelled it, and a non-string
+    entry fails loudly rather than crashing the later prefix check."""
 
     if "exclusions" not in raw:
         raise FilterError("input: missing required field 'exclusions'")
@@ -77,7 +88,36 @@ def _exclusions(raw: dict[str, Any]) -> tuple[str, ...]:
                 f"input: field 'exclusions'[{index}] must be str, "
                 f"got {type(prefix).__name__}"
             )
+    if not value:
+        raise FilterError(
+            "input: field 'exclusions' is empty — a real resolved exclusion "
+            "set is never empty (the configuration file and drop-ins are "
+            "always excluded); an empty list signals an unresolved plan, not "
+            "an everything-in-scope run"
+        )
     return tuple(prefix.rstrip("/") for prefix in value)
+
+
+def _unreadable(raw: dict[str, Any]) -> list[str]:
+    """Fetch the manifest's reported unreadable directories — the subtrees
+    ``templates/manifest.php``'s walk could not descend into (issue #18: a
+    permission-denied directory no longer silently vanishes behind
+    ``CATCH_GET_CHILD``). Absent or empty means the walk was clean; each
+    element must be a string, and any non-string entry fails loudly rather
+    than crashing the join below."""
+
+    value = raw.get("unreadable", [])
+    if not isinstance(value, list):
+        raise FilterError(
+            f"input: field 'unreadable' must be list, got {type(value).__name__}"
+        )
+    for index, path in enumerate(value):
+        if not isinstance(path, str):
+            raise FilterError(
+                f"input: field 'unreadable'[{index}] must be str, "
+                f"got {type(path).__name__}"
+            )
+    return value
 
 
 def _entries(raw: dict[str, Any]) -> list[dict[str, Any]]:
@@ -110,6 +150,16 @@ def filter_manifest(raw: Any) -> dict[str, Any]:
 
     if not isinstance(raw, dict):
         raise FilterError(f"input: expected an object, got {type(raw).__name__}")
+
+    unreadable = _unreadable(raw)
+    if unreadable:
+        raise FilterError(
+            f"input: production reported {len(unreadable)} unreadable "
+            f"director{'y' if len(unreadable) == 1 else 'ies'} it could not "
+            f"descend into ({', '.join(unreadable)}); the deletion gate cannot "
+            "trust a manifest with a silently-incomplete subtree — abort and "
+            "investigate before retrying"
+        )
 
     exclusions = _exclusions(raw)
     entries = _entries(raw)
