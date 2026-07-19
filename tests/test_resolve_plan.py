@@ -919,6 +919,27 @@ def test_an_unknown_operation_fails_loudly() -> None:
     assert result.stdout == b""
 
 
+# --- docs/spec.md's Persistent config prose matches SAVED_KEYS -------------
+
+
+def test_spec_persistent_config_enumerates_the_user_submissions_answer() -> None:
+    """AC: docs/spec.md's "Persistent config" section enumerates the saved
+    plan's persisted decisions; the user-submissions carry/empty answer is one
+    of them (SAVED_KEYS["user_submissions"], ADR-0014) and must not be missing
+    from the prose alongside its siblings (the plugin-preservation choice, the
+    cron choice, the deletion-mirroring answer)."""
+
+    spec_path = Path(__file__).resolve().parent.parent / "docs" / "spec.md"
+    text = spec_path.read_text(encoding="utf-8")
+    sentence = next(
+        line for line in text.splitlines() if line.startswith("- `.kntnt-wp-skills.json`")
+    )
+    assert "user-submissions" in sentence or "user_submissions" in sentence, (
+        f"spec.md's Persistent config sentence omits the user-submissions "
+        f"answer: {sentence!r}"
+    )
+
+
 def test_invalid_json_input_fails_loudly() -> None:
     # Arrange & Act: raw bytes that are not JSON at all reach the parser first.
     result = subprocess.run(
