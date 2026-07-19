@@ -787,6 +787,107 @@ def test_directory_name_keeps_a_legitimate_host_unchanged() -> None:
     assert project["directory_name"] == "www.smoltek.com"
 
 
+# --- Form-to-service integration detection ------------------------------------
+#
+# A per-submission integration — a form plugin's active service add-on — fires on
+# a single form submit and is invisible to the mass-send valve (ADR-0009), which
+# only watches for a *poised bulk campaign*. Submitting a form on the local copy
+# still writes a real contact into the live service. Detection is pattern-based
+# against the active-plugins list already collected: an add-on's own directory
+# slug characteristically starts with its host form plugin's slug and ends with
+# the connected service's slug (issue #20's initial pattern set).
+
+
+def test_ws_form_mailchimp_addon_is_detected() -> None:
+    # Arrange — the issue's own worked example: WS Form plus its Mailchimp
+    # add-on, both active.
+    document = {"plugins": {"active": [
+        "ws-form/ws-form.php",
+        "ws-form-mailchimp/ws-form-mailchimp.php",
+    ]}}
+
+    # Act.
+    findings = classify_document(document)["integrations"]["form_to_service"]
+
+    # Assert — the pairing is named, and the consequence sentence is concrete.
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding["plugin"] == "ws-form-mailchimp/ws-form-mailchimp.php"
+    assert finding["form"] == "WS Form"
+    assert finding["service"] == "Mailchimp"
+    assert finding["warning"] == (
+        "submitting form WS Form locally writes to live service Mailchimp"
+    )
+
+
+def test_the_initial_pattern_set_covers_wpforms_gravity_and_fluent() -> None:
+    # Arrange — one addon per named family, each paired with a different
+    # service, exercising the issue's initial pattern set beyond WS Form.
+    document = {"plugins": {"active": [
+        "wpforms-hubspot/wpforms-hubspot.php",
+        "gravityformszapier/gravityformszapier.php",
+        "fluentform-mailchimp/fluentform-mailchimp.php",
+    ]}}
+
+    # Act.
+    findings = classify_document(document)["integrations"]["form_to_service"]
+
+    # Assert — every pairing is detected, none missed, none duplicated.
+    pairs = {(entry["form"], entry["service"]) for entry in findings}
+    assert pairs == {
+        ("WPForms", "HubSpot"),
+        ("Gravity Forms", "Zapier"),
+        ("Fluent Forms", "Mailchimp"),
+    }
+
+
+def test_a_bare_form_plugin_without_an_addon_is_not_flagged() -> None:
+    # Arrange — the form plugin's core is active but no service add-on is.
+    document = {"plugins": {"active": ["gravityforms/gravityforms.php"]}}
+
+    # Act.
+    findings = classify_document(document)["integrations"]["form_to_service"]
+
+    # Assert — presence of the bare host plugin alone is never a hazard.
+    assert findings == []
+
+
+def test_a_service_only_plugin_without_a_form_prefix_is_not_flagged() -> None:
+    # Arrange — a standalone Mailchimp plugin unrelated to any recognised form
+    # plugin family; the pattern requires both halves.
+    document = {"plugins": {"active": ["mailchimp-for-wp/mailchimp-for-wp.php"]}}
+
+    # Act.
+    findings = classify_document(document)["integrations"]["form_to_service"]
+
+    # Assert.
+    assert findings == []
+
+
+def test_no_form_plugins_active_yields_no_integrations() -> None:
+    # Arrange & Act — the representative site carries no form plugin at all.
+    findings = classify_through_discovery("representative-site.json")[
+        "integrations"
+    ]["form_to_service"]
+
+    # Assert.
+    assert findings == []
+
+
+def test_a_malformed_active_plugin_entry_fails_loudly() -> None:
+    # Arrange — a non-string element in plugins.active, which the raw discovery
+    # seam can pass through unvalidated.
+    document = {"plugins": {"active": [123]}}
+
+    # Act.
+    result = run_classify(json.dumps(document).encode())
+
+    # Assert.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"classify:")
+
+
 # --- Whole-document contract -------------------------------------------------
 
 
