@@ -227,7 +227,7 @@ def test_clone_dependency_step_checks_mkwp_via_the_shared_guard() -> None:
         "clone SKILL.md's dependency step never reads the shared "
         "scripts/mkwp_guard.py guard"
     )
-    assert "1.5.0" in window, (
+    assert "1.8.1" in window, (
         "clone SKILL.md's dependency step never states the mkwp floor version"
     )
 

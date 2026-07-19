@@ -36,7 +36,7 @@ The plugin assumes you have already put a few things in place. Each note says wh
 
 - DDEV up and running, which in turn needs Docker (or an equivalent such as OrbStack) and DDEV's own dependencies. These are DDEV concerns, not this plugin's.
 - The free Novamira plugin installed and enabled on the production site, with its MCP server connected in Claude Code. This is the only channel to production; the free AGPL build is sufficient, and Novamira Pro is not required. Only `clone` and `pull` need this — `mkwp` does not.
-- `mkwp` ≥ 1.5.0 on your `PATH`, used by both the `clone` skill and the `mkwp` skill to scaffold a site. That version's `--dirname` flag is what lets the site's directory be named independently of its DDEV project name (e.g. after a full production host, while the DDEV project keeps a shorter, hostname-safe slug).
+- `mkwp` ≥ 1.8.1 on your `PATH`, used by both the `clone` skill and the `mkwp` skill to scaffold a site. Its `--dirname` flag is what lets the site's directory be named independently of its DDEV project name (e.g. after a full production host, while the DDEV project keeps a shorter, hostname-safe slug); 1.8.1 is the floor because it is the release that fixes [Kntnt/mkwp#3](https://github.com/Kntnt/mkwp/issues/3), where an earlier `mkwp` broke the scaffold outright whenever `--dirname` diverged from the site's name.
 - The CLI tools `uv`, `jq`, `curl`, `shasum` or `sha256sum`, and `openssl` on your `PATH` — used by the helper scripts and the transfer pipeline. `clone` and `pull` verify all of the above (and Novamira's abilities) automatically at the start of every run, telling you exactly what is missing and how to fix it rather than failing partway through.
 
 ## Installation
