@@ -194,6 +194,105 @@ def test_skill_delegates_the_phase_with_its_evidence_block_contract(
     )
 
 
+def _delegation_windows(text: str, anchor: str, size: int = 1200) -> list[str]:
+    """Every text window following an occurrence of ``anchor`` in ``text``.
+
+    A subagent may be delegated to more than once per ``SKILL.md``
+    (``thumbnail-smoke-test``'s regeneration and verify calls delegate to the
+    same subagent from two different steps), and each call carries its own
+    evidence-block prose — the union of these windows is what a reader
+    actually sees documented for that subagent, not just the first call.
+    """
+
+    windows: list[str] = []
+    start = 0
+    while True:
+        pos = text.find(anchor, start)
+        if pos == -1:
+            break
+        windows.append(text[pos : pos + size])
+        start = pos + 1
+    return windows
+
+
+# Field-shaped evidence terms specific to each phase's delegation prose — SHA256
+# checksums, exit codes, and row/file counts — distinct from the generic
+# "evidence block" / "done" / "failed" markers ``test_skill_delegates_the_phase_
+# with_its_evidence_block_contract`` above already binds. Grounded in the
+# committed SKILL.md prose so the assertions are never vacuous.
+EVIDENCE_FIELD_TERMS: dict[str, tuple[str, ...]] = {
+    "discovery-classify": ("sha256", "exit code", "counts"),
+    "pack-transfer": ("sha256", "byte size"),
+    "manifest-baseline-diff": ("sha256", "exit code", "row count"),
+    "thumbnail-smoke-test": ("exit code", "count"),
+}
+
+
+@pytest.mark.parametrize(
+    "skill,name",
+    [(skill, name) for name, info in ROSTER.items() for skill in info["skills"]],
+)
+def test_skill_delegation_names_its_specific_evidence_fields(
+    skill: str, name: str
+) -> None:
+    """AC #2's field-level half: beyond the generic "evidence block" mention,
+    each phase's delegation prose must itself name the field-shaped facts the
+    issue demands (exit codes, SHA256 checksums, row/file counts) — so a
+    rewrite that keeps the anchor sentence and the DONE/FAILED markers but
+    quietly drops the actual field prose reddens here rather than passing the
+    looser generic check above."""
+
+    text = SKILLS[skill].read_text(encoding="utf-8").lower()
+    anchor = _delegate_anchor(name).lower()
+    windows = _delegation_windows(text, anchor)
+    assert windows, f"{skill} SKILL.md never delegates to `{name}`"
+
+    joined = " ".join(windows)
+    for term in EVIDENCE_FIELD_TERMS[name]:
+        assert term in joined, (
+            f"{skill} SKILL.md's `{name}` delegation never names the evidence "
+            f"field {term!r}"
+        )
+
+
+# The orchestrator's own deterministic re-check per (skill, phase) pair — the
+# second half of the issue's rule ("re-runs 1-2 cheap deterministic spot
+# checks itself") beyond simply trusting a subagent's self-reported evidence
+# block. Not every pair carries one: clone's manifest-only write (no baseline
+# to diff against yet) has nothing to re-check against, so it is deliberately
+# absent here rather than padded with a check that would not exist.
+RECHECK_PATTERN: dict[tuple[str, str], str] = {
+    ("clone", "discovery-classify"): r"re-read the written discovery document yourself",
+    ("pull", "discovery-classify"): r"re-read the written discovery document yourself",
+    (
+        "pull",
+        "manifest-baseline-diff",
+    ): r"confirm the manifest's row count structurally",
+    ("clone", "pack-transfer"): r"re-run `sha256sum -c`",
+    ("pull", "pack-transfer"): r"re-run `sha256sum -c`",
+    ("clone", "thumbnail-smoke-test"): r"re-run `wp db check`",
+    ("pull", "thumbnail-smoke-test"): r"re-run `wp db check`",
+}
+
+
+@pytest.mark.parametrize("skill,name", sorted(RECHECK_PATTERN))
+def test_skill_states_the_orchestrator_side_deterministic_recheck(
+    skill: str, name: str
+) -> None:
+    """AC #2's other half: the issue's rule that the orchestrator "re-runs 1-2
+    cheap deterministic spot checks itself" — never trusting a subagent's
+    evidence block on its word alone — must survive as a literal sentence per
+    phase. Without this, deleting the "Re-run `sha256sum -c` ... yourself" or
+    "Re-run `wp db check` ... yourself" sentences (or their discovery/manifest
+    equivalents) would leave every other test in this module green."""
+
+    text = SKILLS[skill].read_text(encoding="utf-8")
+    assert re.search(RECHECK_PATTERN[(skill, name)], text, re.IGNORECASE), (
+        f"{skill} SKILL.md drops the orchestrator's own deterministic "
+        f"re-check for `{name}`"
+    )
+
+
 def test_skill_states_the_delegation_architecture_and_the_fail_closed_rule() -> None:
     """AC #2: both SKILL.md files state the general delegation architecture
     once — subagents can never ask the operator anything, a result missing
