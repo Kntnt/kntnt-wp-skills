@@ -78,6 +78,7 @@ The sole channel to production is the **Novamira MCP** server connected to the l
 58. As a maintainer, I want the deterministic engine logic behind one helper surface with a JSON contract, so that the riskiest computations are unit-tested rather than improvised by the model at run time.
 59. As a maintainer, I want the help mechanism built as the reference model for the sibling plugins, so that retrofitting them is a mechanical copy.
 60. As an operator, I want production left state-neutral after every run, so that the only trace of a sync is the synced copy itself.
+61. As an operator, I want form-submission tables excluded by default behind their own carry/empty gate, so that real visitors' names, emails, and messages do not land on my machine unless I deliberately choose to carry them.
 
 ## Implementation Decisions
 
@@ -129,7 +130,8 @@ The mass-send risk scan: for each recognised bulk-mail engine (FluentCRM, MailPo
 | Decision | Recommended default | Notes |
 |---|---|---|
 | DB — table structure | All tables, always, with production's exact schema | Nothing ever hits a missing table |
-| DB — table content | Full data for content/config/users/CRM/forms; empty for operational tables (analytics / cookie-consent / email-log / search-index) | Binary per table: full or empty |
+| DB — table content | Full data for content/config/users/CRM; empty for operational tables (analytics / cookie-consent / email-log / search-index) | Binary per table: full or empty |
+| User-submission tables | Empty by default, behind its own carry/empty gate | Form-entry tables (WS Form / Fluent Forms / Formidable / WPForms / Gravity Forms); non-regenerable and privacy-sensitive, so it is not folded into the silent operational split ([ADR-0014](./adr/0014-user-submissions-own-gate-default-empty.md)) |
 | Table prefix | Adopt production's prefix locally | Written at clone; verified at pull, abort on mismatch |
 | DB engine + PHP | Pin DDEV to production's | Engine flavour+version and PHP major.minor, from discovery |
 | Media Library originals | Included | Clone: full; pull: delta only |
@@ -146,6 +148,10 @@ The mass-send risk scan: for each recognised bulk-mail engine (FluentCRM, MailPo
 ### Thumbnails and regeneration
 
 Exclude from transfer exactly the DB-known generated sizes (from each attachment's registered sizes in its metadata); pull whole everything not in that set, because only DB-registered attachments can be regenerated; regenerate after import — all attachments at clone, the metadata-driven delta at pull (compare each attachment's registered sizes against the files on disk), with `--regenerate-all` as the escape hatch. Full rationale in [ADR-0011](./adr/0011-metadata-driven-thumbnail-regeneration.md).
+
+### User-submission tables
+
+Form-entry tables (WS Form, Fluent Forms, Formidable, WPForms, Gravity Forms) are matched into their own classification family, distinct from the four operational categories folded silently into table content: they are neither regenerable nor operational, and they carry the most privacy-sensitive data the transfer handles. Unlike the operational split, this class gets its own carry/empty gate, default **empty** for privacy minimisation, with the gate as the way back for an operator who needs real entries to debug a form flow locally. The choice is a remembered per-site answer, persisted in the saved plan and replayed like every other decision. Full rationale in [ADR-0014](./adr/0014-user-submissions-own-gate-default-empty.md).
 
 ### wp-config defines
 
