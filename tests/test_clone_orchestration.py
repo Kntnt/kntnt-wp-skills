@@ -155,9 +155,19 @@ def test_nothing_heavy_runs_before_the_health_check() -> None:
     """AC #3: nothing heavy runs before the health check — discovery parsing and
     the pack-script generation both follow it."""
 
-    health = _pos(r"health check")
-    assert health < _pos(r"scripts/discovery\.py")
-    assert health < _pos(r"scripts/pack_script\.py")
+    # Anchor on the health-check *step*, not the intro sentence "Every run
+    # begins with a health check" — otherwise a regression that reordered the
+    # steps while leaving the intro intact would slip through. The discovery and
+    # pack anchors likewise target the actual `uv run` driving invocations in
+    # steps 2 and 5, not the earlier seam-list descriptions that precede the
+    # health-check step.
+    health = _pos(r"## 1\. Health check")
+    assert health < _pos(r"uv run scripts/discovery\.py"), (
+        "discovery parsing must be driven after the health-check step"
+    )
+    assert health < _pos(r"uv run scripts/pack_script\.py"), (
+        "pack-script generation must be driven after the health-check step"
+    )
 
 
 def test_exposure_window_closes_immediately_after_verification() -> None:
@@ -167,7 +177,12 @@ def test_exposure_window_closes_immediately_after_verification() -> None:
 
     assert re.search(r"exposure window", SKILL_TEXT, re.IGNORECASE)
     close = _pos(r"close the exposure window")
-    assert _pos(r"checksum") < close, "the window must close only after verification"
+    # Anchor on the download-side verification (`sha256sum -c SHA256` in step 6),
+    # not the first "checksum" mention, which is the pack step's SHA256 creation
+    # in step 5 — closure must follow the download verify, not merely the pack.
+    assert _pos(r"sha256sum -c SHA256") < close, (
+        "the window must close only after the download checksum verification"
+    )
     assert close < _pos(r"ddev import-db"), "the window must close before local import"
 
 
