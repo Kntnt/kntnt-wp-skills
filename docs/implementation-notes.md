@@ -30,6 +30,14 @@ This file preserves the invocation-level literals from the superseded design-and
 - Auto-excluded — infrastructure: `WP_CACHE`, redis/memcached host constants, `DISABLE_WP_CRON`.
 - Everything else is the portable plugin/behaviour class offered at the gate — e.g. `WP_MEMORY_LIMIT`, feature flags, custom defines.
 
+## Baseline manifest and local filtering (issue #18)
+
+- `templates/manifest.php` takes no exclusion payload: it walks and echoes production's **whole** content tree, unfiltered, as `{ "entries": [ { "path", "size", "mtime" }, ... ] }`, anchored at the WordPress root.
+- Filter that raw walk locally with `uv run scripts/filter_manifest.py`, feeding it `{ "entries": <the raw walk's entries>, "exclusions": <the resolved exclusion set> }` on stdin. It restricts the entries to the in-scope subset and attaches the resolved set as `{ "scope": { "exclusions": [...] } }` on stdout — the shape `scripts/baseline_diff.py` has always consumed as its `current` side.
+- Only the locally-filtered result — never the raw walk — is combined with the stored baseline for `scripts/baseline_diff.py`, and only the locally-filtered result is persisted as the next run's baseline.
+- The exclusion set never travels to production as part of a manifest request: a real site's set can run into the thousands of entries (one smoke test measured 6,135 / ~436KB), which is wasteful to embed in a production payload and bloats agent context. Requesting the unfiltered tree keeps the *request* small; the harness auto-saves the (potentially large) *response* to file.
+- Scope semantics are unchanged from the former production-side filter — an exact match or a path-segment-aware descendant of an exclusion prefix.
+
 ## Pack (production side)
 
 - Working dir preference order: `sys_get_temp_dir()/kntnt-wp-skills-<rand>` → a writable dir above `ABSPATH` → (last resort) a docroot dir, mitigated by immediate cleanup and the self-destruct timer.
@@ -129,3 +137,5 @@ The 20-point security/robustness review raised during grilling, row by row, so a
 | 20 | Smalls: mkwp-default cleanup; prefix-aware dump checks; media-regen metadata gap | Adopted; media-regen **extended beyond the review** — metadata-driven delta plus `--regenerate-all` ([ADR-0011](./adr/0011-metadata-driven-thumbnail-regeneration.md)) |
 
 On point 6 — the one substantive departure: the operator explicitly chose the running-cron, live-mail default over the reviewer's (and the author's) more cautious proposal; the full rationale is [ADR-0009](./adr/0009-live-mail-default-with-mass-send-valve.md).
+
+On point 12 — refined 2026-07-19 (explicit operator authority): the "avoid walking excluded trees" mechanism moved — production now walks the whole tree unfiltered, and the exclusion set is applied locally by `scripts/filter_manifest.py` instead of being embedded in the production-side walk (issue #18). The adopted resolution, "store scope in the baseline", and the deletion diff's scope-intersection rule are unchanged; see the [ADR-0006](./adr/0006-baseline-manifest-diff-with-scope.md) addendum.

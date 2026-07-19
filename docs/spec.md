@@ -165,7 +165,7 @@ The posture — faithful by default with one risk-adaptive valve, cron left runn
 
 ### Baseline diff (files)
 
-Production emits a manifest of the in-scope tree (path + size + mtime) together with the scope it was taken under. The diff is production-now against the stored baseline — never the local filesystem, because local mtimes are unreliable through the archive-and-sync chain ([ADR-0006](./adr/0006-baseline-manifest-diff-with-scope.md)). Clone has no baseline, so everything is new. The diff yields the new/changed set (to pull) and the production-deleted set (for the deletion gate); the deletion set is computed only over paths in scope in both the baseline and this run. Detection is size + mtime. The database is always dumped in full — trimmed it is small and not worth diffing.
+Production emits a manifest of its **whole** content tree (path + size + mtime), unfiltered — the exclusion set never travels to production as part of a manifest request. The resolved scope is applied locally to filter it before the diff, and the locally-filtered manifest carries that scope forward ([ADR-0006](./adr/0006-baseline-manifest-diff-with-scope.md) addendum). The diff is production-now against the stored baseline — never the local filesystem, because local mtimes are unreliable through the archive-and-sync chain. Clone has no baseline, so everything is new. The diff yields the new/changed set (to pull) and the production-deleted set (for the deletion gate); the deletion set is computed only over paths in scope in both the baseline and this run. Detection is size + mtime. The database is always dumped in full — trimmed it is small and not worth diffing.
 
 ### Pack on production (background job)
 

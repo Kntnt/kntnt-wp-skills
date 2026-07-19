@@ -30,6 +30,7 @@ If the arguments are `help`, `--help`, or `-h`, run `uv run "${CLAUDE_PLUGIN_ROO
 - `scripts/discovery.py` — parses the raw health-check and discovery output into the one canonical discovery document.
 - `scripts/classify.py` — turns that document into the table split, the define classes, the flagged blobs, the thumbnail exclude-set, and the derived project and directory names.
 - `scripts/resolve_plan.py` — resolves the ordered decision list over the layered defaults (`resolve`), and reduces an accepted plan back to the saved plan (`save`).
+- `scripts/filter_manifest.py` — restricts production's unfiltered manifest walk to the resolved exclusion scope, locally, so the exclusion set never travels to production (issue #18).
 - `scripts/pack_script.py` — generates the production-side `pack.sh` from resolved inputs.
 - `scripts/dump_sanity.py` — verdicts the decrypted dump against the discovered prefix before the import.
 
@@ -113,7 +114,7 @@ Local and destructive. Run in this exact order — the order is a safety rail ([
 8. **Regenerate thumbnails.** `ddev wp media regenerate` for every attachment at clone (`--regenerate-all` is the same at clone); the DB-known sizes were excluded from transfer and are rebuilt here.
 9. **Flush with plugins loaded.** `ddev wp rewrite flush --hard` — **without** `--skip-plugins`, so the flush runs with **plugins loaded**. A flush that skips plugins silently drops multilingual and custom routes, 404ing every localised subpage.
 10. **Restart.** `ddev restart` to clear the PHP-process caches a `wp cache flush` cannot reach.
-11. **Write the baseline.** Send `templates/manifest.php` (with the resolved exclusion scope injected) to emit the in-scope manifest — path, size, mtime per file, and the scope it was taken under — and store it as `.kntnt-wp-skills/last-sync.json`, the baseline `pull` diffs against next time.
+11. **Write the baseline.** Send `templates/manifest.php` — unfiltered, no exclusion payload — over `execute-php` to emit production's whole content-tree manifest, then filter it locally: pipe `{ "entries": <the emitted manifest's entries>, "exclusions": <the resolved exclusion set> }` to `uv run scripts/filter_manifest.py` (issue #18), which restricts it to the in-scope entries — path, size, mtime per file — and attaches the resolved set as its scope. Store that locally-filtered manifest as `.kntnt-wp-skills/last-sync.json`, the baseline `pull` diffs against next time.
 
 ## 10. Verify (smoke)
 

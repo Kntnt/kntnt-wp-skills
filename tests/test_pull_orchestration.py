@@ -47,6 +47,7 @@ REQUIRED_HELPERS: tuple[str, ...] = (
     "scripts/discovery.py",
     "scripts/classify.py",
     "scripts/resolve_plan.py",
+    "scripts/filter_manifest.py",
     "scripts/baseline_diff.py",
     "scripts/pack_script.py",
     "scripts/dump_sanity.py",
@@ -87,6 +88,17 @@ def _pos(pattern: str) -> int:
     match = re.search(pattern, SKILL_TEXT, re.IGNORECASE)
     assert match is not None, f"pull SKILL.md is missing an anchor for /{pattern}/"
     return match.start()
+
+
+def _pos_after(pattern: str, start: int) -> int:
+    """First match position of ``pattern`` at or after ``start`` — the scoped
+    variant of :func:`_pos` for asserting order within one step rather than
+    across the whole file, where an earlier bullet-list mention of the same
+    helper would otherwise make a naive first-match comparison meaningless."""
+
+    match = re.search(pattern, SKILL_TEXT[start:], re.IGNORECASE)
+    assert match is not None, f"pull SKILL.md is missing an anchor for /{pattern}/ after {start}"
+    return start + match.start()
 
 
 def _referenced_paths() -> set[str]:
@@ -146,6 +158,29 @@ def test_no_referenced_helper_or_template_path_dangles() -> None:
         path for path in _referenced_paths() if not (REPO_ROOT / path).is_file()
     )
     assert not dangling, f"pull SKILL.md references non-existent paths: {dangling}"
+
+
+def test_manifest_transport_carries_no_exclusion_payload() -> None:
+    """Issue #18: the manifest request must not embed an exclusion payload —
+    ``manifest.php`` is sent unfiltered and ``scripts/filter_manifest.py`` filters
+    the result locally before it is diffed and stored as the new baseline."""
+
+    assert "scripts/filter_manifest.py" in SKILL_TEXT, (
+        "the baseline diff must filter production's manifest locally"
+    )
+    assert "resolved exclusion scope injected" not in SKILL_TEXT, (
+        "the manifest request must not describe injecting an exclusion payload"
+    )
+
+    # Scoped to the diff step itself — not the earlier helper-seam bullet list —
+    # so the check proves the step's own narrative, not just that both names
+    # appear somewhere in the file.
+    manifest_pos = _pos(r"templates/manifest\.php")
+    filter_pos = _pos_after(r"scripts/filter_manifest\.py", manifest_pos)
+    diff_pos = _pos_after(r"scripts/baseline_diff\.py", filter_pos)
+    assert manifest_pos < filter_pos < diff_pos, (
+        "the manifest must be sent unfiltered, then locally filtered, then diffed"
+    )
 
 
 def test_every_decision_is_a_gate_from_the_resolved_plan() -> None:
