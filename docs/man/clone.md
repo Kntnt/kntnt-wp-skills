@@ -24,6 +24,8 @@ By default the site's existing mailer stays active locally so you can test the s
 
 After the import your local users are production's, so you log in with your production credentials — the throwaway admin `mkwp` created is overwritten.
 
+The finished copy is verified against a deterministic expectations file — core version, DDEV pins, table prefix, entity counts, table row-counts, drop-in absence, sample URLs, a database check, and more — by `scripts/smoke_test.py`, which also runs standalone from a terminal for a manual re-check or against a hand-edited baseline: `uv run "${CLAUDE_PLUGIN_ROOT}/scripts/smoke_test.py" <clone-directory> <expectations.json>`. Its `--generate` mode derives an expectations file from a discovery document instead of hand-writing one.
+
 `clone` is user-invoked only: it never runs on its own, because it executes code on production and writes a new local site.
 
 ## OPTIONS
