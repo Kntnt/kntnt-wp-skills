@@ -89,6 +89,14 @@ OPERATIONAL_TABLE_PATTERNS: dict[str, tuple[str, ...]] = {
 BLOB_ABSOLUTE_FLOOR_BYTES = 1 << 30  # 1 GiB.
 BLOB_OUTLIER_MEDIAN_FACTOR = 3
 
+# The standard WordPress single-site uploads location relative to the site root.
+# The exclusion set has one consumer-facing anchor — WordPress-root-relative paths
+# (the pack tar's `--anchored -C "$SOURCE_ROOT"` and the baseline manifest's
+# root-relative entries both silently no-match anything else) — and this is the
+# fallback when a document omits the absolute paths to derive it from. It is the
+# same layout templates/manifest.php assumes.
+DEFAULT_UPLOADS_ROOT_RELATIVE = "wp-content/uploads"
+
 # The DDEV hostname a derived project name is reachable at, appended to the name.
 DDEV_TLD = "ddev.site"
 
@@ -263,13 +271,46 @@ def classify_tables(prefix: str, tables: list[Any]) -> dict[str, list[Any]]:
     return {"full": full, "empty": empty}
 
 
-def flag_blobs(subdirectories: list[Any]) -> dict[str, list[dict[str, Any]]]:
+def uploads_root_relative(site: dict[str, Any]) -> PurePosixPath:
+    """Return the uploads directory as a path relative to the WordPress root — the
+    single anchor every exclusion consumer requires.
+
+    The flagged blobs and thumbnail exclude-set are matched by the pack tar
+    (``--exclude-from --anchored -C "$SOURCE_ROOT"``) and the baseline manifest,
+    both of which spell paths relative to the site root (``wp-content/uploads/...``);
+    an exclusion anchored any other way silently no-matches. The prefix is derived
+    from the document's own absolute ``root_path`` and ``uploads_base`` when both
+    are present — so a non-default content directory is honoured — and falls back to
+    the standard single-site location otherwise. An uploads directory outside the
+    root cannot be expressed as a root-relative prefix, so it fails loudly rather
+    than emitting a wrong anchor.
+    """
+
+    root = site.get("root_path", "")
+    uploads = site.get("uploads_base", "")
+    if not (isinstance(root, str) and root and isinstance(uploads, str) and uploads):
+        return PurePosixPath(DEFAULT_UPLOADS_ROOT_RELATIVE)
+
+    try:
+        return PurePosixPath(uploads).relative_to(PurePosixPath(root))
+    except ValueError:
+        raise ClassifyError(
+            f"uploads_base {uploads!r} is not under root_path {root!r}: "
+            "the exclusion set cannot be anchored at the WordPress root"
+        )
+
+
+def flag_blobs(
+    uploads_prefix: PurePosixPath, subdirectories: list[Any]
+) -> dict[str, list[dict[str, Any]]]:
     """Flag the heavy-outlier upload subdirectories for the exclusion gate.
 
     A subdirectory is flagged only when it clears the absolute floor *and* is at
     least the outlier factor above the median subdirectory size. Both conditions
     are pure functions of the sizes, so the same document always yields the same
-    flags — the determinism the gate relies on.
+    flags — the determinism the gate relies on. Each flagged path is anchored at
+    the WordPress root (``uploads_prefix`` joined onto the subdirectory name), the
+    one spelling the pack tar and the baseline manifest match against.
     """
 
     # Validate each subdirectory element and read its path and size once, so a
@@ -293,7 +334,7 @@ def flag_blobs(subdirectories: list[Any]) -> dict[str, list[dict[str, Any]]]:
     outlier_threshold = median * BLOB_OUTLIER_MEDIAN_FACTOR
     flagged = [
         {
-            "path": path,
+            "path": str(uploads_prefix / path),
             "size_bytes": size,
             "reason": (
                 f"{size} bytes: at or above the {BLOB_ABSOLUTE_FLOOR_BYTES}-byte "
@@ -308,7 +349,9 @@ def flag_blobs(subdirectories: list[Any]) -> dict[str, list[dict[str, Any]]]:
     return {"flagged": flagged}
 
 
-def thumbnail_exclude_set(attachments: list[Any]) -> list[str]:
+def thumbnail_exclude_set(
+    uploads_prefix: PurePosixPath, attachments: list[Any]
+) -> list[str]:
     """Compute the exclude-set of DB-known generated sizes from attachment
     metadata.
 
@@ -319,6 +362,13 @@ def thumbnail_exclude_set(attachments: list[Any]) -> list[str]:
     original (a ``photo-300x200.jpg`` uploaded in its own right) from being
     dropped as another attachment's look-alike derivative, and it is why
     side-loaded files — never in the metadata — are never excluded (ADR-0011).
+
+    The attachment ``file`` and its ``sizes`` are uploads-relative (WordPress'
+    ``_wp_attached_file``), so the resolved exclusions are re-anchored at the
+    WordPress root via ``uploads_prefix`` — the one spelling the pack tar and the
+    baseline manifest match against. The subtraction runs before the re-anchoring,
+    in the uploads-relative space both sets share, so the original-wins-collision
+    rule is unaffected.
     """
 
     originals: set[str] = set()
@@ -332,7 +382,7 @@ def thumbnail_exclude_set(attachments: list[Any]) -> list[str]:
         for size_file in _string_list(record, "sizes", context):
             derivatives.add(str(directory / size_file))
 
-    return sorted(derivatives - originals)
+    return sorted(str(uploads_prefix / path) for path in derivatives - originals)
 
 
 def derive_project_name(home_url: str) -> str:
@@ -387,14 +437,22 @@ def classify(document: Any) -> dict[str, Any]:
     database = _object(document.get("database", {}), "database")
     uploads = _object(document.get("uploads", {}), "uploads")
 
+    # Anchor the exclusion set at the WordPress root once, so the flagged blobs and
+    # the thumbnail exclude-set share the one spelling their consumers match against.
+    uploads_prefix = uploads_root_relative(site)
+
     return {
         "defines": classify_defines(_list(document, "defines", "input")),
         "tables": classify_tables(
             database.get("table_prefix", ""), _list(database, "tables", "database")
         ),
-        "blobs": flag_blobs(_list(uploads, "subdirectories", "uploads")),
+        "blobs": flag_blobs(
+            uploads_prefix, _list(uploads, "subdirectories", "uploads")
+        ),
         "thumbnails": {
-            "exclude": thumbnail_exclude_set(_list(document, "attachments", "input"))
+            "exclude": thumbnail_exclude_set(
+                uploads_prefix, _list(document, "attachments", "input")
+            )
         },
         "project_name": build_project_name(site.get("home_url", "")),
     }

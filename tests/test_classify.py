@@ -415,6 +415,7 @@ def test_the_exclusion_anchor_is_derived_from_a_custom_content_directory() -> No
             "uploads_base": "/srv/app/content/uploads",
         },
         "uploads": {"subdirectories": [
+            {"path": "2023", "size_bytes": 104857600},
             {"path": "2024", "size_bytes": 104857600},
             {"path": "galleries", "size_bytes": 6442450944},
         ]},
@@ -442,6 +443,7 @@ def test_the_exclusion_anchor_defaults_to_the_standard_layout_when_paths_absent(
     # so the anchor is still correct for the overwhelmingly common case.
     document = {
         "uploads": {"subdirectories": [
+            {"path": "2023", "size_bytes": 104857600},
             {"path": "2024", "size_bytes": 104857600},
             {"path": "galleries", "size_bytes": 6442450944},
         ]},
@@ -493,6 +495,7 @@ def test_the_exclusion_set_actually_bites_in_the_baseline_diff() -> None:
     # either side reddens here rather than silently defeating the deletion rule.
     document = {
         "uploads": {"subdirectories": [
+            {"path": "2023", "size_bytes": 104857600},
             {"path": "2024", "size_bytes": 104857600},
             {"path": "galleries", "size_bytes": 6442450944},
         ]},

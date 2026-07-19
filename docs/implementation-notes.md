@@ -87,7 +87,7 @@ All keys optional; a missing key falls back to the built-in default. From the su
   "source": { "mcpServer": "novamira-<site>", "liveUrl": "https://www.example.com" },
   "target": { "ddevProject": "<name>" },
   "db": { "emptyTables": ["wp_independent_analytics%", "wp_rcb_consent%", "wp_fsmpt_email_logs", "wp_relevanssi%"] },
-  "scope": { "includeMedia": true, "excludeBlobs": ["uploads/<gallery>", "uploads/*.mmdb"] },
+  "scope": { "includeMedia": true, "excludeBlobs": ["wp-content/uploads/<gallery>", "wp-content/uploads/<maxmind-db-dir>"] },
   "wpConfigDefines": ["WP_MEMORY_LIMIT"],
   "plugins": { "preserveLocalInactive": true },
   "objectCache": "derive",
