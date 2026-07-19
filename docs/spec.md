@@ -220,8 +220,13 @@ Remove the large local scratch artifacts. The pull rollback backup already lives
 
 - Derive two names from the production URL: the local DDEV project name — strip scheme and www, take the main label, sanitise to the scaffolder's charset — and the clone's directory name — strip scheme, userinfo, port, and path, keeping `www.` and every dot verbatim. Each is its own decision in the ordered gate list, so the operator can correct either independently; `--yes` accepts both. No public-suffix-list dependency; the gates cover oddball domains.
 - Before scaffolding, verify the local `mkwp` on `PATH` supports `--dirname` (the floor is `mkwp` ≥ 1.5.0); abort with a precise report naming the required version if it does not — the operator installs binaries, not the skill.
-- Scaffold with `mkwp` at production's exact core version into the derived directory name (`mkwp`'s `--dirname` flag), with the DDEV project registered under the derived project name; core files are never transferred.
-- Pin DDEV's database engine+version and PHP version to production's, and write production's table prefix into the marked block.
+- Scaffold, correct the engine, then restart — not "pin before any start": `mkwp` has no `--db=` flag today, so its scaffold unconditionally brings DDEV up once already, on the default database engine, before control returns; that cannot be deferred past the pin below, because `mkwp` performs it internally.
+  1. Scaffold with `mkwp` at production's exact core version into the derived directory name (`mkwp`'s `--dirname` flag), with the DDEV project registered under the derived project name; core files are never transferred.
+  2. Discard the scaffold's throwaway default-engine database: `ddev stop`, then `ddev delete -Oy` — no data loss, nothing but the placeholder install ever lived in it.
+  3. Pin DDEV's database engine+version and PHP version to production's — `ddev config --database=<flavour>:<version> --php-version=<major.minor>` against `.ddev/config.yaml`, the database version truncated to `major.minor` exactly as PHP already is — and write production's table prefix into the marked block. Prefer a future `mkwp --db=` flag once it exists; it does not today.
+  4. Restart with `ddev start` on the corrected engine before anything downstream runs.
+
+  This is the same `ddev delete -Oy` plus reconfigure-and-restart cycle a smoke test once had to run late, deep inside an already-populated site, after a scaffolded MariaDB 11.8 collided with a production 11.4 at import; running it deliberately, immediately after scaffold, costs nothing.
 - No pre-import backup, no preserved inactive set, no object-cache derivation — nothing local pre-exists.
 - After import, local users are production's: the report says to log in with production credentials, and offers to remove the scaffold's default themes and plugins left sitting beside production's.
 

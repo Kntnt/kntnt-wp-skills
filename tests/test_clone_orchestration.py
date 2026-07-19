@@ -203,12 +203,17 @@ def test_engine_pin_precedes_the_first_ddev_start() -> None:
     settle on DDEV's default MariaDB (11.8) against a production 11.4, costing a
     ``ddev delete -O`` plus reconfigure-and-restart cycle to undo after the fact."""
 
+    # Anchor the first-start position on the actual **First start.** step, not the
+    # summary intro sentence that also says "before the first `ddev start`" —
+    # otherwise a regression that reordered the real steps while leaving the
+    # intro intact would slip through (the same pitfall the health-check
+    # ordering test above documents).
     scaffold = _pos(r"mkwp <name>")
     pin = _pos(r"ddev config --database=")
-    start = _pos(r"ddev start")
+    start = _pos(r"\*\*First start\.\*\*")
     assert scaffold < pin < start, (
         "clone SKILL.md must order the mkwp scaffold, then the `ddev config "
-        "--database=` engine pin, then the first `ddev start`"
+        "--database=` engine pin, then the first-start step"
     )
 
 
