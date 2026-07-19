@@ -130,15 +130,24 @@ def resolve(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def save(
-    resolved: dict[str, Any], saved_plan: dict[str, Any] | None = None
+    resolved: dict[str, Any],
+    saved_plan: dict[str, Any] | None = None,
+    source: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run the helper's ``save`` operation over a resolved plan and return the
     persisted saved-plan document — the decisions-only round-trip subject. The
     optional ``saved_plan`` is the committed plan being overwritten, so a key a
     prior run settled for a decision this skill does not walk (a clone-derived
-    ``target`` on a pull re-save) is carried forward rather than dropped."""
+    ``target`` on a pull re-save) is carried forward rather than dropped. The
+    optional ``source`` is the run's source record (MCP server and live URL) the
+    runtime supplies, which the committed plan must carry as part of the
+    reproducible per-site record (docs/spec.md, Persistent config)."""
 
-    payload = {"operation": "save", "resolved": resolved, "saved_plan": saved_plan}
+    payload: dict[str, Any] = {
+        "operation": "save", "resolved": resolved, "saved_plan": saved_plan,
+    }
+    if source is not None:
+        payload["source"] = source
     result = run_resolve(payload)
     assert result.returncode == 0, result.stderr.decode()
     saved: dict[str, Any] = json.loads(result.stdout)
@@ -518,6 +527,46 @@ def test_a_pull_resave_preserves_the_clone_saved_target() -> None:
     # pull-only decisions it does walk are still persisted.
     assert pull_written["target"] == "example"
     assert pull_written["deletion_mirroring"] == "off"
+
+
+# --- The saved plan records the run's source and never strips it on re-save ----
+
+
+def test_the_save_records_the_source_supplied_for_the_run() -> None:
+    # Arrange: the runtime supplies the run's source — the MCP server and the live
+    # URL — which docs/spec.md's persistent config requires the committed plan to
+    # record, so the copy is a fully reproducible per-site record.
+    source = {"mcp_server": "novamira-example", "live_url": "https://www.example.com"}
+
+    # Act.
+    written = save(resolve(envelope(skill="clone")), source=source)
+
+    # Assert: the source is persisted alongside the decisions.
+    assert written["source"] == source
+
+
+def test_a_resave_preserves_the_committed_source_record() -> None:
+    # Arrange: a committed plan already records the source an earlier run wrote.
+    # A pull re-save writes the whole file from the helper's output, so the
+    # decisions-only carry-forward allowlist must carry the documented source
+    # forward rather than strip it (docs/spec.md, Persistent config).
+    committed = {
+        "target": "example",
+        "source": {"mcp_server": "novamira-example", "live_url": "https://www.example.com"},
+        "media": "include",
+    }
+
+    # Act: the pull re-resolves against the committed plan and persists back over
+    # the same file, supplying no fresh source this run.
+    written = save(
+        resolve(envelope(skill="pull", saved_plan=committed)), saved_plan=committed
+    )
+
+    # Assert: the source survives the re-save intact.
+    assert written["source"] == {
+        "mcp_server": "novamira-example",
+        "live_url": "https://www.example.com",
+    }
 
 
 # --- The mass-send valve is never silently defeated on replay -----------------

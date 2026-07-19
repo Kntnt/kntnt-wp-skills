@@ -259,6 +259,29 @@ def test_table_classification_respects_a_non_default_prefix() -> None:
     assert "site7_options" in tables["full"]
 
 
+def test_every_table_is_classified_not_only_the_report_subset() -> None:
+    # Arrange — a site with more tables than the heaviest-N report subset: the full
+    # enumeration 'tables' lists 25, while 'top_tables' (the report artifact the
+    # operator's overview reads) carries only the heaviest 20. The classifier must
+    # split the whole enumeration, or every table beyond the report subset is
+    # silently dropped from the dump — the "all tables, always" cornerstone the
+    # copy relies on so nothing ever hits a missing table (spec user story 16).
+    all_tables = [f"wp_widget_{index:02d}" for index in range(25)]
+    document = {"database": {
+        "table_prefix": "wp_",
+        "tables": all_tables,
+        "top_tables": [{"name": name, "size_bytes": 1_000_000} for name in all_tables[:20]],
+    }}
+
+    # Act.
+    tables = classify_document(document)["tables"]
+
+    # Assert — the full/empty split together covers every one of the 25 tables,
+    # not just the 20 the report subset carries.
+    covered = set(tables["full"]) | {entry["name"] for entry in tables["empty"]}
+    assert covered == set(all_tables)
+
+
 # --- Blob heuristic ----------------------------------------------------------
 
 
@@ -440,9 +463,11 @@ def test_a_malformed_define_record_fails_loudly() -> None:
     assert result.stderr.startswith(b"classify:")
 
 
-def test_a_malformed_table_record_fails_loudly() -> None:
-    # Arrange — a table entry lacking its 'name'.
-    document = {"database": {"top_tables": [{"size_bytes": 1024}]}}
+def test_a_malformed_table_name_fails_loudly() -> None:
+    # Arrange — a non-string element in the full table enumeration. It must earn
+    # the same loud `classify:` diagnostic as any other malformed record, not an
+    # uncaught traceback from the operational-pattern match.
+    document = {"database": {"tables": [123]}}
 
     # Act.
     result = run_classify(json.dumps(document).encode())

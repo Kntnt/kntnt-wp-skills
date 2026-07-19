@@ -75,6 +75,43 @@ def test_valid_discovery_output_is_parsed_into_a_canonical_document() -> None:
     assert document["themes"] == ["astra", "twentytwentyfour"]
 
 
+def test_the_canonical_document_carries_the_full_table_enumeration() -> None:
+    # Arrange — the raw scan enumerates every table, not only the heaviest for the
+    # report. The canonical document must carry the complete enumeration so
+    # classification and the dump cover every table (spec: all tables, always).
+    payload = load_fixture("representative-site.json")
+    payload["discovery"]["database"]["tables"] = [
+        "wp_posts", "wp_options", "wp_users", "wp_extra_plugin_state",
+    ]
+
+    # Act.
+    result = run_on(payload)
+    assert result.returncode == 0, result.stderr.decode()
+    database = json.loads(result.stdout)["database"]
+
+    # Assert — the full enumeration survives intact, distinct from the heaviest-N
+    # report subset the document also carries.
+    assert database["tables"] == [
+        "wp_posts", "wp_options", "wp_users", "wp_extra_plugin_state",
+    ]
+
+
+def test_a_non_string_table_name_fails_loudly() -> None:
+    # Arrange — the full table enumeration must be a list of strings; a non-string
+    # element is malformed and must not ride into the document half-built.
+    payload = load_fixture("representative-site.json")
+    payload["discovery"]["database"]["tables"] = ["wp_posts", 42]
+
+    # Act.
+    result = run_on(payload)
+
+    # Assert.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"discovery:")
+    assert b"tables" in result.stderr
+
+
 def test_database_password_never_appears_in_the_canonical_document() -> None:
     # Arrange — the fixture's DB_PASSWORD carries a unique sentinel.
     sentinel = "P@ssw0rd-NEVER-LEAK-2b91f"

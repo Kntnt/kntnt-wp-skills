@@ -12,6 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import classify
 import pack_script
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
@@ -38,6 +39,33 @@ def _config(**overrides: object) -> dict[str, object]:
     }
     base.update(overrides)
     return base
+
+
+def test_every_classified_table_reaches_a_dump_operand() -> None:
+    """The cross-layer cornerstone: every table the classifier splits is dumped —
+    content tables with data, operational tables schema-only — so the imported
+    copy never hits a missing table. The enumeration carries more tables than any
+    heaviest-N report subset, proving the dump is driven by the full table set,
+    not the report artifact (spec user story 16: all tables, always)."""
+
+    all_tables = [f"wp_content_{index:02d}" for index in range(22)] + [
+        "wp_matomo",
+        "wp_relevanssi",
+        "wp_fsmpt_email_logs",
+    ]
+    document = {"database": {"table_prefix": "wp_", "tables": all_tables}}
+
+    classified = classify.classify(document)["tables"]
+    script = pack_script.generate_pack_script(
+        _config(
+            contentTables=classified["full"],
+            emptyTables=[entry["name"] for entry in classified["empty"]],
+        )
+    )
+
+    # Every table appears as a dump operand — none silently omitted.
+    for name in all_tables:
+        assert name in script, name
 
 
 def test_generation_is_deterministic() -> None:
