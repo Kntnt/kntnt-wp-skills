@@ -104,6 +104,29 @@ foreach ( $attachment_rows as $row ) {
 	$attachments[] = [ 'id' => (int) $row['id'], 'file' => $row['file'], 'sizes' => $sizes ];
 }
 
+// Parse production's wp-config for its defines: locate the file and extract
+// every declared constant's name by a light regex — good enough to find a
+// define() call however it is wrapped in a conditional guard — then resolve
+// each name's value live via defined()/constant() rather than the raw,
+// unevaluated source expression, the same live-value strategy the connection
+// block above already uses for DB_HOST and friends. wp-config.php
+// conventionally sits at ABSPATH, or one directory above it when the site
+// owner has moved it out of the docroot.
+$wp_config_path = file_exists( ABSPATH . 'wp-config.php' )
+	? ABSPATH . 'wp-config.php'
+	: dirname( ABSPATH ) . '/wp-config.php';
+$wp_config_defines = [];
+if ( file_exists( $wp_config_path ) ) {
+	$wp_config_source = file_get_contents( $wp_config_path );
+	preg_match_all( "/define\s*\(\s*['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]/", $wp_config_source, $wp_config_matches );
+	foreach ( array_unique( $wp_config_matches[1] ) as $define_name ) {
+		$wp_config_defines[] = [
+			'name'  => $define_name,
+			'value' => defined( $define_name ) ? constant( $define_name ) : null,
+		];
+	}
+}
+
 // Probe the binaries the pack script needs, so a missing tool fails the health
 // check rather than a half-finished dump.
 $binaries = [];
@@ -199,6 +222,7 @@ echo json_encode( [
 		],
 	],
 	'attachments'            => $attachments,
+	'defines'                => $wp_config_defines,
 	'binaries'               => $binaries,
 ] );
 
