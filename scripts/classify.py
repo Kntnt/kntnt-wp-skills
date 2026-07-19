@@ -23,7 +23,9 @@ from as one JSON object on stdout. It computes:
 - ``thumbnails`` — the exclude-set of DB-known generated sizes, with a registered
   original always kept even when its name collides with a derivative and
   side-loaded files never excluded (ADR-0011).
-- ``project_name`` — the local DDEV project name derived from the production URL.
+- ``project_name`` — the name-derivation recommendation: the local DDEV project
+  name (a sanitised, hostname-safe slug) and the clone's directory name (the
+  production host verbatim), both derived from the production URL.
 
 The classifier never decides: it produces the recommendation inputs the model
 puts behind accept-or-override gates. Malformed input fails loudly — a non-zero
@@ -100,9 +102,11 @@ DEFAULT_UPLOADS_ROOT_RELATIVE = "wp-content/uploads"
 # The DDEV hostname a derived project name is reachable at, appended to the name.
 DDEV_TLD = "ddev.site"
 
-# The fallback project name when a production host sanitises to nothing (an
-# all-symbol label); the confirm gate lets the operator correct it.
-FALLBACK_PROJECT_NAME = "site"
+# The fallback the project name and the directory name share when a production
+# host yields nothing to work with — sanitises to an all-symbol label for the
+# slug, or strips away to no host at all for the directory; the confirm gate
+# lets the operator correct either.
+FALLBACK_NAME = "site"
 
 
 class ClassifyError(Exception):
@@ -385,22 +389,29 @@ def thumbnail_exclude_set(
     return sorted(str(uploads_prefix / path) for path in derivatives - originals)
 
 
+def _extract_host(home_url: str) -> str:
+    """Reduce a production URL to its bare host: drop the scheme, then the path,
+    any userinfo, and any port. This is the shared first step both the DDEV
+    project-name slug and the clone directory name derive from — the two then
+    diverge on what they do with the host."""
+
+    without_scheme = re.sub(r"^[a-zA-Z][a-zA-Z0-9+.\-]*://", "", home_url.strip())
+    return without_scheme.split("/", 1)[0].rsplit("@", 1)[-1].split(":", 1)[0]
+
+
 def derive_project_name(home_url: str) -> str:
-    """Derive a local project name from the production URL: strip the scheme and a
-    leading ``www.``, take the main label, and sanitise to the scaffolder's
-    lowercase-alphanumeric-and-hyphen charset.
+    """Derive the local DDEV project name from the production URL: strip the
+    scheme and a leading ``www.``, take the main label, and sanitise to the
+    scaffolder's lowercase-alphanumeric-and-hyphen charset — a valid hostname
+    label, since it also names the DDEV domain.
 
     There is no public-suffix-list dependency — the main label is simply the first
     host label, which the confirm gate lets the operator correct for an oddball
     domain (a subdomain, a multi-part TLD).
     """
 
-    # Reduce the URL to its host: drop the scheme, then the path, any userinfo,
-    # and any port.
-    without_scheme = re.sub(r"^[a-zA-Z][a-zA-Z0-9+.\-]*://", "", home_url.strip())
-    host = without_scheme.split("/", 1)[0].rsplit("@", 1)[-1].split(":", 1)[0]
-
     # Strip a leading www. label, then take the main (first) label.
+    host = _extract_host(home_url)
     if host.lower().startswith("www."):
         host = host[len("www."):]
     label = host.split(".", 1)[0]
@@ -408,17 +419,34 @@ def derive_project_name(home_url: str) -> str:
     # Sanitise to the scaffolder's charset, collapsing runs of invalid characters
     # to a single hyphen and trimming the edges; fall back when nothing survives.
     slug = re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-")
-    return slug or FALLBACK_PROJECT_NAME
+    return slug or FALLBACK_NAME
+
+
+def derive_directory_name(home_url: str) -> str:
+    """Derive the clone's directory name from the production URL: the host
+    verbatim, once the scheme, any userinfo, any port, and the path are
+    stripped — keeping ``www.`` and every dot, and preserving case, so the
+    directory mirrors the operator's full original host rather than the
+    sanitised, hostname-safe DDEV project name.
+
+    Falls back to :data:`FALLBACK_NAME` when stripping leaves no host at all (an
+    empty or host-less URL), the same oddball floor :func:`derive_project_name`
+    uses, so the confirm gate always has a name to present and correct.
+    """
+
+    return _extract_host(home_url) or FALLBACK_NAME
 
 
 def build_project_name(home_url: str) -> dict[str, str]:
-    """Assemble the project-name recommendation: the derived name, its DDEV
-    hostname, and the source URL it came from (so the confirm gate can show its
-    provenance)."""
+    """Assemble the name-derivation recommendation: the DDEV project slug and its
+    DDEV hostname, the clone's directory name, and the source URL both came from
+    (so the confirm gate can show its provenance and let the operator correct
+    either name independently)."""
 
     name = derive_project_name(home_url)
     return {
         "name": name,
+        "directory_name": derive_directory_name(home_url),
         "ddev_url": f"{name}.{DDEV_TLD}",
         "source_url": home_url,
     }
