@@ -101,6 +101,7 @@ The sole channel to production is the **Novamira MCP** server connected to the l
 - `run-wp-cli` always takes its arguments as a JSON array — a single string silently returns the WP-CLI help text with exit 0.
 - The production host must allow process spawning; the health check probes this independently, because a working `run-wp-cli` does not prove it (Novamira may run WP-CLI in-process).
 - The skills never deactivate or delete Novamira on production — it is the control channel.
+- `read-file` and `write-file` are **docroot-only**; they cannot see the outside-docroot working dir where the pack artifacts are staged before publication ([ADR-0008](./adr/0008-encrypted-artifacts-outside-docroot.md)). All outside-docroot IO — fetching `pass.key`, placing the generated `pack.sh` in the working dir — goes over `execute-php` with `file_get_contents` / `file_put_contents` instead, the same authenticated channel. `pass.key` must never be copied into the docroot, not even transiently.
 
 ### Health check (mandatory step 0, every run of both skills)
 

@@ -137,7 +137,10 @@ def test_skill_download_step_fetches_pass_key_over_execute_php(skill: str) -> No
     assert "execute-php" in sentence, (
         f"{skill}/SKILL.md's pass.key fetch step does not name execute-php: {sentence!r}"
     )
-    assert "read-file" not in sentence, (
+    # A clause explaining *why* read-file cannot be used is fine; naming it as
+    # the channel actually taken — "over" immediately followed by `read-file`
+    # — is the regression the smoke tests hit.
+    assert not re.search(r"over\s+(?:the\s+\S+\s+)?`read-file`", sentence), (
         f"{skill}/SKILL.md still routes the pass.key fetch over read-file: {sentence!r}"
     )
 
