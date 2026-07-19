@@ -70,8 +70,8 @@ This file preserves the invocation-level literals from the superseded design-and
 
 ## Clone
 
-- Name derivation example: `https://www.elfsborgsmarschen.se` → `elfsborgsmarschen` → DDEV project `elfsborgsmarschen.ddev.site`.
-- Scaffold: `mkwp <name> --wp=<production's exact core version>`.
+- Name derivation example: `https://www.elfsborgsmarschen.se` → project `elfsborgsmarschen` (DDEV `elfsborgsmarschen.ddev.site`), directory `www.elfsborgsmarschen.se`.
+- Scaffold: `mkwp <name> --dirname=<directory_name> --wp=<production's exact core version>`.
 
 ## Harmless stderr noise (never treat as failure)
 

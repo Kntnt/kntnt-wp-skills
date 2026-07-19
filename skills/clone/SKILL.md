@@ -28,7 +28,7 @@ If the arguments are `help`, `--help`, or `-h`, run `uv run "${CLAUDE_PLUGIN_ROO
 **The deterministic helper seam.** Every computation that needs neither production nor DDEV is done by a helper script under `${CLAUDE_PLUGIN_ROOT}/scripts/`, invoked with `uv run` and fed JSON on stdin. **Never compute a diff, a classification, a resolved plan, a pack script, or a dump verdict by hand** — the model orchestrates gates and control-channel calls, the helpers decide the shapes ([ADR-0005](../../docs/adr/0005-decision-backbone-gates-and-layered-defaults.md)). The seam is:
 
 - `scripts/discovery.py` — parses the raw health-check and discovery output into the one canonical discovery document.
-- `scripts/classify.py` — turns that document into the table split, the define classes, the flagged blobs, the thumbnail exclude-set, and the derived project name.
+- `scripts/classify.py` — turns that document into the table split, the define classes, the flagged blobs, the thumbnail exclude-set, and the derived project and directory names.
 - `scripts/resolve_plan.py` — resolves the ordered decision list over the layered defaults (`resolve`), and reduces an accepted plan back to the saved plan (`save`).
 - `scripts/pack_script.py` — generates the production-side `pack.sh` from resolved inputs.
 - `scripts/dump_sanity.py` — verdicts the decrypted dump against the discovered prefix before the import.
@@ -56,7 +56,7 @@ Mandatory step 0 of the engine, before any heavy work. On any failure, abort wit
 
 One read-only production scan. Send `templates/discovery.php` over `execute-php`; it echoes a single JSON object — sizes and versions, the table prefix, the database flavour and collation, InnoDB status, active plugins and any multilingual plugin, the drop-ins and themes, the core version, the mass-send risk scan, the raw attachment metadata, the wp-config defines, and the required-binary probe. The **database password is never returned** — the connection is rebuilt from an allowlist of non-secret constants, so the one secret that unlocks everything never enters model context.
 
-Combine the discovery output with the liveness and exec-probe outputs into one JSON envelope and pipe it to `uv run scripts/discovery.py`; it validates the input and writes the **canonical discovery document** (redacting any secret define value at the boundary). Pipe that document to `uv run scripts/classify.py` to get the classifications: the full-data / empty table split, the portable vs auto-excluded defines, the flagged heavy blobs, the thumbnail exclude-set, and the derived project name. If either helper exits non-zero, stop and report its stderr diagnostic — a malformed scan never rides into the run.
+Combine the discovery output with the liveness and exec-probe outputs into one JSON envelope and pipe it to `uv run scripts/discovery.py`; it validates the input and writes the **canonical discovery document** (redacting any secret define value at the boundary). Pipe that document to `uv run scripts/classify.py` to get the classifications: the full-data / empty table split, the portable vs auto-excluded defines, the flagged heavy blobs, the thumbnail exclude-set, and the derived project and directory names. If either helper exits non-zero, stop and report its stderr diagnostic — a malformed scan never rides into the run.
 
 ## 3. Resolve the plan and walk the gates
 
@@ -70,8 +70,8 @@ The mail decision leads with its `findings`: when the mass-send valve flipped, t
 
 The clone-only setup, using the resolved plan. It runs before the pack because the import needs a live DDEV site to import into.
 
-- **Name-derivation gate.** The `project_name` decision carries the name `scripts/classify.py` derived from the production URL (scheme and `www.` stripped, main label sanitised to the scaffolder's charset) and its DDEV URL. Present it as the confirm gate; `--yes` accepts. The gate covers oddball domains without a public-suffix-list dependency.
-- **Scaffold at production's exact core version.** Run `mkwp <name> --wp=<core_version>` with the core version from discovery; core files are never transferred.
+- **Name-derivation gate.** The `project_name` decision carries **both names** `scripts/classify.py` derived from the production URL: `name`, the DDEV project slug (scheme and `www.` stripped, main label sanitised to the scaffolder's charset) with its DDEV URL, and `directory_name`, the production host verbatim — scheme, userinfo, port, and path stripped, `www.` and every dot kept. Present both as the confirm gate so the operator can correct either independently; `--yes` accepts both. The gate covers oddball domains without a public-suffix-list dependency.
+- **Scaffold at production's exact core version.** Run `mkwp <name> --dirname=<directory_name> --wp=<core_version>` with the core version from discovery — `mkwp`'s `--dirname` flag (≥ 1.5.0, [Kntnt/mkwp#2](https://github.com/Kntnt/mkwp/issues/2)) names the site directory independently of `NAME`, so the site lands in `<directory_name>` under the operator's current directory while the DDEV project registers as `<name>`. Core files are never transferred.
 - **Pin the engine.** Pin DDEV's database engine and version and PHP `major.minor` to discovery's `db_engine_php` values, so the import does not crash on MySQL-8-vs-MariaDB collations and the copy behaves like production. Production's table prefix is written into the marked block during localisation (below).
 
 There is no pre-import backup, no preserved inactive set, and no object-cache derivation at clone — nothing local pre-exists.

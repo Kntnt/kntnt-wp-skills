@@ -70,7 +70,7 @@ The sole channel to production is the **Novamira MCP** server connected to the l
 50. As an operator, I want `--live-mail` and `--capture-mail` overrides, so that an unattended run can pin the mail behaviour either way.
 51. As an operator, I want cron left running by default with `--no-cron` to opt out, so that the copy behaves like production unless I say otherwise.
 52. As an operator, I want a risk warning always emitted itemising the copy's outward-reaching behaviours, so that the faithful-by-default posture is informed, never silent.
-53. As a clone operator, I want the local project name derived from the production URL behind a confirm gate, so that naming is automatic but never wrong for an oddball domain.
+53. As a clone operator, I want the local DDEV project name and the clone's directory name both derived from the production URL behind a confirm gate, so that naming is automatic but never wrong for an oddball domain.
 54. As a clone operator, I want the site scaffolded at production's exact core version, so that core files never need to be transferred.
 55. As a clone operator, I want to be told that local logins now use production credentials, and be offered removal of the scaffold's default themes and plugins, so that the copy starts clean and I am not locked out by surprise.
 56. As an operator, I want `help`, `--help`, or `-h` on either skill — and the plugin's help command — to print the skill's manual page verbatim, so that usage lives in one place and is always current.
@@ -212,8 +212,8 @@ Remove the large local scratch artifacts. The pull rollback backup already lives
 
 ### Clone bookends
 
-- Derive the local project name from the production URL — strip scheme and www, take the main label, sanitise to the scaffolder's charset — presented as a gate; `--yes` accepts. No public-suffix-list dependency; the gate covers oddball domains.
-- Scaffold with `mkwp` at production's exact core version; core files are never transferred.
+- Derive two names from the production URL: the local DDEV project name — strip scheme and www, take the main label, sanitise to the scaffolder's charset — and the clone's directory name — strip scheme, userinfo, port, and path, keeping `www.` and every dot verbatim. Present both as a gate so the operator can correct either independently; `--yes` accepts both. No public-suffix-list dependency; the gate covers oddball domains.
+- Scaffold with `mkwp` at production's exact core version into the derived directory name (`mkwp`'s `--dirname` flag), with the DDEV project registered under the derived project name; core files are never transferred.
 - Pin DDEV's database engine+version and PHP version to production's, and write production's table prefix into the marked block.
 - No pre-import backup, no preserved inactive set, no object-cache derivation — nothing local pre-exists.
 - After import, local users are production's: the report says to log in with production credentials, and offers to remove the scaffold's default themes and plugins left sitting beside production's.
@@ -276,12 +276,12 @@ The single source of truth for usage is one Markdown manpage per skill (NAME, SY
 
 ### Preconditions (documented in the README)
 
-DDEV up and running (with Docker or equivalent); the free Novamira plugin installed and enabled on production with its MCP server connected in Claude Code; `mkwp` on the operator's PATH for clone.
+DDEV up and running (with Docker or equivalent); the free Novamira plugin installed and enabled on production with its MCP server connected in Claude Code; `mkwp` ≥ 1.5.0 on the operator's PATH for clone (its `--dirname` flag names the clone's directory independently of the DDEV project name).
 
 ## Testing Decisions
 
 - A good test exercises **external behaviour at the seam** — fixtures in, observable outputs out — and never reaches into implementation internals. Tests are named for the behaviour they assert, follow Arrange-Act-Assert, and each is seen failing before the satisfying code exists (red first), per the project coding standard.
-- **The single automated seam is the deterministic helper CLI.** Fixture discovery payloads, baselines, saved plans, and local-state snapshots go in as JSON; the assertions are on what comes out: the baseline diff (new/changed and production-deleted sets, including the scope-intersection rule that keeps a scope change from poisoning the deletion set), plan resolution across all four default layers (including that `--yes` stops at the saved-config layer and that flags pin their decisions), the classifications (defines into auto-excluded vs portable, tables into full vs empty, blob flagging, the thumbnail exclude-set from attachment-metadata fixtures — including the ambiguous same-name original/derivative case), the project-name derivation, the dump sanity verdicts, the saved-plan round-trip, and the generated pack script's content (anchored exclusion file, artifacts named `.enc` from creation, checksums over final names, DONE/FAILED markers, self-destruct arming).
+- **The single automated seam is the deterministic helper CLI.** Fixture discovery payloads, baselines, saved plans, and local-state snapshots go in as JSON; the assertions are on what comes out: the baseline diff (new/changed and production-deleted sets, including the scope-intersection rule that keeps a scope change from poisoning the deletion set), plan resolution across all four default layers (including that `--yes` stops at the saved-config layer and that flags pin their decisions), the classifications (defines into auto-excluded vs portable, tables into full vs empty, blob flagging, the thumbnail exclude-set from attachment-metadata fixtures — including the ambiguous same-name original/derivative case), the project- and directory-name derivation, the dump sanity verdicts, the saved-plan round-trip, and the generated pack script's content (anchored exclusion file, artifacts named `.enc` from creation, checksums over final names, DONE/FAILED markers, self-destruct arming).
 - **The generated pack script is additionally executed** in a sandboxed temp directory with stub binaries on the path standing in for the database tools, proving its runtime contract at the same seam: the success path yields DONE, three artifacts, and checksums that verify; an induced failure yields FAILED plus the log tail in the download dir; and at no point does plaintext appear in the simulated docroot.
 - **The help/docs consistency test** binds the documentation together: every skill has a manpage, every flag documented in a manpage's OPTIONS table is one the engine accepts (and vice versa), the overview lists each manpage's NAME line, and the README's manpage links resolve.
 - Framework: pytest, provisioned by uv, per the Python module of the coding standard. There is no prior test art in this repository — this suite is the first; the existing help script establishes the standalone-script shape the helpers follow.
