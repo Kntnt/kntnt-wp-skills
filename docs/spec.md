@@ -147,7 +147,7 @@ The mass-send risk scan: for each recognised bulk-mail engine (FluentCRM, MailPo
 | Table prefix | Adopt production's prefix locally | Written at clone; verified at pull, abort on mismatch |
 | DB engine + PHP | Pin DDEV to production's | Engine flavour+version and PHP major.minor, from discovery |
 | Media Library originals | Included | Clone: full; pull: delta only |
-| Generated thumbnails | Excluded, regenerated locally | Only the DB-known sizes ([ADR-0011](./adr/0011-metadata-driven-thumbnail-regeneration.md)) |
+| Generated thumbnails | Excluded, regenerated locally | Only the regenerable-named DB-known sizes ([ADR-0011](./adr/0011-metadata-driven-thumbnail-regeneration.md)) |
 | Side-loaded / orphan files | Pulled whole | Cannot be regenerated, so they are carried |
 | Heavy blobs | Excluded, behind a gate | Deterministic heuristic flags outliers; the gate is the authority |
 | wp-config defines | Copy the plugin/behaviour class; auto-exclude the infra/secret class | See below |
