@@ -330,6 +330,7 @@ SAFETY_RAILS: dict[str, str] = {
     "guid-column-skipped": r"guid",
     "risk-warning-always": r"risk warning",
     "bare-domain-never": r"bare domain",
+    "form-to-service-integration-bullet": r"form-to-service",
 }
 
 
