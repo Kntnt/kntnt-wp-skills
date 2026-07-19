@@ -339,3 +339,66 @@ def test_a_non_string_scope_exclusion_fails_loudly() -> None:
     assert result.stdout == b""
     assert result.stderr.startswith(b"baseline-diff:")
     assert b"exclusions" in result.stderr
+
+
+def test_a_current_section_missing_scope_fails_loudly() -> None:
+    # Arrange — issue #27: a raw, unfiltered walk from templates/manifest.php
+    # never carries a "scope" key, unlike scripts/filter_manifest.py's output.
+    # Feeding that raw walk straight in as "current" (skipping the local filter
+    # helper) must not be silently read as an empty exclusion set — it must
+    # fail loudly, since that is the only mechanical proof the filter ran.
+    payload = {
+        "baseline": {"scope": {"exclusions": []}, "entries": []},
+        "current": {"entries": [entry("wp-content/plugins/acme/acme.php", 2000, 1700000000)]},
+    }
+
+    # Act.
+    result = run_diff(json.dumps(payload).encode())
+
+    # Assert — a loud exit naming the missing scope, not a silent empty-scope
+    # default and not a partial document.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"baseline-diff:")
+    assert b"scope" in result.stderr
+
+
+def test_a_current_section_with_an_explicit_empty_scope_behaves_as_today() -> None:
+    # Arrange — the current side legitimately carries "scope": {"exclusions": []}
+    # when nothing is excluded this run; presence of the key is what matters,
+    # not whether the exclusion list inside it happens to be empty.
+    payload = {
+        "baseline": {"scope": {"exclusions": []}, "entries": []},
+        "current": {
+            "scope": {"exclusions": []},
+            "entries": [entry("wp-content/plugins/acme/acme.php", 2000, 1700000000)],
+        },
+    }
+
+    # Act.
+    result = run_on(payload)
+
+    # Assert — an explicit empty scope is accepted and diffs exactly as before.
+    assert result["new_or_changed"] == ["wp-content/plugins/acme/acme.php"]
+    assert result["production_deleted"] == []
+
+
+def test_a_baseline_section_missing_scope_still_defaults_to_empty() -> None:
+    # Arrange — the clone case: no prior baseline exists, so a stored baseline
+    # document without a "scope" key is legitimate and must keep defaulting to
+    # an empty exclusion set, unlike the current side.
+    payload = {
+        "baseline": {"entries": []},
+        "current": {
+            "scope": {"exclusions": []},
+            "entries": [entry("wp-content/plugins/acme/acme.php", 2000, 1700000000)],
+        },
+    }
+
+    # Act.
+    result = run_on(payload)
+
+    # Assert — the run succeeds, treating the baseline as empty rather than
+    # rejecting it for the missing key.
+    assert result["new_or_changed"] == ["wp-content/plugins/acme/acme.php"]
+    assert result["production_deleted"] == []
