@@ -480,6 +480,156 @@ def test_a_side_loaded_thumbnail_named_file_is_never_excluded() -> None:
     assert "wp-content/uploads/2021/03/random-150x150.jpg" not in exclude
 
 
+# --- Regenerable-name restriction (#26) --------------------------------------
+#
+# ADR-0011's premise — "the DB-known generated sizes can always be rebuilt by
+# `wp media regenerate`" — does not hold on real sites (#21): a historical bulk
+# WebP conversion and PDF-preview dedup leave registered ``sizes[*].file`` names
+# that regeneration, driven by the attachment's *current* attached file, can never
+# reproduce. Excluding those from transfer strands them as permanent local 404s.
+# So exclusion narrows to exactly the names regeneration would itself derive:
+# ``<stem>-<W>x<H><ext>`` from the current ``file``'s basename.
+
+
+def test_a_canonical_regenerable_size_is_excluded() -> None:
+    # Arrange — the size name is exactly what regeneration derives from the
+    # current attached file's stem and extension.
+    document = {"attachments": [
+        {"id": 1, "file": "2024/05/banner.jpg", "sizes": ["banner-300x200.jpg"]},
+    ]}
+
+    # Act.
+    exclude = set(classify_document(document)["thumbnails"]["exclude"])
+
+    # Assert.
+    assert exclude == {"wp-content/uploads/2024/05/banner-300x200.jpg"}
+
+
+def test_a_webp_conversion_drifted_size_is_kept() -> None:
+    # Arrange — production bulk-converted to WebP; the current attached file
+    # carries a "-jpg" infix from that conversion, but the registered size was
+    # named from the *pre-conversion* original and lacks it. Regeneration (which
+    # only ever derives from the current file) can never reproduce this name, so
+    # it must stay in the transfer rather than be silently dropped.
+    document = {"attachments": [
+        {
+            "id": 1380,
+            "file": "2021/12/e4e89e_mv2-jpg.webp",
+            "sizes": ["e4e89e_mv2-300x211.webp"],
+        },
+    ]}
+
+    # Act.
+    exclude = set(classify_document(document)["thumbnails"]["exclude"])
+
+    # Assert — kept, not excluded.
+    assert exclude == set()
+
+
+def test_a_dedup_suffixed_pdf_preview_size_is_kept() -> None:
+    # Arrange — a PDF-preview collision suffix ("-2") that regeneration, driven
+    # by the current attached file's own stem, never inserts.
+    document = {"attachments": [
+        {
+            "id": 1000,
+            "file": "2020/06/ep2587514b1-pdf.jpg",
+            "sizes": ["ep2587514b1-pdf-2-300x424.webp"],
+        },
+    ]}
+
+    # Act.
+    exclude = set(classify_document(document)["thumbnails"]["exclude"])
+
+    # Assert.
+    assert exclude == set()
+
+
+def test_an_extension_mismatch_size_is_kept() -> None:
+    # Arrange — same stem and a plausible dimensions token, but an extension
+    # regeneration from the current PNG attached file would never produce.
+    document = {"attachments": [
+        {"id": 1, "file": "2024/05/icon.png", "sizes": ["icon-100x100.jpg"]},
+    ]}
+
+    # Act.
+    exclude = set(classify_document(document)["thumbnails"]["exclude"])
+
+    # Assert.
+    assert exclude == set()
+
+
+def test_a_stale_registered_size_no_longer_produced_is_kept() -> None:
+    # Arrange — a canonical-looking name (right stem, right extension) but a
+    # dimension pair current regeneration does not produce for this attachment
+    # (ID 3143, cropped-favicon.png, from #21's evidence) is indistinguishable
+    # from a regenerable one by name alone — the classifier cannot know which
+    # sizes WordPress will actually regenerate, only what name it would use if it
+    # did. This is a known, accepted residual (ADR-0011 amendment): the name
+    # matches the derivation rule, so it is excluded like any other canonical
+    # name. The pull-side delta guard (not this function) is what prevents an
+    # attachment from being fed to `wp media regenerate` when nothing on disk
+    # actually needs rebuilding.
+    document = {"attachments": [
+        {"id": 3143, "file": "2019/01/cropped-favicon.png", "sizes": ["cropped-favicon-96x192.png"]},
+    ]}
+
+    # Act.
+    exclude = set(classify_document(document)["thumbnails"]["exclude"])
+
+    # Assert.
+    assert exclude == {"wp-content/uploads/2019/01/cropped-favicon-96x192.png"}
+
+
+def test_a_multi_dot_stem_still_derives_the_regenerable_name_correctly() -> None:
+    # Arrange — the attached file has more than one dot before its real
+    # extension; only the last dot is the suffix.
+    document = {"attachments": [
+        {"id": 1, "file": "2024/05/report.v2.jpg", "sizes": ["report.v2-300x200.jpg"]},
+    ]}
+
+    # Act.
+    exclude = set(classify_document(document)["thumbnails"]["exclude"])
+
+    # Assert.
+    assert exclude == {"wp-content/uploads/2024/05/report.v2-300x200.jpg"}
+
+
+def test_a_dimension_token_look_alike_in_the_stem_is_not_mistaken_for_the_terminal_token() -> None:
+    # Arrange — the attached file is legitimately named with an embedded
+    # dimension-shaped substring that is not itself the trailing size token
+    # (a real production filename shape). A regenerated derivative appends its
+    # own terminal token after the whole stem, including that substring.
+    document = {"attachments": [
+        {
+            "id": 1,
+            "file": "2024/05/photo-300x200-final.jpg",
+            "sizes": ["photo-300x200-final-1024x768.jpg"],
+        },
+    ]}
+
+    # Act.
+    exclude = set(classify_document(document)["thumbnails"]["exclude"])
+
+    # Assert — excluded: the terminal token is what regeneration would append
+    # after the full stem, embedded look-alike included.
+    assert exclude == {"wp-content/uploads/2024/05/photo-300x200-final-1024x768.jpg"}
+
+
+def test_the_dimension_token_match_is_case_sensitive() -> None:
+    # Arrange — regeneration always writes a lowercase "x" separator; an
+    # uppercase-"X" size name is not a name regeneration would ever produce, so
+    # it must be treated like any other non-regenerable name.
+    document = {"attachments": [
+        {"id": 1, "file": "2024/05/photo.jpg", "sizes": ["photo-300X200.jpg"]},
+    ]}
+
+    # Act.
+    exclude = set(classify_document(document)["thumbnails"]["exclude"])
+
+    # Assert.
+    assert exclude == set()
+
+
 # --- Exclusion-path anchoring ------------------------------------------------
 #
 # The exclusion set (flagged blobs and the thumbnail exclude-set) has exactly one

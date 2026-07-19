@@ -437,16 +437,25 @@ def flag_blobs(
 def thumbnail_exclude_set(
     uploads_prefix: PurePosixPath, attachments: list[Any]
 ) -> list[str]:
-    """Compute the exclude-set of DB-known generated sizes from attachment
-    metadata.
+    """Compute the exclude-set of DB-known, regenerable generated sizes from
+    attachment metadata.
 
-    Each attachment's registered sizes are generated derivatives beside its
-    original, and only DB-registered attachments can be regenerated locally — so
-    the exclude-set is exactly those derivatives, minus any path that is itself
-    some attachment's original. That subtraction is what keeps a same-named
-    original (a ``photo-300x200.jpg`` uploaded in its own right) from being
-    dropped as another attachment's look-alike derivative, and it is why
-    side-loaded files — never in the metadata — are never excluded (ADR-0011).
+    ``wp media regenerate`` derives a sub-size's filename solely from the
+    attachment's *current* attached file — ``<stem>-<W>x<H><ext>`` from that
+    file's own basename — never from history. Production sites can carry
+    registered ``sizes[*].file`` names a historical bulk conversion or a
+    dedup-suffixed PDF preview wrote that this derivation can never reproduce
+    (#21); excluding those from transfer would strand them as permanent local
+    404s with no way to rebuild them. So only a size whose name exactly matches
+    the current file's derived pattern is a transfer exclusion candidate — any
+    other registered size (conversion drift, a dedup suffix, an extension
+    change) stays in the transfer like a side-loaded file (ADR-0011 amendment).
+
+    Among the regenerable-named candidates, the exclude-set is those derivatives
+    minus any path that is itself some attachment's original. That subtraction
+    is what keeps a same-named original (a ``photo-300x200.jpg`` uploaded in its
+    own right) from being dropped as another attachment's look-alike derivative,
+    and it is why side-loaded files — never in the metadata — are never excluded.
 
     The attachment ``file`` and its ``sizes`` are uploads-relative (WordPress'
     ``_wp_attached_file``), so the resolved exclusions are re-anchored at the
@@ -464,8 +473,13 @@ def thumbnail_exclude_set(
         original = _field(record, "file", str, context)
         originals.add(original)
         directory = PurePosixPath(original).parent
+        original_name = PurePosixPath(original).name
+        stem = PurePosixPath(original_name).stem
+        extension = PurePosixPath(original_name).suffix
+        regenerable = re.compile(rf"^{re.escape(stem)}-\d+x\d+{re.escape(extension)}$")
         for size_file in _string_list(record, "sizes", context):
-            derivatives.add(str(directory / size_file))
+            if regenerable.match(size_file):
+                derivatives.add(str(directory / size_file))
 
     return sorted(str(uploads_prefix / path) for path in derivatives - originals)
 
