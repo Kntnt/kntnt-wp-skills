@@ -18,6 +18,13 @@ manifests are exactly what the production-side emission would report, supplied a
 data. The load-bearing case is the scope-intersection rule — a directory
 excluded this run but still present on production must never look deleted — so it
 is proven by a dedicated fixture.
+
+Since issue #18, the ``current`` side supplied here is exactly what it always
+was — an in-scope manifest with the scope it was taken under — but it now
+arrives pre-filtered by ``scripts/filter_manifest.py`` locally rather than by a
+production-side walk that took an exclusion payload. This helper's contract is
+unchanged; see ``tests/test_filter_manifest.py`` for the filtering seam and its
+end-to-end proof that a locally-filtered manifest diffs identically here.
 """
 
 from __future__ import annotations
