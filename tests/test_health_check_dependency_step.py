@@ -33,6 +33,7 @@ REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 CLONE_SKILL: Path = REPO_ROOT / "skills" / "clone" / "SKILL.md"
 PULL_SKILL: Path = REPO_ROOT / "skills" / "pull" / "SKILL.md"
 MKWP_SKILL: Path = REPO_ROOT / "skills" / "mkwp" / "SKILL.md"
+MKWP_GUARD: Path = REPO_ROOT / "scripts" / "mkwp_guard.py"
 SPEC: Path = REPO_ROOT / "docs" / "spec.md"
 
 SKILL_FILES: dict[str, Path] = {"clone": CLONE_SKILL, "pull": PULL_SKILL}
@@ -316,4 +317,24 @@ def test_spec_clone_bookends_no_longer_duplicates_the_mkwp_version_check() -> No
     assert re.search(r"health check", section, re.IGNORECASE), (
         "docs/spec.md's Clone bookends section never cross-references the "
         "health check for the mkwp version guard"
+    )
+
+
+def test_mkwp_guard_module_no_longer_hedges_that_the_health_check_has_not_landed() -> None:
+    """Cross-issue #22 x #23: `scripts/mkwp_guard.py`'s own module docstring
+    described `clone`'s dependency health-check step as a caller that would
+    read this guard "once it lands" — issue #23 has since landed that step,
+    and its commit e1d9def fixed the identical hedge in `skills/mkwp/
+    SKILL.md`, but left this one behind in the shared guard both callers
+    (`clone` SKILL.md §1 and `mkwp` SKILL.md §1) now point operators at as
+    the single source of truth for the guard."""
+
+    text = MKWP_GUARD.read_text(encoding="utf-8")
+    assert "once it lands" not in text.lower(), (
+        "scripts/mkwp_guard.py still hedges that the shared dependency "
+        "health check has not landed"
+    )
+    assert re.search(r"clone.{0,80}health.check", text, re.IGNORECASE), (
+        "scripts/mkwp_guard.py no longer cross-references clone's own "
+        "dependency health-check step as a caller"
     )

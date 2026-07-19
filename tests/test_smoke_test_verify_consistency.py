@@ -31,6 +31,7 @@ MANPAGES: dict[str, Path] = {
     "pull": REPO_ROOT / "docs" / "man" / "pull.md",
 }
 AGENT_FILE: Path = REPO_ROOT / "agents" / "thumbnail-smoke-test.md"
+SPEC: Path = REPO_ROOT / "docs" / "spec.md"
 
 
 def _verify_section(text: str) -> str:
@@ -40,6 +41,16 @@ def _verify_section(text: str) -> str:
 
     match = re.search(r"^## \d+\. Verify \(smoke\)\n(.*?)(?=^## |\Z)", text, re.MULTILINE | re.DOTALL)
     assert match, "no '## N. Verify (smoke)' section found"
+    return match.group(1)
+
+
+def _spec_verify_section(text: str) -> str:
+    """``docs/spec.md``'s own ``### Verify`` section — from its heading to
+    the next level-3 heading — so a match in an unrelated section (Testing
+    Decisions, a changelog-shaped aside) never counts."""
+
+    match = re.search(r"^### Verify\n(.*?)(?=^### |\Z)", text, re.MULTILINE | re.DOTALL)
+    assert match, "no '### Verify' section found in docs/spec.md"
     return match.group(1)
 
 
@@ -156,3 +167,39 @@ def test_smoke_test_script_is_a_pep723_standalone_script() -> None:
     text = (REPO_ROOT / "scripts" / "smoke_test.py").read_text(encoding="utf-8")
     assert text.startswith("# /// script\n")
     assert "requires-python" in text.splitlines()[1]
+
+
+def test_spec_verify_section_delegates_to_the_smoke_test_script() -> None:
+    """``docs/spec.md`` — the declared single source of truth — must
+    describe the same deterministic-expectations architecture issue #25
+    shipped in both ``SKILL.md`` files, never the ad-hoc, hand-checked list
+    it prescribed before the rewrite. Nothing else in this suite binds
+    ``spec.md`` to the verify-phase rewrite, so a future change that only
+    touches the ``SKILL.md`` prose would otherwise leave the spec silently
+    contradicting the shipped architecture."""
+
+    section = _spec_verify_section(SPEC.read_text(encoding="utf-8"))
+    assert "scripts/smoke_test.py" in section, (
+        "docs/spec.md's Verify section never names scripts/smoke_test.py"
+    )
+    assert "expectations" in section.lower(), (
+        "docs/spec.md's Verify section never mentions the expectations object"
+    )
+    assert re.search(r"ad[\s-]?hoc", section, re.IGNORECASE), (
+        "docs/spec.md's Verify section no longer states that the expectations "
+        "object replaces an ad-hoc, hand-checked list"
+    )
+
+
+def test_spec_testing_decisions_residual_paragraph_mentions_the_smoke_test_script() -> None:
+    """The Testing Decisions residual paragraph must also name the
+    deterministic script as the in-run verification the manual smoke sits
+    on top of, not the hand-wavy description of the verify phase it carried
+    before issue #25."""
+
+    text = SPEC.read_text(encoding="utf-8")
+    match = re.search(r"- \*\*Stated residual.*?(?=\n\n|\Z)", text, re.DOTALL)
+    assert match, "no 'Stated residual' bullet found in docs/spec.md's Testing Decisions"
+    assert "scripts/smoke_test.py" in match.group(0), (
+        "docs/spec.md's 'Stated residual' paragraph never names scripts/smoke_test.py"
+    )

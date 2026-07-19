@@ -833,7 +833,6 @@ def test_generate_expectations_derives_versions_and_prefix_from_discovery():
     assert expectations["ddev"]["database"] == {"type": "mariadb", "version": "11.4"}
     assert expectations["tablePrefix"] == "wp_"
     assert expectations["tables"]["total"] == 2
-    assert expectations["counts"]["attachments"] == 1
     assert expectations["activePluginCount"] == 2
     assert expectations["excludedDropins"] == ["wp-content/object-cache.php"]
     assert expectations["savedPlan"] is True
@@ -847,6 +846,131 @@ def test_generate_expectations_marks_pull_mode_with_rollback_backup():
     expectations = smoke_test.generate_expectations(envelope)
 
     assert expectations["rollbackBackup"] is True
+
+
+def test_generate_expectations_never_derives_attachment_count_from_discoverys_attachment_list():
+    """Issue #25 x #19 union: discovery's raw attachment list exists to
+    derive the thumbnail exclude-set's metadata (``templates/discovery.php``
+    is an INNER JOIN on ``_wp_attached_file`` with no post_status filter),
+    not to count attachments — a different population from the verifying
+    check's ``wp post list --post_type=attachment --format=count`` (WP_Query's
+    default 'inherit' status, including file-less rows). On a real site with
+    trashed media (MEDIA_TRASH) or a broken attachment row missing
+    ``_wp_attached_file``, the two totals diverge, so deriving the count from
+    the list length would FAIL a correct copy. The list's length must never
+    feed ``counts.attachments``."""
+
+    envelope = {
+        "discovery": {
+            "attachments": [
+                {"file": "2026/07/a.jpg", "sizes": []},
+                {"file": "2026/07/b.jpg", "sizes": []},
+            ],
+        },
+    }
+
+    expectations = smoke_test.generate_expectations(envelope)
+
+    assert "attachments" not in expectations.get("counts", {})
+
+
+def test_generate_expectations_takes_the_attachment_count_as_a_supplementary_live_fact():
+    """The attachment count is supplied like every other entity count —
+    a live-state fact the caller observes directly (matching the population
+    the verifying check itself queries), decoupled from discovery's
+    differently-scoped attachment list."""
+
+    envelope = {
+        "discovery": {
+            "attachments": [{"file": "2026/07/a.jpg", "sizes": []}],
+        },
+        "entityCounts": {"attachments": 42},
+    }
+
+    expectations = smoke_test.generate_expectations(envelope)
+
+    assert expectations["counts"]["attachments"] == 42
+
+
+def test_generate_expectations_keeps_object_cache_present_out_of_excluded_dropins_when_ownership_keeps_it():
+    """Issue #25 x pull §9.6 union: when the object-cache ownership rule
+    resolves to keep the drop-in present (spec.md, pull §9.6 — "a different
+    owner than production → keep local"; "the same owner → take
+    production's"), the generated expectations must not also expect
+    ``wp-content/object-cache.php`` absent — that self-contradicts
+    ``check_object_cache_dropin_state``'s own presence assertion and FAILs a
+    correct pull."""
+
+    envelope = {
+        "discovery": {"dropins": ["object-cache.php", "advanced-cache.php"]},
+        "mode": "pull",
+        "objectCacheDropinPresent": True,
+    }
+
+    expectations = smoke_test.generate_expectations(envelope)
+
+    assert expectations["excludedDropins"] == ["wp-content/advanced-cache.php"]
+    assert expectations["objectCacheDropinPresent"] is True
+
+
+def test_generate_expectations_still_excludes_object_cache_when_ownership_removes_it():
+    """The opposite ownership outcome (no local drop-in ever existed, or the
+    rule's own verify-and-auto-remove fallback tripped) leaves
+    ``object-cache.php`` genuinely absent — the drop-in stays in the
+    excluded-and-expected-absent set."""
+
+    envelope = {
+        "discovery": {"dropins": ["object-cache.php"]},
+        "mode": "pull",
+        "objectCacheDropinPresent": False,
+    }
+
+    expectations = smoke_test.generate_expectations(envelope)
+
+    assert expectations["excludedDropins"] == ["wp-content/object-cache.php"]
+    assert expectations["objectCacheDropinPresent"] is False
+
+
+def test_generate_expectations_omits_object_cache_presence_key_when_not_supplied():
+    """At clone, the ownership rule never runs (spec.md, Clone bookends:
+    "no object-cache derivation — nothing local pre-exists"), so an envelope
+    that never supplies ``objectCacheDropinPresent`` must leave the key out
+    entirely — the same "individually skippable when absent" contract every
+    other expectation follows — and every discovered drop-in, including
+    object-cache.php, stays in the excluded set."""
+
+    envelope = {"discovery": {"dropins": ["object-cache.php"]}}
+
+    expectations = smoke_test.generate_expectations(envelope)
+
+    assert expectations["excludedDropins"] == ["wp-content/object-cache.php"]
+    assert "objectCacheDropinPresent" not in expectations
+
+
+def test_generated_pull_expectations_do_not_self_contradict_when_object_cache_is_kept(clone_dir: Path):
+    """End-to-end proof for the union fix: feed a generated pull-mode
+    expectations document (object-cache ownership resolved to "present")
+    into the actual checks against a clone directory that genuinely kept the
+    drop-in — the drop-in-absent check must never fail it, and the presence
+    check must pass, so a correct copy never trips a FAIL."""
+
+    (clone_dir / "wp-content" / "object-cache.php").write_text("<?php\n", encoding="utf-8")
+
+    expectations = smoke_test.generate_expectations(
+        {
+            "discovery": {"dropins": ["object-cache.php"]},
+            "mode": "pull",
+            "objectCacheDropinPresent": True,
+        }
+    )
+
+    dropin_results = smoke_test.check_excluded_dropins_absent(expectations.get("excludedDropins"), clone_dir)
+    presence_result = smoke_test.check_object_cache_dropin_state(
+        expectations.get("objectCacheDropinPresent"), clone_dir
+    )
+
+    assert all(result.status != "fail" for result in dropin_results)
+    assert presence_result.status == "pass"
 
 
 def test_generate_expectations_carries_supplementary_facts_the_discovery_document_lacks():

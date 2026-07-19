@@ -785,12 +785,28 @@ def generate_expectations(envelope: Mapping[str, Any]) -> dict[str, Any]:
     - ``localUrl`` (optional) — the local DDEV URL; not derivable from
       discovery alone (that is ``classify.py``'s ``project_name.ddev_url``).
     - ``entityCounts`` (optional) — ``{"publishedPosts", "publishedPages",
-      "users"}``; discovery carries only the raw attachment list, not
-      post/page/user counts.
+      "attachments", "users"}``; every one of these is a supplementary
+      live-state fact the caller observes directly. ``attachments`` in
+      particular is **never** derived from discovery's raw attachment list —
+      that list exists to derive the thumbnail exclude-set's metadata
+      (``templates/discovery.php``'s query is an INNER JOIN on
+      ``_wp_attached_file`` with no post_status filter), a different
+      population from the verifying check's own
+      ``wp post list --post_type=attachment --format=count`` (WP_Query's
+      default ``inherit`` status, including file-less rows) — deriving the
+      count from the list would FAIL a correct copy on a site with trashed
+      media (``MEDIA_TRASH``) or a broken attachment row.
     - ``sampleUrls`` (optional) — the local-URL-mapped smoke-test URL list;
       discovery carries no sample URLs of its own.
     - ``productionHost`` (optional) — paired with ``localUrl`` into the
       ``localAssetCheck`` expectation.
+    - ``objectCacheDropinPresent`` (optional) — the object-cache ownership
+      rule's resolved outcome (spec.md, pull §9.6). When ``true``, the
+      object-cache drop-in is subtracted from ``excludedDropins`` — a
+      correct pull may legitimately leave it PRESENT, and asserting it both
+      absent (``excludedDropins``) and present (below) at once is
+      self-contradictory. Never supplied at clone, where the ownership rule
+      never runs and every discovered drop-in stays excluded.
     - ``mode`` (optional, ``"clone"`` or ``"pull"``, default ``"clone"``) —
       only ``"pull"`` adds the ``rollbackBackup`` expectation, since a
       rollback backup is a pull-only artifact.
@@ -812,7 +828,6 @@ def generate_expectations(envelope: Mapping[str, Any]) -> dict[str, Any]:
     database = _require_dict(discovery.get("database", {}), "discovery.database")
     plugins = _require_dict(discovery.get("plugins", {}), "discovery.plugins")
     dropins = discovery.get("dropins") or []
-    attachments = discovery.get("attachments") or []
 
     expectations: dict[str, Any] = {}
 
@@ -837,15 +852,15 @@ def generate_expectations(envelope: Mapping[str, Any]) -> dict[str, Any]:
     if local_url:
         expectations["localUrl"] = local_url
 
-    # Entity counts: the attachment count is derivable from discovery's raw
-    # attachment list; the rest are supplementary live-state facts.
+    # Entity counts: every one is a supplementary live-state fact the caller
+    # observes directly — including attachments, which is deliberately never
+    # derived from discovery's raw attachment list (a differently-scoped,
+    # differently-populated query — see the docstring above).
     counts: dict[str, Any] = {}
     entity_counts = envelope.get("entityCounts") or {}
-    for key in ("publishedPosts", "publishedPages", "users"):
+    for key in ("publishedPosts", "publishedPages", "attachments", "users"):
         if key in entity_counts:
             counts[key] = entity_counts[key]
-    if isinstance(attachments, list) and attachments:
-        counts["attachments"] = len(attachments)
     if counts:
         expectations["counts"] = counts
 
@@ -882,9 +897,25 @@ def generate_expectations(envelope: Mapping[str, Any]) -> dict[str, Any]:
         expectations["tables"] = tables
 
     # Excluded drop-ins: production's own drop-in list, anchored under
-    # wp-content — every one of them belongs to the pack's exclusion set.
+    # wp-content — every one of them belongs to the pack's exclusion set,
+    # except the object-cache drop-in when the ownership rule (spec.md, pull
+    # §9.6) resolved to keep it present locally. A drop-in can never be
+    # expected both absent (here) and present (objectCacheDropinPresent,
+    # below) at once — check_object_cache_dropin_state exists precisely to
+    # assert that presence, so folding it into the excluded set unconditionally
+    # would self-contradict a correct pull's own expectations document.
+    object_cache_present = envelope.get("objectCacheDropinPresent")
     if isinstance(dropins, list) and dropins:
-        expectations["excludedDropins"] = sorted(f"wp-content/{name}" for name in dropins)
+        excluded = sorted(
+            f"wp-content/{name}"
+            for name in dropins
+            if not (name == "object-cache.php" and object_cache_present)
+        )
+        if excluded:
+            expectations["excludedDropins"] = excluded
+
+    if object_cache_present is not None:
+        expectations["objectCacheDropinPresent"] = bool(object_cache_present)
 
     # Sample URLs and the local-asset check: both need a local URL to make
     # sense, so localAssetCheck only appears when both halves are present.

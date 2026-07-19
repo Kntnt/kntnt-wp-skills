@@ -16,9 +16,9 @@ health check (spec.md, Clone bookends) and this plugin's `mkwp` skill both
 guard against.
 
 This module is the ONE place the guard's pass/fail verdict and remediation
-message are computed, so every caller — the `mkwp` skill's own preflight today,
-and the shared dependency health check (issue #23) once it lands — reads the
-same verdict instead of maintaining separate copies of the same check and
+message are computed, so every caller — the `mkwp` skill's own preflight (its
+§1) and `clone`'s own dependency health-check step (its §1, issue #23) — reads
+the same verdict instead of maintaining separate copies of the same check and
 message.
 """
 
