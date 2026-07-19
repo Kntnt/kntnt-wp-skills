@@ -405,19 +405,38 @@ def test_entity_counts_are_carried_from_the_raw_scan() -> None:
     }
 
 
-def test_entity_counts_default_to_zero_when_the_scan_omits_the_section() -> None:
+def test_entity_counts_section_is_empty_rather_than_zero_filled_when_the_scan_omits_it() -> None:
     # Arrange & Act — the representative fixture predates this section, so the
-    # document must still build with every count defaulting to zero rather than
-    # failing loud on an absent optional section.
+    # document must still build without failing loud on an absent optional
+    # section. Critically, it must NOT zero-fill every count: a stale document
+    # built from a pre-entity-counts scan (or a scan whose section a caller
+    # trims) would otherwise hand generate_expectations a false "0 posts, 0
+    # pages, 0 attachments, 0 users" fact, FAILing any non-empty real site
+    # (verification review finding against the advisory the original fix
+    # missed).
     document = document_for("representative-site.json")
 
+    # Assert — the section is present (uniform document shape) but empty, so
+    # a downstream reader's "is this key present" check — never a "!= 0"
+    # check — is what decides whether a count was actually collected.
+    assert document["entity_counts"] == {}
+
+
+def test_entity_counts_omits_only_the_specific_keys_the_scan_leaves_out() -> None:
+    # Arrange — a scan that reports some counts but not others (e.g. a
+    # partially-upgraded discovery.php, or a hand-trimmed re-verification
+    # payload) must carry exactly the counts it actually reports, never
+    # zero-filling the rest.
+    payload = load_fixture("representative-site.json")
+    payload["discovery"]["entity_counts"] = {"published_posts": 361, "users": 7}
+
+    # Act.
+    document = json.loads(run_on(payload).stdout)
+
     # Assert.
-    assert document["entity_counts"] == {
-        "published_posts": 0,
-        "published_pages": 0,
-        "attachments": 0,
-        "users": 0,
-    }
+    assert document["entity_counts"] == {"published_posts": 361, "users": 7}
+    assert "published_pages" not in document["entity_counts"]
+    assert "attachments" not in document["entity_counts"]
 
 
 def test_a_non_integer_entity_count_fails_loudly() -> None:

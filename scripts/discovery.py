@@ -264,19 +264,32 @@ def build_entity_counts(raw: dict[str, Any]) -> dict[str, int]:
     ``scripts/smoke_test.py``'s ``generate_expectations`` has a live fact to
     source ``counts.*`` from instead of nothing (docs/spec.md's Verify
     section already promised these counts; before this section existed,
-    nothing collected them). Each field defaults to zero when the scan omits
-    the whole section, so a document built from a pre-existing fixture or an
-    older scan still parses; a present-but-malformed count fails loud, the
-    same "optionality is about presence, never about shape" contract every
-    other optional field follows.
+    nothing collected them).
+
+    A field the scan omits — the whole section absent (a pre-existing
+    fixture, an older scan predating this section, or a document already
+    written to disk before this change) or just one key within it (a
+    partially-upgraded scan, or a hand-trimmed re-verification payload) — is
+    **left out of the returned mapping entirely, never defaulted to zero**.
+    Zero-filling would hand ``generate_expectations`` a false "0 posts, 0
+    pages, 0 attachments, 0 users" fact it cannot tell apart from a genuinely
+    empty site, FAILing any non-empty real site verified against a stale
+    document. A present-but-malformed count still fails loud, the same
+    "optionality is about presence, never about shape" contract every other
+    optional field follows.
     """
 
-    return {
-        "published_posts": _optional(raw, "published_posts", int, 0, "entity_counts"),
-        "published_pages": _optional(raw, "published_pages", int, 0, "entity_counts"),
-        "attachments": _optional(raw, "attachments", int, 0, "entity_counts"),
-        "users": _optional(raw, "users", int, 0, "entity_counts"),
-    }
+    counts: dict[str, int] = {}
+    for key in ("published_posts", "published_pages", "attachments", "users"):
+        if key not in raw:
+            continue
+        value = raw[key]
+        if not isinstance(value, int):
+            raise DiscoveryError(
+                f"entity_counts: field {key!r} must be int, got {type(value).__name__}"
+            )
+        counts[key] = value
+    return counts
 
 
 def _poised_finding(engine: dict[str, Any]) -> str:

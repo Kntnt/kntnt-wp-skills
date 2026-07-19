@@ -803,10 +803,15 @@ def generate_expectations(envelope: Mapping[str, Any]) -> dict[str, Any]:
     (``templates/discovery.php``'s query is an INNER JOIN on
     ``_wp_attached_file`` with no post_status filter), a different
     population from the verifying check's own
-    ``wp post list --post_type=attachment --format=count`` (WP_Query's
-    default ``inherit`` status, including file-less rows) — deriving the
-    count from the list would FAIL a correct copy on a site with trashed
-    media (``MEDIA_TRASH``) or a broken attachment row.
+    ``wp post list --post_type=attachment --format=count``. WP-CLI itself
+    defaults that command's ``post_status`` to ``any`` when the flag is
+    omitted — every status except ``trash`` and ``auto-draft`` — so
+    ``templates/discovery.php``'s own count query filters out those same two
+    statuses to match exactly, rather than counting every row unconditionally
+    (which would sweep in trashed media on a ``MEDIA_TRASH`` site and FAIL a
+    correct copy the checker itself would pass) or deriving the count from
+    the raw attachment list (which would FAIL on a broken attachment row
+    missing ``_wp_attached_file`` instead).
 
     - ``entityCounts`` (optional) — ``{"publishedPosts", "publishedPages",
       "attachments", "users"}``; a per-key override the caller may supply

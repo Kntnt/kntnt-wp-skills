@@ -22,6 +22,7 @@ Two edges are exercised separately, per the project's testing decisions:
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -887,9 +888,10 @@ def test_generate_expectations_never_derives_attachment_count_from_discoverys_at
     derive the thumbnail exclude-set's metadata (``templates/discovery.php``
     is an INNER JOIN on ``_wp_attached_file`` with no post_status filter),
     not to count attachments — a different population from the verifying
-    check's ``wp post list --post_type=attachment --format=count`` (WP_Query's
-    default 'inherit' status, including file-less rows). On a real site with
-    trashed media (MEDIA_TRASH) or a broken attachment row missing
+    check's ``wp post list --post_type=attachment --format=count`` (WP-CLI's
+    own default ``post_status`` of 'any' — every status except 'trash' and
+    'auto-draft' — when the flag is omitted). On a real site with trashed
+    media (MEDIA_TRASH) or a broken attachment row missing
     ``_wp_attached_file``, the two totals diverge, so deriving the count from
     the list length would FAIL a correct copy. The list's length must never
     feed ``counts.attachments``."""
@@ -906,6 +908,48 @@ def test_generate_expectations_never_derives_attachment_count_from_discoverys_at
     expectations = smoke_test.generate_expectations(envelope)
 
     assert "attachments" not in expectations.get("counts", {})
+
+
+def test_templates_entity_count_queries_agree_exactly_with_check_entity_counts():
+    """Cross-module contract: ``templates/discovery.php``'s ``entity_counts``
+    SQL and ``check_entity_counts``'s own ``_COUNT_COMMANDS`` argv must count
+    the exact same population per entity, or the generator and the checker
+    silently disagree and a correct copy either FAILs or a genuine drift goes
+    undetected (review finding against the original generator/checker
+    mismatch on the attachment count).
+
+    - ``publishedPosts``/``publishedPages`` — the checker passes
+      ``--post_status=publish`` explicitly, so the template's query must
+      filter on ``post_status = 'publish'`` too.
+    - ``attachments`` — the checker passes no ``--post_status`` at all, so
+      WP-CLI's own default (``any`` — every status except ``trash`` and
+      ``auto-draft``) governs; the template's query must filter those two
+      out explicitly to match, never an unfiltered ``COUNT(*)``.
+    - ``users`` — the checker passes no filter of any kind, so the template's
+      query must be an unfiltered ``COUNT(*)`` too.
+    """
+
+    template_source = (
+        Path(__file__).resolve().parent.parent / "templates" / "discovery.php"
+    ).read_text(encoding="utf-8")
+    entity_counts_source = template_source[template_source.index("$entity_counts = [") :]
+
+    assert "--post_status=publish" in " ".join(smoke_test._COUNT_COMMANDS["publishedPosts"])
+    assert re.search(r"post_type = 'post'.*?post_status = 'publish'", entity_counts_source)
+
+    assert "--post_status=publish" in " ".join(smoke_test._COUNT_COMMANDS["publishedPages"])
+    assert re.search(r"post_type = 'page'.*?post_status = 'publish'", entity_counts_source)
+
+    assert not any(arg.startswith("--post_status") for arg in smoke_test._COUNT_COMMANDS["attachments"])
+    assert re.search(
+        r"post_type = 'attachment'.*?post_status NOT IN \(\s*'trash'\s*,\s*'auto-draft'\s*\)",
+        entity_counts_source,
+    )
+
+    assert smoke_test._COUNT_COMMANDS["users"] == ("user", "list", "--format=count")
+    users_query = entity_counts_source[entity_counts_source.index("'users'") :]
+    assert "COUNT(*) FROM {$wpdb->users}" in users_query
+    assert "WHERE" not in users_query.split(";")[0].split(")")[0]
 
 
 def test_generate_expectations_takes_the_attachment_count_as_a_supplementary_live_fact():
@@ -1056,6 +1100,38 @@ def test_generate_expectations_sources_entity_counts_from_the_discovery_document
         "attachments": 214,
         "users": 7,
     }
+
+
+def test_generate_expectations_emits_no_false_zero_counts_from_a_stale_document():
+    """Verification review advisory: a discovery document built before
+    ``entity_counts`` existed (or by an older ``scripts/discovery.py``) has
+    no ``entity_counts`` section at all. ``generate_expectations`` must never
+    treat that absence as "0 posts, 0 pages, 0 attachments, 0 users" — a
+    zero-filled ``counts`` object would FAIL any non-empty real site verified
+    against it. An entirely absent section omits ``counts`` altogether; a
+    present-but-empty section (``scripts/discovery.py``'s own contract when
+    the raw scan omits the whole section) does the same."""
+
+    assert "counts" not in smoke_test.generate_expectations({"discovery": {}})
+    assert "counts" not in smoke_test.generate_expectations(
+        {"discovery": {"entity_counts": {}}}
+    )
+
+
+def test_generate_expectations_sources_only_the_entity_counts_the_document_actually_reports():
+    """A partially-upgraded discovery document — some counts collected, some
+    not (``scripts/discovery.py``'s own per-key omission contract) — must
+    source exactly the counts it reports, never zero-filling the rest."""
+
+    # scripts/discovery.py's own build_entity_counts emits snake_case keys;
+    # generate_expectations reads those, not camelCase, from the document.
+    envelope = {"discovery": {"entity_counts": {"published_posts": 361, "users": 7}}}
+
+    expectations = smoke_test.generate_expectations(envelope)
+
+    assert expectations["counts"] == {"publishedPosts": 361, "users": 7}
+    assert "publishedPages" not in expectations["counts"]
+    assert "attachments" not in expectations["counts"]
 
 
 def test_generate_expectations_lets_the_entity_counts_override_take_precedence():

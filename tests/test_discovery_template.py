@@ -16,6 +16,7 @@ cross-issue invariants:
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 _TEMPLATE = Path(__file__).resolve().parent.parent / "templates" / "discovery.php"
@@ -132,14 +133,16 @@ def test_template_collects_cheap_entity_counts_for_the_verify_phase() -> None:
     assert "post_type = 'attachment'" in source
     assert "{$wpdb->users}" in source
 
-    # The attachment count must never filter on post_status — WP_Query's own
-    # default 'inherit' status includes file-less rows, the same population
-    # the verifying `wp post list --post_type=attachment --format=count`
-    # counts (commit d5a1210's rationale for never deriving the count from
-    # the raw attachment list either).
-    attachment_query_start = source.index("post_type = 'attachment'")
-    attachment_query = source[max(0, attachment_query_start - 200) : attachment_query_start + 40]
-    assert "post_status" not in attachment_query
+    # The attachment count must exclude 'trash' and 'auto-draft' — the exact
+    # population `wp post list --post_type=attachment --format=count`
+    # counts, since WP-CLI's own default post_status is 'any' (every status
+    # except those two), never a bare unfiltered COUNT(*) (which would also
+    # sweep in trashed media on a MEDIA_TRASH site, FAILing a correct copy —
+    # review finding against the original generator/checker mismatch).
+    entity_counts_start = source.index("$entity_counts = [")
+    attachment_query_start = source.index("post_type = 'attachment'", entity_counts_start)
+    attachment_query = source[attachment_query_start : attachment_query_start + 80]
+    assert re.search(r"post_status\s+NOT\s+IN\s*\(\s*'trash'\s*,\s*'auto-draft'\s*\)", attachment_query)
 
     # The counts are echoed under their own top-level key, in the exact shape
     # scripts/discovery.py's build_entity_counts() consumes.
