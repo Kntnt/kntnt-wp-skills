@@ -136,6 +136,31 @@ def test_explicit_include_list_omits_the_exclusion_heredoc() -> None:
     assert "wp-content/plugins/changed.php" in script
 
 
+def test_module_source_does_not_overclaim_the_unenforced_include_list_contract() -> None:
+    """Cross-issue integration finding (#17 x #18): the empty-exclusion-heredoc
+    behaviour above is keyed purely on ``exclude_paths`` being empty — this
+    module has no way to tell, from the resolved-inputs shape alone, whether an
+    explicit include list (the pull delta path, contracted by
+    ``skills/pull/SKILL.md`` to always arrive with an empty exclude list) is
+    genuinely paired with one. Clone legitimately pairs explicit archive roots
+    with a non-empty exclude list too, so the two shapes are not structurally
+    distinguishable here. The source must not assert the pull contract as an
+    enforced fact — that overclaim is the actual defect this test guards
+    against, independent of whether a runtime check is ever added."""
+
+    source = Path(pack_script.__file__).read_text(encoding="utf-8")
+
+    for overclaim in (
+        "already carries no exclusion list",
+        "arrives already scope-filtered against",
+    ):
+        assert overclaim not in source, (
+            f"pack_script.py still asserts, as settled fact, {overclaim!r} — "
+            "that invariant is a caller contract (skills/pull/SKILL.md prose), "
+            "never verified by this module"
+        )
+
+
 def test_two_pass_consistent_dump() -> None:
     """A live-site-safe first pass with full data, then a schema-only pass for
     the empty-classified tables."""

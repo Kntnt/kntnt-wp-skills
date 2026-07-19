@@ -38,6 +38,8 @@ import flags
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 PULL_SKILL: Path = REPO_ROOT / "skills" / "pull" / "SKILL.md"
 SKILL_TEXT: str = PULL_SKILL.read_text(encoding="utf-8")
+SPEC: Path = REPO_ROOT / "docs" / "spec.md"
+SPEC_TEXT: str = SPEC.read_text(encoding="utf-8")
 
 # The deterministic helpers the pull flow must drive rather than compute by hand
 # (spec "The deterministic helper seam"). Unlike ``clone``, pull additionally
@@ -180,6 +182,55 @@ def test_manifest_transport_carries_no_exclusion_payload() -> None:
     diff_pos = _pos_after(r"scripts/baseline_diff\.py", filter_pos)
     assert manifest_pos < filter_pos < diff_pos, (
         "the manifest must be sent unfiltered, then locally filtered, then diffed"
+    )
+
+
+def test_pack_step_never_claims_an_exclude_file_for_the_pull_archive() -> None:
+    """Cross-issue integration regression guard (#17 x #18): #17 removed the
+    exclusion heredoc from the generated pull pack.sh (pull now passes an empty
+    exclude list), and the generation paragraph of this same step says so. But a
+    stale sentence four lines later, describing the *running* script, still
+    claimed the archive goes "through an anchored exclude file" — the runtime
+    model reads both claims in the same step, so a contradiction here is as
+    dangerous as one left uncorrected in the code itself."""
+
+    section_start = _pos(r"## 5\. Pack on production")
+    section_end = _pos(r"## 6\. Download, verify, decrypt")
+    section = SKILL_TEXT[section_start:section_end]
+
+    assert re.search(r"empty exclude list", section, re.IGNORECASE), (
+        "the generation paragraph must still state pull passes an empty exclude list"
+    )
+    assert not re.search(r"exclude file", section, re.IGNORECASE), (
+        "the pack step still claims an exclude file archives the pull set — "
+        "the generated pack.sh carries no exclude file for pull (#17)"
+    )
+    assert not re.search(r"--anchored|--no-wildcards", section), (
+        "the pack step still cites the anchored/no-wildcards tar flags pull's "
+        "generated script omits (#17)"
+    )
+
+
+def test_spec_pack_section_scopes_the_exclusion_file_to_clone_only() -> None:
+    """Cross-issue integration regression guard (#17 x #18): AGENTS.md declares
+    ``docs/spec.md`` the single source of truth for the build, so a stale claim
+    there actively misleads future implementation work. The *Pack on
+    production* section must not state, unscoped, that "the file archive is
+    built from an exclusion file" — after #17 that is true only at clone; the
+    pull archive set is already filtered locally (per *Baseline diff (files)*,
+    just above) and carries no exclusion file at all."""
+
+    pack_start = SPEC_TEXT.index("### Pack on production")
+    pack_end = SPEC_TEXT.index("### Download, verify, and close the exposure window")
+    section = SPEC_TEXT[pack_start:pack_end]
+
+    assert not re.search(r"^- the file archive is built from an exclusion file", section, re.IGNORECASE | re.MULTILINE), (
+        "the archive-exclusion-file claim must be scoped to clone, never stated "
+        "as a blanket fact — pull's archive carries no exclusion file (#17)"
+    )
+    assert re.search(r"clone", section, re.IGNORECASE) and re.search(r"pull", section, re.IGNORECASE), (
+        "the archive bullet must distinguish clone's exclusion file from pull's "
+        "already-scope-filtered, exclusion-file-free archive"
     )
 
 

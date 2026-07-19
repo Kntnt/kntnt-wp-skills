@@ -110,13 +110,22 @@ def test_no_exclusions_keeps_every_entry() -> None:
     assert len(result["entries"]) == 2
 
 
-def test_missing_exclusions_defaults_to_none_excluded() -> None:
-    # Arrange & Act — the field is optional, defaulting the same way
-    # ``scripts/baseline_diff.py``'s own scope parsing does.
-    result = filter_on({"entries": [entry("wp-content/plugins/acme/acme.php")]})
+def test_a_missing_exclusions_field_fails_loudly() -> None:
+    # Arrange — this is the single surviving enforcement point for scope after
+    # #17 x #18: the raw ``templates/manifest.php`` output is exactly
+    # ``{"entries": [...]}``, so a caller that forgets to hand-merge in the
+    # resolved exclusion set must not have that mistake silently accepted as
+    # "nothing excluded" — every excluded path would then ride straight into
+    # ``new_or_changed`` and the next baseline. An explicit empty list is the
+    # legitimate everything-in-scope run and must still succeed (see
+    # ``test_no_exclusions_keeps_every_entry``).
+    result = run_filter(json.dumps({"entries": [entry("wp-content/plugins/acme/acme.php")]}).encode())
 
     # Assert.
-    assert len(result["entries"]) == 1
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"filter-manifest:")
+    assert b"exclusions" in result.stderr
 
 
 def test_the_output_carries_the_resolved_exclusions_forward_as_scope() -> None:
