@@ -86,6 +86,24 @@ def test_verify_step_mentions_the_expectations_file(skill: str) -> None:
     assert "expectations" in section.lower()
 
 
+@pytest.mark.parametrize("skill", sorted(SKILLS))
+def test_verify_step_restricts_content_nonempty_to_the_always_populated_core_set(skill: str) -> None:
+    """"Carried in full" only means the transfer did not silently empty a
+    table — it says nothing about whether production actually put rows in
+    it (``wp_links``/``wp_commentmeta`` are full-carried yet legitimately
+    empty on many real sites). The prose must instruct the orchestrator to
+    restrict ``tables.contentNonEmpty`` to the always-populated core tables
+    (mirroring ``smoke_test._ALWAYS_POPULATED_CORE_TABLES``), never assemble
+    it from the whole content-table list — otherwise a correct copy of a
+    site with a legitimately-empty full-carried table FAILs its own verify
+    phase."""
+
+    section = _verify_section(SKILLS[skill].read_text(encoding="utf-8"))
+    for table in sorted(smoke_test._ALWAYS_POPULATED_CORE_TABLES):
+        assert f"`{table}`" in section, f"{skill} SKILL.md never names the core table {table!r}"
+    assert "never" in section, f"{skill} SKILL.md never states the exclusion this check pins"
+
+
 def test_thumbnail_smoke_test_agent_runs_the_smoke_test_script() -> None:
     """The delegated subagent's own instructions actually invoke the script
     — otherwise the SKILL.md-level delegation prose is a promise the

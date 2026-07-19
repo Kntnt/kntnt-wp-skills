@@ -28,6 +28,7 @@ from pathlib import Path
 
 import pytest
 
+import classify
 import smoke_test
 
 _SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
@@ -231,6 +232,30 @@ def test_check_content_tables_nonempty_reports_each_table():
     assert by_id["table_nonempty:wp_users"].status == "fail"
 
 
+def test_check_content_tables_nonempty_rejects_a_table_name_outside_the_identifier_charset():
+    """A table name is expectations-file input ultimately sourced from
+    production's own discovery output — a remote system. A name carrying a
+    backtick or a statement separator must fail that one table's check
+    without ever reaching the shell, rather than break out of the
+    surrounding backtick-quoting and execute as SQL."""
+
+    run = fake_run_command({})  # any shelled-out command here is the defect itself
+
+    results = smoke_test.check_content_tables_nonempty(["wp_posts`; DROP TABLE wp_users; --"], run)
+
+    assert results[0].status == "fail"
+    assert "outside [A-Za-z0-9_]" in results[0].detail
+
+
+def test_check_operational_tables_empty_rejects_a_table_name_outside_the_identifier_charset():
+    run = fake_run_command({})  # any shelled-out command here is the defect itself
+
+    results = smoke_test.check_operational_tables_empty(["wp_relevanssi`x"], run)
+
+    assert results[0].status == "fail"
+    assert "outside [A-Za-z0-9_]" in results[0].detail
+
+
 def test_check_entity_counts_are_individually_skippable():
     run = fake_run_command(
         {
@@ -313,6 +338,29 @@ def test_check_local_asset_urls_passes_when_clean():
     assert result.status == "pass"
 
 
+def test_check_local_asset_urls_fails_loud_when_url_is_missing():
+    """The expectations file's ``localAssetCheck`` object is operator-editable
+    input; a missing 'url' key must fail this one check with a diagnostic
+    rather than crash the whole report with an uncaught KeyError. The empty
+    fetch fake also proves the guard short-circuits before ever fetching."""
+
+    fetch = fake_fetch_url({})
+
+    result = smoke_test.check_local_asset_urls({"productionHost": "www.smoltek.com"}, fetch)
+
+    assert result.status == "fail"
+    assert "url" in result.detail
+
+
+def test_check_local_asset_urls_fails_loud_when_production_host_is_missing():
+    fetch = fake_fetch_url({})
+
+    result = smoke_test.check_local_asset_urls({"url": "https://smoltek.ddev.site/"}, fetch)
+
+    assert result.status == "fail"
+    assert "productionHost" in result.detail
+
+
 def test_check_db_check_clean_reads_exit_code():
     run = fake_run_command({("ddev", "wp", "db", "check"): FakeCompleted(returncode=0, stdout="Success")})
 
@@ -342,6 +390,100 @@ def test_check_active_plugin_count():
 
     assert smoke_test.check_active_plugin_count(34, run).status == "pass"
     assert smoke_test.check_active_plugin_count(33, run).status == "fail"
+
+
+def test_check_table_prefix_passes_on_match():
+    run = fake_run_command(
+        {("ddev", "wp", "config", "get", "table_prefix"): FakeCompleted(stdout="wp_\n")}
+    )
+
+    assert smoke_test.check_table_prefix("wp_", run).status == "pass"
+
+
+def test_check_table_prefix_fails_on_mismatch():
+    run = fake_run_command(
+        {("ddev", "wp", "config", "get", "table_prefix"): FakeCompleted(stdout="wp_\n")}
+    )
+
+    result = smoke_test.check_table_prefix("smt_", run)
+
+    assert result.status == "fail"
+    assert "wp_" in result.detail
+
+
+def test_check_table_prefix_skips_when_expectation_absent():
+    run = fake_run_command({})
+
+    assert smoke_test.check_table_prefix(None, run).status == "skip"
+
+
+def test_check_table_prefix_fails_loud_on_command_error():
+    run = fake_run_command(
+        {("ddev", "wp", "config", "get", "table_prefix"): FakeCompleted(returncode=1, stderr="no such site")}
+    )
+
+    result = smoke_test.check_table_prefix("wp_", run)
+
+    assert result.status == "fail"
+    assert "no such site" in result.detail
+
+
+def test_check_local_urls_passes_when_home_and_siteurl_equal_the_local_ddev_url():
+    """The issue's own bullet: home/siteurl must equal the local DDEV URL,
+    never production's host."""
+
+    run = fake_run_command(
+        {
+            ("ddev", "wp", "option", "get", "home"): FakeCompleted(stdout="https://smoltek.ddev.site\n"),
+            ("ddev", "wp", "option", "get", "siteurl"): FakeCompleted(stdout="https://smoltek.ddev.site\n"),
+        }
+    )
+
+    results = smoke_test.check_local_urls("https://smoltek.ddev.site", run)
+
+    by_id = {r.id: r for r in results}
+    assert by_id["home_url"].status == "pass"
+    assert by_id["site_url"].status == "pass"
+
+
+def test_check_local_urls_fails_when_a_url_still_points_at_the_production_host():
+    run = fake_run_command(
+        {
+            ("ddev", "wp", "option", "get", "home"): FakeCompleted(stdout="https://www.smoltek.com\n"),
+            ("ddev", "wp", "option", "get", "siteurl"): FakeCompleted(stdout="https://smoltek.ddev.site\n"),
+        }
+    )
+
+    results = smoke_test.check_local_urls("https://smoltek.ddev.site", run)
+
+    by_id = {r.id: r for r in results}
+    assert by_id["home_url"].status == "fail"
+    assert "www.smoltek.com" in by_id["home_url"].detail
+    assert by_id["site_url"].status == "pass"
+
+
+def test_check_local_urls_skips_both_when_expectation_absent():
+    run = fake_run_command({})
+
+    results = smoke_test.check_local_urls(None, run)
+
+    assert {r.id for r in results} == {"home_url", "site_url"}
+    assert all(r.status == "skip" for r in results)
+
+
+def test_check_local_urls_fails_loud_on_command_error():
+    run = fake_run_command(
+        {
+            ("ddev", "wp", "option", "get", "home"): FakeCompleted(returncode=1, stderr="no such site"),
+            ("ddev", "wp", "option", "get", "siteurl"): FakeCompleted(stdout="https://smoltek.ddev.site\n"),
+        }
+    )
+
+    results = smoke_test.check_local_urls("https://smoltek.ddev.site", run)
+
+    by_id = {r.id: r for r in results}
+    assert by_id["home_url"].status == "fail"
+    assert "no such site" in by_id["home_url"].detail
 
 
 # --- Pure-filesystem checks (fabricated site dirs) --------------------------
@@ -542,6 +684,50 @@ def test_run_checks_covers_pure_filesystem_expectations_without_shelling_out(clo
     assert report["ok"] is True
 
 
+def test_run_checks_wires_table_prefix_and_local_urls_end_to_end(clone_dir: Path):
+    """The issue's own explicit bullets — home/siteurl equal the local DDEV
+    URL, never production's host, and the table prefix — reach
+    ``run_checks`` from the expectations document, not just their standalone
+    check functions."""
+
+    run = fake_run_command(
+        {
+            ("ddev", "wp", "config", "get", "table_prefix"): FakeCompleted(stdout="wp_\n"),
+            ("ddev", "wp", "option", "get", "home"): FakeCompleted(stdout="https://smoltek.ddev.site\n"),
+            ("ddev", "wp", "option", "get", "siteurl"): FakeCompleted(stdout="https://smoltek.ddev.site\n"),
+        }
+    )
+
+    report = smoke_test.run_checks(
+        clone_dir,
+        {"tablePrefix": "wp_", "localUrl": "https://smoltek.ddev.site"},
+        run_command=run,
+    )
+
+    ids = {c["id"]: c["status"] for c in report["checks"]}
+    assert ids["table_prefix"] == "pass"
+    assert ids["home_url"] == "pass"
+    assert ids["site_url"] == "pass"
+    assert report["ok"] is True
+
+
+def test_run_checks_fails_when_local_url_still_points_at_production(clone_dir: Path):
+    run = fake_run_command(
+        {
+            ("ddev", "wp", "option", "get", "home"): FakeCompleted(stdout="https://www.smoltek.com\n"),
+            ("ddev", "wp", "option", "get", "siteurl"): FakeCompleted(stdout="https://smoltek.ddev.site\n"),
+        }
+    )
+
+    report = smoke_test.run_checks(
+        clone_dir, {"localUrl": "https://smoltek.ddev.site"}, run_command=run
+    )
+
+    assert report["ok"] is False
+    ids = {c["id"]: c["status"] for c in report["checks"]}
+    assert ids["home_url"] == "fail"
+
+
 # --- The CLI: verify mode ---------------------------------------------------
 
 
@@ -683,6 +869,69 @@ def test_generate_expectations_carries_supplementary_facts_the_discovery_documen
         "url": "https://smoltek.ddev.site",
         "productionHost": "www.smoltek.com",
     }
+
+
+def test_generate_expectations_derives_table_split_from_classifications():
+    """Pins the classifications shape this derivation is sensitive to:
+    ``empty`` is a list of ``{"name", "category"}`` dicts, ``full`` is a
+    list of bare table-name strings (both isinstance-guarded, so a future
+    classify.py shape change would otherwise silently derive nothing rather
+    than reddening here). Also pins the fix for issue #25's review finding:
+    ``contentNonEmpty`` must be restricted to the always-populated core
+    tables, never the whole full-carry list — ``wp_links`` and
+    ``wp_commentmeta`` are full-carried here yet must NOT be asserted
+    non-empty, since both are legitimately empty on many real sites."""
+
+    envelope = {
+        "discovery": {"database": {"table_prefix": "wp_"}},
+        "classifications": {
+            "tables": {
+                "empty": [
+                    {"name": "wp_relevanssi", "category": "search_index"},
+                    {"name": "wp_fsmpt_email_logs", "category": "email_log"},
+                ],
+                "full": ["wp_posts", "wp_options", "wp_users", "wp_links", "wp_commentmeta"],
+            }
+        },
+    }
+
+    expectations = smoke_test.generate_expectations(envelope)
+
+    assert expectations["tables"]["operationalEmpty"] == ["wp_fsmpt_email_logs", "wp_relevanssi"]
+    assert expectations["tables"]["contentNonEmpty"] == ["wp_options", "wp_posts", "wp_users"]
+    assert "wp_links" not in expectations["tables"]["contentNonEmpty"]
+    assert "wp_commentmeta" not in expectations["tables"]["contentNonEmpty"]
+
+
+def test_generate_expectations_omits_content_nonempty_when_no_core_table_survives():
+    envelope = {
+        "discovery": {"database": {"table_prefix": "wp_"}},
+        "classifications": {"tables": {"empty": [], "full": ["wp_links", "wp_commentmeta"]}},
+    }
+
+    expectations = smoke_test.generate_expectations(envelope)
+
+    assert "contentNonEmpty" not in expectations.get("tables", {})
+
+
+def test_generate_expectations_table_split_matches_classify_pys_real_output():
+    """Cross-module contract test: feed ``classify.classify_tables``'s
+    actual output (not a hand-shaped fixture) straight into
+    ``generate_expectations``, so a real classify.py shape drift reddens
+    here rather than only in a fixture nobody keeps in sync."""
+
+    all_tables = ["wp_posts", "wp_options", "wp_users", "wp_links", "wp_relevanssi"]
+    table_split = classify.classify_tables("wp_", all_tables)
+
+    envelope = {
+        "discovery": {"database": {"table_prefix": "wp_"}},
+        "classifications": {"tables": table_split},
+    }
+
+    expectations = smoke_test.generate_expectations(envelope)
+
+    assert expectations["tables"]["operationalEmpty"] == ["wp_relevanssi"]
+    assert expectations["tables"]["contentNonEmpty"] == ["wp_options", "wp_posts", "wp_users"]
 
 
 def test_generate_expectations_omits_fields_it_has_nothing_to_derive():

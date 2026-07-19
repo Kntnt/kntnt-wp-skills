@@ -247,10 +247,27 @@ def _run_ddev_wp(run: RunCommand, *args: str) -> tuple[bool, str]:
     return True, completed.stdout.strip()
 
 
+_SAFE_TABLE_NAME_RE = re.compile(r"^[A-Za-z0-9_]+$")
+
+
 def _table_row_count(run: RunCommand, table: str) -> tuple[bool, int | None, str]:
     """Query one table's row count via `ddev wp db query`, returning ``(ok,
     count, raw_output)``. Backtick-quoted so a table name is never mistaken
-    for SQL syntax."""
+    for SQL syntax.
+
+    ``table`` comes from an expectations file the generator built from
+    production's own discovery output — a remote system — so it is rejected
+    outright unless it stays inside the identifier charset a real MySQL/
+    MariaDB table name uses. A backtick inside ``table`` would otherwise
+    close the surrounding backtick-quoting early, and `ddev wp db query`
+    hands the whole string to a client that executes multiple
+    ``;``-separated statements, turning a malicious table name into
+    arbitrary SQL against the local clone (including, at pull, against the
+    rollback backup's source database).
+    """
+
+    if not _SAFE_TABLE_NAME_RE.match(table):
+        return False, None, f"table name {table!r} contains characters outside [A-Za-z0-9_] — refusing to query it"
 
     ok, output = _run_ddev_wp(
         run, "db", "query", f"SELECT COUNT(*) FROM `{table}`", "--skip-column-names"
@@ -315,6 +332,25 @@ def _major_minor(version: str) -> str:
 
     parts = version.split(".")
     return f"{parts[0]}.{parts[1]}" if len(parts) >= 2 else version
+
+
+# classify.py's "full" list means only "not silently emptied by this
+# transfer" — a table carried in full can still legitimately hold zero rows
+# on the production site it came from (wp_links on nearly every modern
+# WordPress install, wp_commentmeta with comments disabled). These three are
+# the only tables core WordPress itself cannot run without a row in, so
+# they are the sole safe basis for a "the transfer dropped data" assertion
+# without observing production's own live row counts.
+_ALWAYS_POPULATED_CORE_TABLES: frozenset[str] = frozenset({"posts", "options", "users"})
+
+
+def _table_suffix(prefix: str, name: str) -> str:
+    """Strip the site's own table prefix from a table name, mirroring
+    ``classify.py``'s ``table_category`` stem derivation — matching against
+    :data:`_ALWAYS_POPULATED_CORE_TABLES` must use the same prefix-relative
+    name a non-default prefix (or none at all) still resolves correctly."""
+
+    return name[len(prefix):] if prefix and name.startswith(prefix) else name
 
 
 # --- Individual checks -------------------------------------------------------
@@ -740,8 +776,12 @@ def generate_expectations(envelope: Mapping[str, Any]) -> dict[str, Any]:
 
     - ``discovery`` (required) — the canonical discovery document.
     - ``classifications`` (optional) — ``scripts/classify.py``'s output; its
-      table split derives ``tables.operationalEmpty`` /
-      ``tables.contentNonEmpty``.
+      table split derives ``tables.operationalEmpty`` in full, and
+      ``tables.contentNonEmpty`` restricted to the always-populated core
+      tables in :data:`_ALWAYS_POPULATED_CORE_TABLES` — never the whole
+      full-carry list, since "carried in full" only means the transfer did
+      not silently empty a table, not that production actually put rows
+      in it.
     - ``localUrl`` (optional) — the local DDEV URL; not derivable from
       discovery alone (that is ``classify.py``'s ``project_name.ddev_url``).
     - ``entityCounts`` (optional) — ``{"publishedPosts", "publishedPages",
@@ -811,6 +851,9 @@ def generate_expectations(envelope: Mapping[str, Any]) -> dict[str, Any]:
 
     # The table split: the total count is discovery's own enumeration; the
     # empty/non-empty name lists need the optional classifications section.
+    # The full-carry list is never taken whole into contentNonEmpty — it
+    # only means "not silently emptied by this transfer", not "known to
+    # hold rows in production" — see _ALWAYS_POPULATED_CORE_TABLES above.
     tables: dict[str, Any] = {}
     all_tables = database.get("tables")
     if isinstance(all_tables, list) and all_tables:
@@ -819,6 +862,7 @@ def generate_expectations(envelope: Mapping[str, Any]) -> dict[str, Any]:
     if isinstance(classifications, dict):
         table_split = classifications.get("tables")
         if isinstance(table_split, dict):
+            prefix = database.get("table_prefix", "")
             empty = table_split.get("empty")
             if isinstance(empty, list):
                 tables["operationalEmpty"] = sorted(
@@ -826,7 +870,14 @@ def generate_expectations(envelope: Mapping[str, Any]) -> dict[str, Any]:
                 )
             full = table_split.get("full")
             if isinstance(full, list) and full:
-                tables["contentNonEmpty"] = sorted(str(name) for name in full)
+                non_empty = sorted(
+                    str(name)
+                    for name in full
+                    if isinstance(name, str)
+                    and _table_suffix(prefix, name) in _ALWAYS_POPULATED_CORE_TABLES
+                )
+                if non_empty:
+                    tables["contentNonEmpty"] = non_empty
     if tables:
         expectations["tables"] = tables
 
