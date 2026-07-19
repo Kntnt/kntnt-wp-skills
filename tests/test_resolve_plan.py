@@ -574,6 +574,23 @@ def test_live_derived_decisions_carry_production_values_at_the_live_layer() -> N
     assert prefix["source"] == "live"
 
 
+def test_engine_pin_truncates_the_database_version_to_major_minor() -> None:
+    """Issue #14: the ``db_engine_php`` pin is interpolated verbatim into
+    ``ddev config --database=<flavour>:<version>``, and DDEV accepts only
+    ``major.minor`` there — the same granularity already enforced for PHP.
+    Discovery reports the full patch-level server version (``10.11.6-MariaDB``);
+    the resolved value must already be truncated, not passed through raw."""
+
+    # Arrange & Act.
+    plan = resolve(envelope("mariadb-site.json"))
+
+    # Assert: both the database and the PHP version are major.minor, never the
+    # patch-level string discovery reported.
+    engine = decision(plan, "db_engine_php")
+    assert engine["value"] == {"flavour": "mariadb", "version": "10.11", "php_major_minor": "8.3"}
+    assert engine["source"] == "live"
+
+
 def test_clone_walks_the_project_name_bookend_and_omits_pull_only_decisions() -> None:
     # Arrange & Act.
     plan = resolve(envelope(skill="clone"))

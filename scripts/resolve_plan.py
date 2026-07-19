@@ -180,15 +180,28 @@ def live_table_prefix(context: Context) -> Any:
     return context.discovery["database"]["table_prefix"]
 
 
+def engine_version_major_minor(version: str) -> str:
+    """Reduce a database server's full version string to its ``major.minor`` pin
+    (``10.11.6-MariaDB`` -> ``10.11``, ``8.0.36`` -> ``8.0``) — DDEV's
+    ``ddev config --database=<flavour>:<version>`` accepts only this
+    granularity, never the patch-level string discovery reports."""
+
+    parts = version.split(".")
+    if len(parts) < 2:
+        raise ResolveError(f"database version {version!r} is not in major.minor form")
+    return f"{parts[0]}.{parts[1]}"
+
+
 def live_engine_php(context: Context) -> Any:
     """The database flavour and version and the PHP major.minor, pinned to
     production's so the import does not crash on collations (platform constraint
-    11)."""
+    11). Both versions are truncated to the ``major.minor`` DDEV accepts —
+    discovery's PHP field already is, the database field is truncated here."""
 
     database = context.discovery["database"]
     return {
         "flavour": database["flavour"],
-        "version": database["version"],
+        "version": engine_version_major_minor(database["version"]),
         "php_major_minor": context.discovery["environment"]["php_major_minor"],
     }
 

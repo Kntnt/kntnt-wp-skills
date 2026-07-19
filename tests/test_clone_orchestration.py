@@ -196,38 +196,52 @@ def test_yes_mode_is_unattended_and_prints_the_full_record() -> None:
     assert re.search(r"record", SKILL_TEXT, re.IGNORECASE), "no decided-and-done record"
 
 
-def test_engine_pin_precedes_the_first_ddev_start() -> None:
-    """Issue #14: the clone bookends order scaffold, then the discovered database
-    engine/version pin in ``.ddev/config.yaml``, then the first ``ddev start`` — no
-    step may bring DDEV up before the pin lands. A smoke test once let `mkwp`
-    settle on DDEV's default MariaDB (11.8) against a production 11.4, costing a
-    ``ddev delete -O`` plus reconfigure-and-restart cycle to undo after the fact."""
+def test_engine_correction_follows_scaffold_and_precedes_the_restart() -> None:
+    """Issue #14: `mkwp` has no `--db=` flag, so its scaffold necessarily runs its
+    own first `ddev start` on DDEV's default engine — the ordering the clone
+    bookends can actually deliver is scaffold, then discard that throwaway
+    database, then the discovered engine/version pin in ``.ddev/config.yaml``,
+    then the restart onto the corrected engine — never an import or transfer
+    step ahead of that restart. A smoke test once let `mkwp` settle on DDEV's
+    default MariaDB (11.8) against a production 11.4 all the way to import,
+    costing a ``ddev delete -O`` plus reconfigure-and-restart cycle deep inside
+    an already-populated site to undo; this ordering runs that same cycle
+    deliberately, immediately after scaffold, instead."""
 
-    # Anchor the first-start position on the actual **First start.** step, not the
-    # summary intro sentence that also says "before the first `ddev start`" —
-    # otherwise a regression that reordered the real steps while leaving the
-    # intro intact would slip through (the same pitfall the health-check
-    # ordering test above documents).
+    # Anchor the restart position on the actual **Restart on the corrected
+    # engine.** step, not the summary intro sentence that also mentions
+    # restarting — otherwise a regression that reordered the real steps while
+    # leaving the intro intact would slip through (the same pitfall the
+    # health-check ordering test above documents).
     scaffold = _pos(r"mkwp <name>")
+    discard = _pos(r"ddev delete -O")
     pin = _pos(r"ddev config --database=")
-    start = _pos(r"\*\*First start\.\*\*")
-    assert scaffold < pin < start, (
-        "clone SKILL.md must order the mkwp scaffold, then the `ddev config "
-        "--database=` engine pin, then the first-start step"
+    restart = _pos(r"\*\*Restart on the corrected engine\.\*\*")
+    assert scaffold < discard < pin < restart, (
+        "clone SKILL.md must order the mkwp scaffold, then discarding the "
+        "throwaway default-engine database, then the `ddev config --database=` "
+        "engine pin, then the restart-on-the-corrected-engine step"
     )
 
 
-def test_spec_clone_bookends_order_scaffold_pin_then_first_start() -> None:
-    """Issue #14: the specification's clone bookends carry the same explicit
-    ordering as the SKILL, so the two documents cannot silently diverge on which
-    step brings DDEV up for the first time."""
+def test_spec_clone_bookends_order_scaffold_discard_pin_then_restart() -> None:
+    """Issue #14: the specification's clone bookends carry the same explicit,
+    achievable ordering as the SKILL, so the two documents cannot silently
+    diverge on how the engine actually gets corrected."""
 
+    # The restart anchor is the specific "restart with `ddev start`" phrasing of
+    # the terminal step, not a bare "ddev start" search — the latter would also
+    # match the intro sentence's mention of mkwp's own unavoidable first start,
+    # which precedes the scaffold anchor and would make the assertion pass
+    # regardless of where the real restart step sits.
     scaffold = _spec_pos(r"scaffold with `mkwp`")
+    discard = _spec_pos(r"ddev delete -O")
     pin = _spec_pos(r"ddev config --database=")
-    start = _spec_pos(r"ddev start")
-    assert scaffold < pin < start, (
-        "docs/spec.md must order the mkwp scaffold, then the `ddev config "
-        "--database=` engine pin, then the first `ddev start`"
+    restart = _spec_pos(r"restart with `ddev start`")
+    assert scaffold < discard < pin < restart, (
+        "docs/spec.md must order the mkwp scaffold, then discarding the "
+        "throwaway default-engine database, then the `ddev config --database=` "
+        "engine pin, then the restart onto the corrected engine"
     )
 
 
