@@ -7,11 +7,12 @@ throwaway probe directory before the local ``curl`` fetched it, forcing a redo.
 
 The fix is a step swap, not new behaviour, so this suite is the anti-drift
 binding: it holds ``skills/clone/SKILL.md``, ``skills/pull/SKILL.md``,
-``docs/spec.md``, and both manual pages to the new order — sweep first, then
-preflight — and to the one-line note that the two must never run concurrently.
-Anchors are the literal step prose, never a snippet of this suite's own text,
-so a faithful rewrite stays green while a regression (the old order restored
-anywhere, or the concurrency note dropped) reddens.
+``docs/spec.md``, both manual pages, and ``templates/README.md`` to the new
+order — sweep first, then preflight — and to the one-line note that the two
+must never run concurrently. Anchors are the literal step prose, never a
+snippet of this suite's own text, so a faithful rewrite stays green while a
+regression (the old order restored anywhere, or the concurrency note dropped)
+reddens.
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ PULL_SKILL: Path = REPO_ROOT / "skills" / "pull" / "SKILL.md"
 SPEC: Path = REPO_ROOT / "docs" / "spec.md"
 CLONE_MANPAGE: Path = REPO_ROOT / "docs" / "man" / "clone.md"
 PULL_MANPAGE: Path = REPO_ROOT / "docs" / "man" / "pull.md"
+TEMPLATES_README: Path = REPO_ROOT / "templates" / "README.md"
 
 # The documents whose health-check prose must agree on the new order. Each
 # entry pairs the file with the pattern that anchors its "sweep" step and its
@@ -65,6 +67,12 @@ ORDERED_DOCS: tuple[tuple[str, Path, str, str], ...] = (
         PULL_MANPAGE,
         r"sweeps stranded workspaces",
         r"preflights the download path",
+    ),
+    (
+        "templates README",
+        TEMPLATES_README,
+        r"`stranded-sweep\.php`[\s\S]*?health check step 5",
+        r"`download-preflight\.php`[\s\S]*?health check step 6",
     ),
 )
 
@@ -120,12 +128,6 @@ def test_sweep_never_runs_concurrently_with_preflight_is_noted(
     re-ordering or re-batching cannot reintroduce it silently."""
 
     text = path.read_text(encoding="utf-8")
-    assert re.search(r"never run", text, re.IGNORECASE), (
-        f"{doc_name} is missing the sweep/preflight concurrency note"
-    )
-    assert re.search(r"concurrently", text, re.IGNORECASE), (
-        f"{doc_name} is missing the sweep/preflight concurrency note"
-    )
-    assert re.search(r"in-flight preflight", text, re.IGNORECASE), (
-        f"{doc_name} is missing the sweep/preflight concurrency note"
-    )
+    assert re.search(
+        r"never run concurrently with an in-flight preflight", text, re.IGNORECASE
+    ), f"{doc_name} is missing the sweep/preflight concurrency note"

@@ -1,5 +1,5 @@
 <?php
-// Novamira execute-php payload — download preflight (health check step 5). INERT
+// Novamira execute-php payload — download preflight (health check step 6). INERT
 // in this build: never run against a live site here (see templates/README.md).
 // Sent as a fragment evaluated in the WordPress global scope, so no
 // declare()/namespace. Echoes exactly one JSON object and nothing else.

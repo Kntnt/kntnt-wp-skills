@@ -1,5 +1,5 @@
 <?php
-// Novamira execute-php payload — stranded-workspace sweep (health check step 6).
+// Novamira execute-php payload — stranded-workspace sweep (health check step 5).
 // INERT in this build: never run against a live site here (see
 // templates/README.md). Sent as a fragment evaluated in the WordPress global
 // scope, so no declare()/namespace. Echoes exactly one JSON object and nothing

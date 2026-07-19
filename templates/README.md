@@ -12,8 +12,8 @@ Nothing in this directory is executed against a live site during the build. Per 
 |---|---|---|
 | `liveness.php` | `execute-php` | Prove the channel is live and return the four facts the health check compares against the target URL — home URL, `ABSPATH`, PHP version, server software (health check step 2). |
 | `exec-probe.php` | `execute-php` | Probe process spawning independently of `run-wp-cli`: `function_exists('exec')`, the `disable_functions` list, and a live `exec('printf ok')` round-trip (health check step 4). |
-| `download-preflight.php` | `execute-php` | Write a tiny **extension-less** test file into a throwaway docroot directory and return its URL and paths, so the local side can fetch it over HTTPS before the heavy pack (health check step 5). |
-| `stranded-sweep.php` | `execute-php` | List and remove stranded `kntnt-wp-skills-*` working and download directories left by an aborted earlier run (health check step 6). |
+| `stranded-sweep.php` | `execute-php` | List and remove stranded `kntnt-wp-skills-*` working and download directories left by an aborted earlier run (health check step 5). |
+| `download-preflight.php` | `execute-php` | Write a tiny **extension-less** test file into a throwaway docroot directory and return its URL and paths, so the local side can fetch it over HTTPS before the heavy pack (health check step 6). |
 | `discovery.php` | `execute-php` | The single read-only discovery call: gather everything the discovery document is built from and echo it as one JSON object (Discovery section). |
 | `manifest.php` | `execute-php` | Walk production's **whole** content tree, unfiltered, and echo path, size, and mtime per file. Takes no exclusion payload (issue #18) — `scripts/filter_manifest.py` restricts the result to the resolved scope locally before it reaches `scripts/baseline_diff.py`, which diffs it against the stored last-sync baseline (Baseline diff section). |
 
