@@ -1,6 +1,6 @@
 # kntnt-wp-skills
 
-A Claude Code plugin that mirrors a live WordPress site down into a local DDEV copy, via two user-invoked skills over one shared transfer engine.
+A Claude Code plugin that mirrors a live WordPress site down into a local DDEV copy via `clone` and `pull`, two user-invoked skills over one shared transfer engine, plus a third standalone skill, `mkwp`, that scaffolds a brand-new local site.
 
 ## Language
 
@@ -14,8 +14,11 @@ _Avoid_: install, download, copy
 The skill that refreshes an existing local copy from production. Never pushes anything up.
 _Avoid_: sync, refresh, update
 
+**mkwp** (skill):
+The standalone skill that scaffolds a brand-new local WordPress site by driving the `mkwp` command — no production, no Novamira, no transfer engine underneath. Named after, and driving, the `mkwp` command itself.
+
 **Transfer engine**:
-The shared machinery both skills run — discovery, packing on production, download, verification, remote cleanup, import, localisation. Clone and pull differ only at the bookends.
+The shared machinery `clone` and `pull` run — discovery, packing on production, download, verification, remote cleanup, import, localisation. Clone and pull differ only at the bookends; `mkwp` is not part of it.
 
 **Control channel**:
 The Novamira MCP server on the production site — the sole way the skills reach production. There is no SSH.

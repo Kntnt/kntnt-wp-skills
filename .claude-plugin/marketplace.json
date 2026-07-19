@@ -1,6 +1,6 @@
 {
   "name": "kntnt-wp-skills",
-  "description": "Kntnt's WordPress-skills plugin — mirror a live WordPress site down into a local DDEV copy: `clone` a fresh copy of production, or `pull` to refresh an existing one, driven solely through the Novamira MCP.",
+  "description": "Kntnt's WordPress-skills plugin — mirror a live WordPress site down into a local DDEV copy: `clone` a fresh copy of production, or `pull` to refresh an existing one, driven solely through the Novamira MCP; or `mkwp` to scaffold a brand-new local site from nothing.",
   "owner": {
     "name": "Thomas Barregren",
     "email": "thomas@kntnt.com"
@@ -9,7 +9,7 @@
     {
       "name": "kntnt-wp-skills",
       "source": "./",
-      "description": "Mirror a live WordPress site down into a local DDEV copy. Two user-invoked skills over one transfer engine: `clone` creates a fresh local copy of a production site, and `pull` refreshes an existing one incrementally. Both reach production solely through the Novamira MCP — never over SSH.",
+      "description": "Mirror a live WordPress site down into a local DDEV copy, or scaffold a brand-new one from nothing. Three user-invoked skills: `clone` creates a fresh local copy of a production site and `pull` refreshes an existing one incrementally, both reaching production solely through the Novamira MCP — never over SSH; `mkwp` scaffolds a brand-new local site standalone.",
       "homepage": "https://github.com/Kntnt/kntnt-wp-skills"
     }
   ]

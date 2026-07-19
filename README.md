@@ -3,17 +3,17 @@
 [![License](https://img.shields.io/github/license/Kntnt/kntnt-wp-skills)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/Kntnt/kntnt-wp-skills)](https://github.com/Kntnt/kntnt-wp-skills/releases/latest)
 
-A Claude Code plugin that mirrors a live WordPress site down into a local DDEV copy — clone a fresh copy or pull to refresh an existing one.
+A Claude Code plugin that mirrors a live WordPress site down into a local DDEV copy — clone a fresh copy or pull to refresh an existing one — and can scaffold a brand-new local site from nothing.
 
 ## Description
 
-kntnt-wp-skills brings a live WordPress site down to your machine as a local DDEV copy. It ships two skills: `clone` creates a fresh local copy in an empty directory, and `pull` refreshes an existing copy from production. Both are started by their slash command and run only when you invoke them; neither fires on its own, because each executes code on production and overwrites the local database.
+kntnt-wp-skills brings a live WordPress site down to your machine as a local DDEV copy. It ships three skills: `clone` creates a fresh local copy in an empty directory, `pull` refreshes an existing copy from production, and `mkwp` scaffolds a brand-new local site with no production source at all. Each is started by its slash command and runs only when you invoke it; none fires on its own — `clone`/`pull` because each executes code on production and overwrites the local database, `mkwp` because it writes a new local site.
 
 The plugin reaches production through a single channel — the Novamira MCP server connected to the live site — and never over SSH. Every decision it makes, from which tables to carry with their data to which multi-gigabyte galleries to leave behind, is put to you as a recommendation you accept or override. A routine refresh is a short walk through a handful of gates; an unattended run is a single flag.
 
 ### Key features
 
-- Two skills over one transfer engine: `clone` for the first copy, `pull` for an incremental refresh.
+- Three skills: `clone` and `pull` over one shared transfer engine, plus the standalone `mkwp` for scaffolding a brand-new local site.
 - One control channel — the Novamira MCP — and no SSH.
 - A recommendation with an accept-or-override gate for every decision, so nothing surprising happens silently.
 - Three speeds: interactive by default, `--yes` for an unattended run, and replay of a saved plan for a quick repeat.
@@ -35,8 +35,8 @@ The plugin handles the fiddly parts and asks you only about the decisions that m
 The plugin assumes you have already put a few things in place. Each note says why it is needed.
 
 - DDEV up and running, which in turn needs Docker (or an equivalent such as OrbStack) and DDEV's own dependencies. These are DDEV concerns, not this plugin's.
-- The free Novamira plugin installed and enabled on the production site, with its MCP server connected in Claude Code. This is the only channel to production; the free AGPL build is sufficient, and Novamira Pro is not required.
-- `mkwp` ≥ 1.5.0 on your `PATH`, used by `clone` to scaffold the local site. That version's `--dirname` flag is what lets the clone directory be named after the full production host while the DDEV project keeps a shorter, hostname-safe slug.
+- The free Novamira plugin installed and enabled on the production site, with its MCP server connected in Claude Code. This is the only channel to production; the free AGPL build is sufficient, and Novamira Pro is not required. Only `clone` and `pull` need this — `mkwp` does not.
+- `mkwp` ≥ 1.5.0 on your `PATH`, used by both the `clone` skill and the `mkwp` skill to scaffold a site. That version's `--dirname` flag is what lets the site's directory be named independently of its DDEV project name (e.g. after a full production host, while the DDEV project keeps a shorter, hostname-safe slug).
 
 ## Installation
 
@@ -49,7 +49,7 @@ Add the plugin's marketplace and install it from within Claude Code:
 
 ## Usage
 
-Both skills are started by their slash command and run only when you invoke them. The full option reference lives in the manual pages — [`clone`](docs/man/clone.md) and [`pull`](docs/man/pull.md) — also reachable as `/kntnt-wp-skills:help clone` and `/kntnt-wp-skills:help pull`.
+Every skill is started by its slash command and runs only when you invoke it. The full option reference lives in the manual pages — [`clone`](docs/man/clone.md), [`pull`](docs/man/pull.md), and [`mkwp`](docs/man/mkwp.md) — also reachable as `/kntnt-wp-skills:help clone`, `/kntnt-wp-skills:help pull`, and `/kntnt-wp-skills:help mkwp`.
 
 ### Clone a new copy
 
@@ -58,6 +58,10 @@ Run `/kntnt-wp-skills:clone` in an empty directory. The skill derives a local DD
 ### Refresh an existing copy
 
 Run `/kntnt-wp-skills:pull` from the project directory. The skill takes a rollback backup of the local database, transfers only what has changed since the last sync, re-applies your local state — the inactive plugins you had, the object-cache drop-in — and localises the result. The path to the rollback backup is reported so you can keep it.
+
+### Scaffold a brand-new local site
+
+Run `/kntnt-wp-skills:mkwp <name>` to create a local WordPress site from nothing — no production source involved. The skill derives what it can from context (site name, directory, title, locale, and so on) and confirms the rest at recommendation gates, the same shape `clone`/`pull` use; `--yes` accepts every recommendation, including installing Novamira so the site is already reachable by a later `/kntnt-wp-skills:clone`/`pull`. The first user's password is always `mkwp`'s own random generation, shown only in its own on-screen output.
 
 ### Run modes
 

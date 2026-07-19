@@ -1,6 +1,6 @@
 # kntnt-wp-skills — specification
 
-This document specifies the plugin's two skills and the shared transfer engine beneath them. It is the single source of truth for the build. The **architectural decisions** behind it — with rationale and rejected alternatives — are recorded as ADRs in [`docs/adr/`](./adr/); never re-open one as an oversight. The project's **terminology** is defined in [`CONTEXT.md`](../CONTEXT.md) and is binding in code, documentation, and dialogue. All user-facing text and documentation is British English (`en_GB`); identifiers, flags, and config keys are English.
+This document specifies the plugin's three skills — `clone` and `pull` over the shared transfer engine, and the standalone scaffold skill `mkwp` — and is the single source of truth for the build. The **architectural decisions** behind it — with rationale and rejected alternatives — are recorded as ADRs in [`docs/adr/`](./adr/); never re-open one as an oversight. The project's **terminology** is defined in [`CONTEXT.md`](../CONTEXT.md) and is binding in code, documentation, and dialogue. All user-facing text and documentation is British English (`en_GB`); identifiers, flags, and config keys are English.
 
 ## Problem Statement
 
@@ -15,6 +15,8 @@ Today the plugin is a scaffold: the help mechanism and manual pages are live, bu
 `kntnt-wp-skills` is a Claude Code plugin that mirrors a live WordPress site down into a local DDEV copy. It ships two user-invoked skills — **`clone`** creates a fresh local copy in an empty directory, **`pull`** refreshes an existing one — over **one shared transfer engine** that does discovery, packing on production, download, verification, remote cleanup, import, and localisation. A clone is a pull with no baseline, so the incremental path is the only path.
 
 The sole channel to production is the **Novamira MCP** server connected to the live site — never SSH. Every run starts with a **health check** that fails early and cheaply on everything that would otherwise surface only after a multi-gigabyte pack. Every decision the engine takes is a **recommendation behind an accept-or-override gate**; interactive mode walks the gates, `--yes` runs unattended and prints a full record, and a **saved plan** collapses a repeat run to a single replay gate. User data is encrypted in transit, packed outside the docroot, and deleted from production the moment the download verifies. The copy stays faithful by default — real mailer active, cron running — with a discovery-driven **mass-send valve** that flips the mail recommendation to capture only when a real campaign is poised to fire (a per-submission form-to-service integration is out of the valve's scope by design), and an always-emitted **risk warning** that itemises the copy's outward-reaching behaviours, including that integration hazard.
+
+A third skill, **`mkwp`**, is standalone: it drives the `mkwp` command to scaffold a brand-new local WordPress site from nothing, sharing the recommendation-gate shape but none of the transfer engine's machinery — no production, no Novamira, no discovery, no baseline. It exists to give the operator the same one-command, gate-confirmed convenience for the "before" a `clone` would later target, or for any ad hoc local WordPress install.
 
 ## User Stories
 
@@ -79,14 +81,18 @@ The sole channel to production is the **Novamira MCP** server connected to the l
 59. As a maintainer, I want the help mechanism built as the reference model for the sibling plugins, so that retrofitting them is a mechanical copy.
 60. As an operator, I want production left state-neutral after every run, so that the only trace of a sync is the synced copy itself.
 61. As an operator, I want form-submission tables excluded by default behind their own carry/empty gate, so that real visitors' names, emails, and messages do not land on my machine unless I deliberately choose to carry them.
+62. As an operator, I want a `/mkwp` skill that scaffolds a brand-new local WordPress site with `mkwp`, deriving its flags from context where possible and confirming the rest at recommendation gates, so that starting a fresh local site is as convenient as `clone`/`pull` without needing a production source.
+63. As an operator, I want `mkwp` to verify the local `mkwp` binary supports `--dirname` before scaffolding, so that an install too old for the plugin's conventions fails with install guidance instead of a confusing mid-scaffold error.
+64. As an operator, I want `mkwp` to recommend installing Novamira on every new site by default, so that the site is already reachable by a later `clone`/`pull` without a separate manual step.
 
 ## Implementation Decisions
 
 ### Architecture
 
 - Two user-invoked skills over one shared transfer engine; `clone` and `pull` differ only at the bookends, and a clone is a pull against an empty baseline ([ADR-0003](./adr/0003-single-transfer-engine-clone-is-pull.md)). There is one transfer path, not two.
-- Both skills are user-invoked only — started solely by their slash command, never fired autonomously by the model ([ADR-0002](./adr/0002-skills-user-invoked-only.md)).
-- The plugin is decoupled from `mkwp`: `mkwp` scaffolds only; import and localisation live in the engine, because `pull` needs them against an already-existing site ([ADR-0004](./adr/0004-decoupled-from-mkwp.md)).
+- A third, standalone skill, `mkwp`, sits beside the transfer engine rather than inside it: it drives the `mkwp` command to scaffold a brand-new site, with no production, no Novamira, and no baseline — see *The `mkwp` skill*, below.
+- Every skill is user-invoked only — started solely by its slash command, never fired autonomously by the model ([ADR-0002](./adr/0002-skills-user-invoked-only.md)).
+- The plugin is decoupled from `mkwp` the command: `mkwp` scaffolds only; import and localisation live in the engine, because `pull` needs them against an already-existing site ([ADR-0004](./adr/0004-decoupled-from-mkwp.md)). `clone` and the `mkwp` skill both scaffold with it, but only `clone` performs the engine-pin-and-restart bookend a fresh, production-shaped import needs.
 - The plugin layout mirrors the sibling plugins `kntnt-code-skills` and `kntnt-text-skills`: a manifest, one skill per directory, one help command, helper scripts, and per-skill manpages.
 
 ### The deterministic helper seam
@@ -243,9 +249,20 @@ Remove the large local scratch artifacts. The pull rollback backup already lives
 - Object-cache ownership derivation, then verify-and-fallback.
 - Incremental file transfer against the stored baseline; deletion gate to the local trash.
 
+### The `mkwp` skill
+
+Standalone: it scaffolds a brand-new local WordPress site by driving the `mkwp` command, sharing the recommendation-gate shape with `clone`/`pull` but none of the transfer engine underneath — no production, no Novamira, no discovery, no baseline, no import.
+
+- **Version guard.** Before anything else, verify the local `mkwp` on `PATH` supports `--dirname` — the floor is `mkwp` ≥ 1.5.0 ([Kntnt/mkwp#2](https://github.com/Kntnt/mkwp/issues/2)) — and abort with precise install guidance if it is missing or too old. This is the same guard `clone`'s own health check (§ *Clone bookends*, above) runs; both read the single verdict-and-remediation helper `scripts/mkwp_guard.py` rather than each deriving the check independently, so the shared dependency health check (issue #23) has one place to call into as well.
+- **NAME first.** `NAME` is the one value with no sensible universal default (the site's own identity), so it is always settled first — from context or by asking directly, even under `--yes`.
+- **The remaining decisions**, each a recommendation behind an accept-or-override gate exactly like `clone`/`pull`'s: `--dirname` (default `NAME`, or the full host of a domain the site is meant to mirror, via the same `derive_directory_name` convention `clone` uses for its own directory naming — issue #11), `--directory`, `--title`, `--email`/`--user`, `--language`, `--php`, `--wp`, `--themes`, `--plugins`, `--mu-plugins`. Every one defaults to `mkwp`'s own default (the flag is simply omitted) unless the conversation's context supplies a better value.
+- **Novamira by default.** `--plugins` always recommends **Novamira** — `https://github.com/use-novamira/novamira` — alongside anything context names, because the site needs the control channel the moment it becomes a production site `clone`/`pull` reach ([ADR-0001](./adr/0001-novamira-mcp-sole-control-channel.md)). If the parked companion-plugin epic ([issue #24](https://github.com/Kntnt/kntnt-wp-skills/issues/24)) ever replaces the control channel, this recommendation switches to the companion plugin instead.
+- **No password ever gathered.** `--password` is never offered or passed; the first user's password is always `mkwp`'s own random generation, shown only in `mkwp`'s own on-screen output and never captured into this skill's context.
+- **No persistent config of its own.** Unlike `clone`/`pull`, `mkwp` writes neither `.kntnt-wp-skills.json` nor `.kntnt-wp-skills/` — those exist only once the site is later brought under `clone`.
+
 ### Run modes and flags
 
-Interactive is the default; `--yes` is autonomous; replay engages automatically when a saved plan exists. The flag surface is deliberately minimal ([ADR-0013](./adr/0013-minimal-flag-surface.md)): `--yes`, `--include-media` / `--exclude-media`, `--include-blobs`, `--live-mail` / `--capture-mail`, `--no-cron`, `--regenerate-all`, and the help forms (`help`, `--help`, `-h`). No dry-run, no regex filters.
+Interactive is the default; `--yes` is autonomous; replay engages automatically when a saved plan exists. The flag surface is deliberately minimal per skill ([ADR-0013](./adr/0013-minimal-flag-surface.md)): `clone`/`pull` share `--yes`, `--include-media` / `--exclude-media`, `--include-blobs`, `--live-mail` / `--capture-mail`, `--no-cron`, `--regenerate-all`, and the help forms (`help`, `--help`, `-h`); `mkwp`'s own surface is unrelated — `--yes`, `--dirname`, `--directory`, `--title`, `--email`, `--user`, `--language`, `--php`, `--wp`, `--themes`, `--plugins`, `--mu-plugins`, and the same help forms. No dry-run, no regex filters, no replay (there is nothing to replay against — `mkwp` has no saved plan).
 
 ### Persistent config
 
@@ -294,16 +311,17 @@ The single source of truth for usage is one Markdown manpage per skill (NAME, SY
 
 ### Preconditions (documented in the README)
 
-DDEV up and running (with Docker or equivalent); the free Novamira plugin installed and enabled on production with its MCP server connected in Claude Code; `mkwp` ≥ 1.5.0 on the operator's PATH for clone (its `--dirname` flag names the clone's directory independently of the DDEV project name).
+DDEV up and running (with Docker or equivalent); the free Novamira plugin installed and enabled on production with its MCP server connected in Claude Code, for `clone`/`pull`; `mkwp` ≥ 1.5.0 on the operator's PATH for `clone` and for the `mkwp` skill alike (its `--dirname` flag names the site's directory independently of the DDEV project name).
 
 ## Testing Decisions
 
 - A good test exercises **external behaviour at the seam** — fixtures in, observable outputs out — and never reaches into implementation internals. Tests are named for the behaviour they assert, follow Arrange-Act-Assert, and each is seen failing before the satisfying code exists (red first), per the project coding standard.
 - **The single automated seam is the deterministic helper CLI.** Fixture discovery payloads, baselines, saved plans, and local-state snapshots go in as JSON; the assertions are on what comes out: the baseline diff (new/changed and production-deleted sets, including the scope-intersection rule that keeps a scope change from poisoning the deletion set), plan resolution across all four default layers (including that `--yes` stops at the saved-config layer and that flags pin their decisions), the classifications (defines into auto-excluded vs portable, tables into full vs empty, blob flagging, per-submission form-to-service integrations by name-pattern pairing, the thumbnail exclude-set from attachment-metadata fixtures — including the ambiguous same-name original/derivative case), the project- and directory-name derivation, the dump sanity verdicts, the saved-plan round-trip, and the generated pack script's content (anchored exclusion file, artifacts named `.enc` from creation, checksums over final names, DONE/FAILED markers, self-destruct arming).
 - **The generated pack script is additionally executed** in a sandboxed temp directory with stub binaries on the path standing in for the database tools, proving its runtime contract at the same seam: the success path yields DONE, three artifacts, and checksums that verify; an induced failure yields FAILED plus the log tail in the download dir; and at no point does plaintext appear in the simulated docroot.
-- **The help/docs consistency test** binds the documentation together: every skill has a manpage, every flag documented in a manpage's OPTIONS table is one the engine accepts (and vice versa), the overview lists each manpage's NAME line, and the README's manpage links resolve.
+- **The help/docs consistency test** binds the documentation together: every skill has a manpage, every flag documented in a manpage's OPTIONS table is one that skill's own flag registry accepts and vice versa (checked per skill — `mkwp`'s independent surface is never cross-checked against `clone`/`pull`'s), the overview lists each manpage's NAME line, and the README's manpage links resolve.
+- **The `mkwp` version guard** is unit-tested at its own seam: `mkwp --help` output (or its absence) in, a pass/fail verdict with a remediation message out.
 - Framework: pytest, provisioned by uv, per the Python module of the coding standard. There is no prior test art in this repository — this suite is the first; the existing help script establishes the standalone-script shape the helpers follow.
-- **Stated residual, verified by humans at run time rather than CI:** the skill orchestration prose, the real Novamira interaction, and the real DDEV import and localisation. These are covered by the engine's own verify phase on every run (smoke URLs from live state, error greps, database check) plus a manual end-to-end smoke — a clone followed by a pull against a real site — before release.
+- **Stated residual, verified by humans at run time rather than CI:** the skill orchestration prose, the real Novamira interaction, the real `mkwp`/DDEV interaction, and the real DDEV import and localisation. These are covered by the engine's own verify phase on every run (smoke URLs from live state, error greps, database check) plus a manual end-to-end smoke — a clone followed by a pull against a real site — before release.
 
 ## Out of Scope
 
