@@ -38,6 +38,7 @@ CLASSIFY = SCRIPTS / "classify.py"
 PULL_DECISIONS = [
     "db_table_structure",
     "db_table_content",
+    "user_submissions",
     "table_prefix",
     "db_engine_php",
     "media_originals",
@@ -57,6 +58,7 @@ CLONE_DECISIONS = [
     "directory_name",
     "db_table_structure",
     "db_table_content",
+    "user_submissions",
     "table_prefix",
     "db_engine_php",
     "media_originals",
@@ -398,6 +400,86 @@ def test_capture_mail_flag_pins_capture_without_a_campaign() -> None:
     # Assert.
     assert mail["value"] == "capture"
     assert mail["source"] == "flag"
+
+
+# --- User-submission tables: their own carry/empty gate, default empty -------
+#
+# Unlike the four operational categories (silently folded into the
+# db_table_content recommendation), form/entry-submission tables are neither
+# regenerable nor operational — the most privacy-sensitive data the transfer
+# handles — so they get a standalone gate the operator walks or overrides,
+# default empty for privacy minimisation (ADR-0014).
+
+
+def test_user_submissions_defaults_to_empty_for_privacy_minimisation() -> None:
+    # Arrange & Act: a plain run, no saved plan, no answer, no flag.
+    plan = resolve(envelope())
+
+    # Act.
+    submissions = decision(plan, "user_submissions")
+
+    # Assert: the built-in default is empty, sourced from the built-in layer.
+    assert submissions["value"] == "empty"
+    assert submissions["source"] == "built_in"
+
+
+def test_a_saved_carry_choice_for_user_submissions_is_honoured_on_replay() -> None:
+    # Arrange: a prior run's saved plan settled on carrying real form entries
+    # (e.g. to debug a form flow locally) — the gate's way back from the privacy
+    # default.
+    plan = resolve(envelope(saved_plan={"user_submissions": "carry"}))
+
+    # Act.
+    submissions = decision(plan, "user_submissions")
+
+    # Assert: the saved choice overrides the built-in empty default.
+    assert submissions["value"] == "carry"
+    assert submissions["source"] == "saved"
+
+
+def test_a_this_run_answer_overrides_the_user_submissions_default() -> None:
+    # Arrange & Act: no saved plan, this run answers carry.
+    plan = resolve(envelope(answers={"user_submissions": "carry"}))
+
+    # Act.
+    submissions = decision(plan, "user_submissions")
+
+    # Assert.
+    assert submissions["value"] == "carry"
+    assert submissions["source"] == "answer"
+
+
+def test_user_submissions_is_walked_in_the_fresh_interactive_gate_list() -> None:
+    # Arrange & Act: a fresh interactive run with no saved plan.
+    plan = resolve(envelope())
+
+    # Assert: the gate is surfaced like any other decision, not silently skipped.
+    assert "user_submissions" in plan["gates"]
+
+
+def test_the_saved_plan_persists_and_replays_a_carry_choice_for_user_submissions() -> None:
+    # Arrange: an operator overrides the privacy default to carry for this site.
+    fresh = resolve(envelope(answers={"user_submissions": "carry"}))
+    written = save(fresh)
+
+    # Act: the choice is persisted, then a later run replays the saved plan.
+    assert written["user_submissions"] == "carry"
+    replayed = resolve(envelope(saved_plan=written))
+
+    # Assert: the replay honours the persisted carry choice from the saved layer.
+    submissions = decision(replayed, "user_submissions")
+    assert submissions["value"] == "carry"
+    assert submissions["source"] == "saved"
+
+
+def test_the_saved_plan_persists_the_empty_default_when_never_overridden() -> None:
+    # Arrange & Act: an accepted fresh plan with no override.
+    written = save(resolve(envelope()))
+
+    # Assert: the privacy default is explicitly persisted, not merely implied by
+    # absence — so a later run replays "empty" from the saved layer rather than
+    # re-deriving the built-in default.
+    assert written["user_submissions"] == "empty"
 
 
 # --- Live-derived and skill-specific decisions --------------------------------

@@ -260,6 +260,73 @@ def test_table_classification_respects_a_non_default_prefix() -> None:
     assert "site7_options" in tables["full"]
 
 
+def test_a_form_submission_table_is_classified_under_user_submissions() -> None:
+    # Arrange — a discovery document naming a Weforms/WS Form submission table and
+    # its meta sibling. Form-entry tables are neither regenerable nor operational
+    # (real names, emails, messages) so they earn their own classification family,
+    # distinct from the four silently-emptied operational categories (ADR-0014).
+    document = {"database": {
+        "table_prefix": "wp_",
+        "tables": ["wp_posts", "wp_wsf_submit", "wp_wsf_submit_meta"],
+    }}
+
+    # Act.
+    tables = classify_document(document)["tables"]
+
+    # Assert — tagged under the user_submissions category, not any operational
+    # one, while ordinary content stays full.
+    by_name = {entry["name"]: entry["category"] for entry in tables["empty"]}
+    assert by_name.get("wp_wsf_submit") == "user_submissions"
+    assert by_name.get("wp_wsf_submit_meta") == "user_submissions"
+    assert "wp_posts" in tables["full"]
+
+
+def test_every_documented_form_plugin_family_is_classified_under_user_submissions() -> None:
+    # Arrange — one representative table per form plugin the issue's initial
+    # pattern set names: WS Form, Fluent Forms, Formidable, WPForms, Gravity Forms.
+    names = [
+        "wp_wsf_submit",
+        "wp_wsf_submit_meta",
+        "wp_fluentform_submissions",
+        "wp_fluentform_submission_meta",
+        "wp_fluentform_entry_details",
+        "wp_frm_items",
+        "wp_frm_item_metas",
+        "wp_wpforms_entries",
+        "wp_wpforms_entry_meta",
+        "wp_wpforms_entry_fields",
+        "wp_gf_entry",
+        "wp_gf_entry_meta",
+        "wp_gf_entry_notes",
+    ]
+    document = {"database": {"table_prefix": "wp_", "tables": names}}
+
+    # Act.
+    tables = classify_document(document)["tables"]
+
+    # Assert — every one of them lands in user_submissions, none in full.
+    by_name = {entry["name"]: entry["category"] for entry in tables["empty"]}
+    for name in names:
+        assert by_name.get(name) == "user_submissions", name
+    assert tables["full"] == []
+
+
+def test_user_submission_classification_respects_a_non_default_prefix() -> None:
+    # Arrange — the match is on the name after the prefix, so a non-default
+    # prefix must not hide a form-submission table.
+    document = {"database": {
+        "table_prefix": "site7_",
+        "tables": ["site7_wsf_submit", "site7_posts"],
+    }}
+
+    # Act.
+    tables = classify_document(document)["tables"]
+
+    # Assert.
+    assert {"name": "site7_wsf_submit", "category": "user_submissions"} in tables["empty"]
+    assert "site7_posts" in tables["full"]
+
+
 def test_every_table_is_classified_not_only_the_report_subset() -> None:
     # Arrange — a site with more tables than the heaviest-N report subset: the full
     # enumeration 'tables' lists 25, while 'top_tables' (the report artifact the
