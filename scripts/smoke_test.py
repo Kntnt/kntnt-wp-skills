@@ -835,6 +835,18 @@ def generate_expectations(envelope: Mapping[str, Any]) -> dict[str, Any]:
       unconditionally takes ``len(discovery.plugins.active)`` and would FAIL
       a correct pull that genuinely leaves fewer plugins active locally.
       Never supplied at clone, where no preserved-inactive bookend runs.
+    - ``rebuiltSearchIndexTables`` (optional) — the search-index plugin's main
+      table name(s) whose rebuild command actually ran (issue #10: the reindex
+      step folded into the thumbnail-regeneration delegation, run when
+      discovery's active-plugin list carries a Relevanssi/SearchWP-family
+      plugin and its WP-CLI reindex command probes available). Each named
+      table is subtracted from ``tables.operationalEmpty`` and added to
+      ``tables.contentNonEmpty`` — a rebuilt index is no longer empty, so
+      asserting it so would FAIL a correct copy. A name not present in
+      ``operationalEmpty`` is still added to ``contentNonEmpty`` rather than
+      raising. Omitted (no plugin present, or its CLI command unavailable —
+      the report-only fallback) leaves the table split exactly as the raw
+      classifier/resolved-plan split derived it.
     - ``mode`` (optional, ``"clone"`` or ``"pull"``, default ``"clone"``) —
       only ``"pull"`` adds the ``rollbackBackup`` expectation, since a
       rollback backup is a pull-only artifact.
@@ -941,6 +953,26 @@ def generate_expectations(envelope: Mapping[str, Any]) -> dict[str, Any]:
             )
             if non_empty:
                 tables["contentNonEmpty"] = non_empty
+    # Search-index rebuild (issue #10): the reindex step fills a search-index
+    # plugin's main table after import, so a table the classifier's split
+    # otherwise expects empty must instead be expected non-empty. Orchestration
+    # passes only the table(s) whose rebuild command actually ran; a name
+    # absent from operationalEmpty (a stale override, a plugin the classifier
+    # never tagged) is still folded into contentNonEmpty rather than raising —
+    # a caller-supplied override must never crash the derivation. When every
+    # named table was the whole of operationalEmpty, the key is dropped
+    # entirely rather than left as an empty list, matching every other "nothing
+    # left to derive" field.
+    rebuilt_search_index_tables = envelope.get("rebuiltSearchIndexTables")
+    if isinstance(rebuilt_search_index_tables, list) and rebuilt_search_index_tables:
+        rebuilt = set(rebuilt_search_index_tables)
+        remaining_empty = set(tables.get("operationalEmpty", [])) - rebuilt
+        if remaining_empty:
+            tables["operationalEmpty"] = sorted(remaining_empty)
+        else:
+            tables.pop("operationalEmpty", None)
+        tables["contentNonEmpty"] = sorted(set(tables.get("contentNonEmpty", [])) | rebuilt)
+
     if tables:
         expectations["tables"] = tables
 
