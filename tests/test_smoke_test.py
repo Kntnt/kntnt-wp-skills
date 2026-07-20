@@ -1353,6 +1353,56 @@ def test_generate_expectations_drops_operational_empty_key_when_every_table_was_
     assert expectations["tables"]["contentNonEmpty"] == ["wp_posts", "wp_relevanssi"]
 
 
+def test_generate_expectations_ignores_non_string_entries_in_rebuilt_search_index_tables():
+    """The fold's own contract (stated in the comment above it) is that a
+    caller-supplied override must never crash the derivation. An unhashable
+    entry (a dict) would raise ``TypeError`` at ``set(rebuilt_search_index_
+    tables)``, and a hashable-but-wrong-type entry (an int) would raise
+    ``TypeError`` from ``sorted()`` once mixed with the existing ``str``
+    table names — both must instead be silently dropped, the same
+    defensive filter the ``full`` list above already applies to its own
+    entries."""
+
+    envelope = {
+        "discovery": {"database": {"table_prefix": "wp_"}},
+        "classifications": {
+            "tables": {
+                "empty": [{"name": "wp_relevanssi", "category": "search_index"}],
+                "full": ["wp_posts"],
+            }
+        },
+        "rebuiltSearchIndexTables": ["wp_relevanssi", {"name": "wp_relevanssi"}, 42],
+    }
+
+    expectations = smoke_test.generate_expectations(envelope)
+
+    assert "operationalEmpty" not in expectations["tables"]
+    assert expectations["tables"]["contentNonEmpty"] == ["wp_posts", "wp_relevanssi"]
+
+
+def test_generate_expectations_treats_an_all_malformed_rebuilt_search_index_tables_as_key_omitted():
+    """When every entry in ``rebuiltSearchIndexTables`` is malformed, the
+    filtered set is empty and the fold must behave exactly as if the key
+    had never been supplied — never raise, and never touch the table
+    split derived from the classifier/resolved-plan split."""
+
+    envelope = {
+        "discovery": {"database": {"table_prefix": "wp_"}},
+        "classifications": {
+            "tables": {
+                "empty": [{"name": "wp_relevanssi", "category": "search_index"}],
+                "full": ["wp_posts"],
+            }
+        },
+        "rebuiltSearchIndexTables": [{"name": "wp_relevanssi"}, 42],
+    }
+
+    expectations = smoke_test.generate_expectations(envelope)
+
+    assert expectations["tables"]["operationalEmpty"] == ["wp_relevanssi"]
+    assert expectations["tables"]["contentNonEmpty"] == ["wp_posts"]
+
+
 def test_generate_expectations_handles_a_rebuilt_table_absent_from_the_empty_list_without_crashing():
     """A name ``rebuiltSearchIndexTables`` supplies that never appears in the
     derived ``operationalEmpty`` list (a stale override, a typo, a plugin the

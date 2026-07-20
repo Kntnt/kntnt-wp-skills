@@ -49,6 +49,16 @@ def _import_and_localise_section(text: str) -> str:
     return match.group(1)
 
 
+def _verify_smoke_section(text: str) -> str:
+    """The ``## N. Verify (smoke)`` section's own text — from its heading to
+    the next level-2 heading — so a match elsewhere in the file never
+    counts."""
+
+    match = re.search(r"^## \d+\. Verify \(smoke\)\n(.*?)(?=^## |\Z)", text, re.MULTILINE | re.DOTALL)
+    assert match, "no '## N. Verify (smoke)' section found"
+    return match.group(1)
+
+
 def _reindex_step_text(section: str) -> str:
     """The reindex step's own numbered-list item — from the first line that
     starts a numbered item naming the search index to the next numbered
@@ -175,7 +185,17 @@ def test_thumbnail_smoke_test_agent_documents_the_reindex_subtask() -> None:
 
     body = AGENT_FILE.read_text(encoding="utf-8")
     assert re.search(r"reindex", body, re.IGNORECASE)
-    assert 'wp cli has-command "relevanssi index"' in body or "has-command" in body.lower()
+    # The agent file templates the probe over its `plugin` input rather than
+    # spelling out each family's literal command, so the bound string is the
+    # templated form actually shipped, not either literal family command —
+    # a bare "has-command" check would pass even if the probe were dropped
+    # entirely and only mentioned in passing prose.
+    assert 'wp cli has-command "<plugin> index"' in body, (
+        'thumbnail-smoke-test.md never documents the has-command probe as "wp cli has-command \\"<plugin> index\\""'
+    )
+    assert "relevanssi" in body and "searchwp" in body, (
+        "thumbnail-smoke-test.md never names both search-index plugin families"
+    )
     for outcome in ("rebuilt", "cli-unavailable", "not-present"):
         assert outcome in body, f"thumbnail-smoke-test.md never names the outcome {outcome!r}"
 
@@ -229,6 +249,22 @@ def test_spec_db_table_content_decision_row_distinguishes_search_index() -> None
     )
 
 
+@pytest.mark.parametrize("skill", sorted(SKILLS))
+def test_skill_verify_smoke_section_mentions_the_rebuilt_search_index_tables_key(skill: str) -> None:
+    """AC: the same fold docs/spec.md's Verify section requires must also
+    reach each SKILL.md's own '## N. Verify (smoke)' paragraph — it, not
+    spec.md, is the operative orchestration prose the running agent follows.
+    Without this clause, the orchestrator assembles `tables.operationalEmpty`
+    from the resolved plan's raw empty-table list in full, so a correct
+    clone/pull that genuinely rebuilt its search index would assert its own
+    freshly-populated table empty and fail its own smoke test."""
+
+    section = _verify_smoke_section(SKILLS[skill].read_text(encoding="utf-8"))
+    assert "rebuiltSearchIndexTables" in section, (
+        f"{skill} SKILL.md's Verify (smoke) section never names rebuiltSearchIndexTables"
+    )
+
+
 def test_spec_verify_section_mentions_the_rebuilt_search_index_tables_key() -> None:
     """AC: the Verify paragraph's expectations assembly must mention that
     only the main index table of a plugin whose rebuild actually ran is
@@ -260,7 +296,10 @@ def test_adr_0015_exists_and_cross_references_adr_0011_and_the_vendor_docs() -> 
 
 def test_adr_directory_has_no_gap_before_0015() -> None:
     """The 'next free number' contract: 0015 must not skip past an unused
-    number — every ADR from 0001 through 0015 exists."""
+    number — every ADR from 0001 through 0015 exists. This checks only that
+    prefix, never the directory's exact upper bound, so a later issue's own
+    ADR-0016+ is expected and must never redden this test."""
 
-    numbers = sorted(int(path.name[:4]) for path in ADR_DIR.glob("[0-9][0-9][0-9][0-9]-*.md"))
-    assert numbers == list(range(1, 16)), f"docs/adr/ has a gap or a skip: {numbers}"
+    numbers = {int(path.name[:4]) for path in ADR_DIR.glob("[0-9][0-9][0-9][0-9]-*.md")}
+    missing = set(range(1, 16)) - numbers
+    assert not missing, f"docs/adr/ has a gap before 0015: missing {sorted(missing)}"

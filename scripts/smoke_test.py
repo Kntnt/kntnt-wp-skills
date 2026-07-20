@@ -953,25 +953,32 @@ def generate_expectations(envelope: Mapping[str, Any]) -> dict[str, Any]:
             )
             if non_empty:
                 tables["contentNonEmpty"] = non_empty
+
     # Search-index rebuild (issue #10): the reindex step fills a search-index
     # plugin's main table after import, so a table the classifier's split
     # otherwise expects empty must instead be expected non-empty. Orchestration
     # passes only the table(s) whose rebuild command actually ran; a name
     # absent from operationalEmpty (a stale override, a plugin the classifier
     # never tagged) is still folded into contentNonEmpty rather than raising —
-    # a caller-supplied override must never crash the derivation. When every
+    # a caller-supplied override must never crash the derivation. Non-string
+    # entries are dropped rather than raising — an unhashable one (a dict)
+    # would break the `set()` below, and a hashable-but-wrong-type one (an
+    # int) would break `sorted()` once mixed with the existing `str` table
+    # names — the same defensive filter the `full` list above already
+    # applies to its own entries. When the filtered set is empty, or every
     # named table was the whole of operationalEmpty, the key is dropped
-    # entirely rather than left as an empty list, matching every other "nothing
-    # left to derive" field.
+    # entirely rather than left as an empty list, matching every other
+    # "nothing left to derive" field.
     rebuilt_search_index_tables = envelope.get("rebuiltSearchIndexTables")
     if isinstance(rebuilt_search_index_tables, list) and rebuilt_search_index_tables:
-        rebuilt = set(rebuilt_search_index_tables)
-        remaining_empty = set(tables.get("operationalEmpty", [])) - rebuilt
-        if remaining_empty:
-            tables["operationalEmpty"] = sorted(remaining_empty)
-        else:
-            tables.pop("operationalEmpty", None)
-        tables["contentNonEmpty"] = sorted(set(tables.get("contentNonEmpty", [])) | rebuilt)
+        rebuilt = {name for name in rebuilt_search_index_tables if isinstance(name, str)}
+        if rebuilt:
+            remaining_empty = set(tables.get("operationalEmpty", [])) - rebuilt
+            if remaining_empty:
+                tables["operationalEmpty"] = sorted(remaining_empty)
+            else:
+                tables.pop("operationalEmpty", None)
+            tables["contentNonEmpty"] = sorted(set(tables.get("contentNonEmpty", [])) | rebuilt)
 
     if tables:
         expectations["tables"] = tables
