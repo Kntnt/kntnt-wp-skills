@@ -630,6 +630,109 @@ def test_the_dimension_token_match_is_case_sensitive() -> None:
     assert exclude == set()
 
 
+# --- The -scaled big-image convention (#30) -----------------------------------
+#
+# WordPress's big-image handling (the "big image size threshold" feature, WP
+# 5.3+) scales an over-sized upload down and stores the scaled file as
+# `_wp_attached_file`, its basename carrying the exact terminal token
+# `-scaled` (`wp_create_image_subsizes()`: "Append '-scaled' to the image file
+# name"). But every registered sub-size is generated from the *pre-scaled*
+# original "for best quality" — its filename never carries that token, so
+# #26's rule (derive the regenerable pattern from the *attached* file's own
+# stem) never matches a big-image attachment's genuinely regenerable sizes,
+# forfeiting the exclusion savings on photo-heavy sites. This extends the
+# rule: when the attached file's stem ends in the exact, case-sensitive
+# terminal token `-scaled`, a size name derived from the stem with that
+# suffix stripped is *also* accepted — additive, never a replacement of the
+# original stem match.
+
+
+def test_a_scaled_big_image_regenerable_size_is_excluded_and_drift_is_kept() -> None:
+    # Arrange — the AC fixture: a big-image attachment whose attached file
+    # carries the -scaled token, with one size regenerable from the
+    # pre-scaled stem and one size that matches neither pattern.
+    document = {"attachments": [
+        {
+            "id": 1,
+            "file": "2024/05/photo-scaled.jpg",
+            "sizes": ["photo-300x200.jpg", "photo-drifted.webp"],
+        },
+    ]}
+
+    # Act.
+    exclude = set(classify_document(document)["thumbnails"]["exclude"])
+
+    # Assert — the pre-scaled-stem-derived size is excluded; the non-matching
+    # drifted name stays in the transfer.
+    assert exclude == {"wp-content/uploads/2024/05/photo-300x200.jpg"}
+    assert "wp-content/uploads/2024/05/photo-drifted.webp" not in exclude
+
+
+def test_a_size_matching_the_scaled_stem_itself_is_also_excluded() -> None:
+    # Arrange — the extension is additive, not a replacement: a size name
+    # regeneration would derive from the *attached* file's own (unstripped)
+    # stem must still match, exactly like every non-scaled attachment.
+    document = {"attachments": [
+        {
+            "id": 1,
+            "file": "2024/05/photo-scaled.jpg",
+            "sizes": ["photo-scaled-150x150.jpg"],
+        },
+    ]}
+
+    # Act.
+    exclude = set(classify_document(document)["thumbnails"]["exclude"])
+
+    # Assert.
+    assert exclude == {"wp-content/uploads/2024/05/photo-scaled-150x150.jpg"}
+
+
+def test_a_non_scaled_attachment_is_completely_unaffected() -> None:
+    # Arrange — an ordinary attachment whose stem does not end in -scaled;
+    # the extended rule must not change its outcome at all.
+    document = {"attachments": [
+        {"id": 1, "file": "2024/05/banner.jpg", "sizes": ["banner-1024x768.jpg"]},
+    ]}
+
+    # Act.
+    exclude = set(classify_document(document)["thumbnails"]["exclude"])
+
+    # Assert.
+    assert exclude == {"wp-content/uploads/2024/05/banner-1024x768.jpg"}
+
+
+def test_a_stem_merely_containing_scaled_without_the_hyphen_boundary_is_not_big_image() -> None:
+    # Arrange — "prescaled" ends in the letters "scaled" but never in the
+    # hyphen-prefixed terminal token; no fuzzy matching, so the pre-strip
+    # candidate must never be tried and the size (regenerable only from the
+    # stripped stem "pre") stays kept.
+    document = {"attachments": [
+        {"id": 1, "file": "2024/05/prescaled.jpg", "sizes": ["pre-300x200.jpg"]},
+    ]}
+
+    # Act.
+    exclude = set(classify_document(document)["thumbnails"]["exclude"])
+
+    # Assert.
+    assert exclude == set()
+
+
+def test_the_scaled_token_match_is_case_sensitive() -> None:
+    # Arrange — an uppercase "-Scaled" is not the exact terminal token WordPress
+    # itself writes (always lowercase), so it must not trigger the stripped-stem
+    # candidate; the size is regenerable only against the literal (unstripped)
+    # stem, which it does not match either.
+    document = {"attachments": [
+        {"id": 1, "file": "2024/05/photo-Scaled.jpg", "sizes": ["photo-300x200.jpg"]},
+    ]}
+
+    # Act.
+    exclude = set(classify_document(document)["thumbnails"]["exclude"])
+
+    # Assert.
+    assert exclude == set()
+
+
 # --- Exclusion-path anchoring ------------------------------------------------
 #
 # The exclusion set (flagged blobs and the thumbnail exclude-set) has exactly one
