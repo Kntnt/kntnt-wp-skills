@@ -148,6 +148,17 @@ SERVICE_CONNECTOR_SUFFIXES: dict[str, str] = {
 BLOB_ABSOLUTE_FLOOR_BYTES = 1 << 30  # 1 GiB.
 BLOB_OUTLIER_MEDIAN_FACTOR = 3
 
+# WordPress's big-image handling (the "big image size threshold" feature)
+# scales an over-sized upload down and writes the scaled file as
+# `_wp_attached_file`, appending this exact terminal token to its stem
+# ("my_image-scaled.jpg" — wp_create_image_subsizes()). Every registered
+# sub-size, though, is generated from the *pre-scaled* original "for best
+# quality", so its filename never carries the token (#30). Matched as an
+# exact, case-sensitive suffix — never a fuzzy strip — so a stem that merely
+# ends in the letters "scaled" without this hyphen boundary (e.g.
+# "prescaled") is never mistaken for a big-image attachment.
+SCALED_BIG_IMAGE_SUFFIX = "-scaled"
+
 # The standard WordPress single-site uploads location relative to the site root.
 # The exclusion set has one consumer-facing anchor — WordPress-root-relative paths
 # (the pack tar's `--anchored -C "$SOURCE_ROOT"` and the baseline manifest's
@@ -451,6 +462,12 @@ def thumbnail_exclude_set(
     other registered size (conversion drift, a dedup suffix, an extension
     change) stays in the transfer like a side-loaded file (ADR-0011 amendment).
 
+    A big-image attachment's stem ends in the exact terminal token
+    :data:`SCALED_BIG_IMAGE_SUFFIX`; WordPress's own sub-sizes are generated
+    from the pre-scaled original, so a size derived from the stem with that
+    token stripped is *also* a regenerable candidate, additive to — never a
+    replacement of — the unstripped-stem match above (#30).
+
     Among the regenerable-named candidates, the exclude-set is those derivatives
     minus any path that is itself some attachment's original. That subtraction
     is what keeps a same-named original (a ``photo-300x200.jpg`` uploaded in its
@@ -476,7 +493,21 @@ def thumbnail_exclude_set(
         original_name = PurePosixPath(original).name
         stem = PurePosixPath(original_name).stem
         extension = PurePosixPath(original_name).suffix
-        regenerable = re.compile(rf"^{re.escape(stem)}-\d+x\d+{re.escape(extension)}$")
+
+        # A regenerable candidate stem is the attached file's own stem, plus —
+        # for a big-image attachment — that stem with the -scaled token
+        # stripped, since WordPress derives every sub-size from the pre-scaled
+        # original (#30).
+        candidate_stems = [stem]
+        if stem.endswith(SCALED_BIG_IMAGE_SUFFIX):
+            candidate_stems.append(stem[: -len(SCALED_BIG_IMAGE_SUFFIX)])
+        regenerable = re.compile(
+            "|".join(
+                rf"^{re.escape(candidate)}-\d+x\d+{re.escape(extension)}$"
+                for candidate in candidate_stems
+            )
+        )
+
         for size_file in _string_list(record, "sizes", context):
             if regenerable.match(size_file):
                 derivatives.add(str(directory / size_file))
