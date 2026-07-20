@@ -33,8 +33,8 @@ The finished copy is verified against a deterministic expectations file — core
 | Option | Description |
 |---|---|
 | `--yes` | Autonomous run: accept every recommendation, never pause, and print a full record of what was decided and done. |
-| `--include-media` | Force the media library to be included, overriding the discovery-derived default. |
-| `--exclude-media` | Force the media library to be excluded, overriding the discovery-derived default. |
+| `--include-media` | Force the media library to be included, pinning it above any saved-plan value (it is included by default). |
+| `--exclude-media` | Force the media library to be excluded, overriding the built-in default of including it. |
 | `--include-blobs` | Include the heavy blobs (large galleries, `.mmdb` databases, backups, dumps) that are excluded by default. |
 | `--live-mail` | Force the site's real mailer even past a detected mass-send (the "send/test anyway" override). |
 | `--capture-mail` | Force all mail to DDEV's Mailpit regardless of what discovery finds. |

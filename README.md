@@ -91,7 +91,7 @@ Found a bug or want to request a feature? Please [open an issue](https://github.
 
 ## Development
 
-The plugin's logic lives in Python helpers under `scripts/`, with the production-side packing step shipped as a shell template. Clone the repository, then read the coding standard materialised under [`agents.d/coding-standard/`](agents.d/coding-standard/) — `general.md` plus `python.md` — before changing code.
+The plugin's logic lives in Python helpers under `scripts/`; the production-side pack script is generated at runtime by one of them (`scripts/pack_script.py`), not shipped as a static asset. Clone the repository, then read the coding standard materialised under [`agents.d/coding-standard/`](agents.d/coding-standard/) — `general.md` plus `python.md` — before changing code.
 
 The helpers are covered by a pytest suite under `tests/`. One command runs the whole suite, provisioning pytest through `uv` (no separate install step):
 

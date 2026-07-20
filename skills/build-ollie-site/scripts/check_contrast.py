@@ -18,7 +18,8 @@ Usage:
     # Or check raw hex directly, no ground truth needed:
     uv run check_contrast.py "#181838:#ffffff" "#C49A58:#101018"
 
-Exit status is non-zero if any pair fails AA for normal text.
+Exit status is non-zero if any pair fails the active AA threshold (4.5:1 for
+normal text, 3:1 with `--large`) or cannot be resolved.
 """
 
 from __future__ import annotations

@@ -5,7 +5,7 @@ This file preserves the invocation-level literals from the superseded design-and
 ## Shipped templates
 
 - The plugin ships two templates alongside its helper scripts: the pack script template and the Mailpit mu-plugin template. The engine instantiates them per run.
-- The capture mu-plugin is `kntnt-wp-skills-mailpit.php`: it short-circuits `wp_mail` at top priority and delivers to DDEV's Mailpit at `localhost:1025`. Installed only in the capture branch.
+- The capture mu-plugin is `kntnt-wp-skills-mailpit.php`: it short-circuits `wp_mail` at top priority and delivers to DDEV's Mailpit at `127.0.0.1:1025`. Installed only in the capture branch.
 
 ## Health check
 
@@ -16,7 +16,7 @@ This file preserves the invocation-level literals from the superseded design-and
 
 ## Discovery
 
-- DB flavour, version, and default collation: `SELECT VERSION()` and `@@version_comment` (MySQL 8 vs MariaDB).
+- DB flavour, version, and default collation: `SELECT VERSION()`, `@@version_comment` (MySQL 8 vs MariaDB), and `@@collation_database`.
 - Environment probes: `phpversion()`, `disk_free_space()`, `is_writable(ABSPATH)`, `get_option('active_plugins')`.
 - Thumbnail exclude-set source: each attachment's `_wp_attachment_metadata → sizes[*].file`; the original is `_wp_attached_file` (this is what disambiguates a `banner-1920x1080.jpg` original from a same-named derivative).
 - Binary probe list: `mysqldump mysql openssl tar gzip sha256sum nohup bash`.

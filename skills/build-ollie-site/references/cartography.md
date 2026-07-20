@@ -19,7 +19,7 @@ Two regions are **the same pattern** if their signatures are equal. They are **d
 
 ## What the miner needs
 
-The miner reads **HTML mockups**, and its component detection keys on corpus conventions: `<x-import component-from-global-scope="NS.Name">` imports, `data-component` attributes, and `M<n>` module-tag comments. A plain-HTML corpus without those still gets its bands grouped, but the candidate-component list comes back empty — components are then found entirely by eye. Mockups that are not HTML at all (Figma frames, images) cannot be mined: say so, skip the script, and do the cartography of this file wholly by eye. The same-structure test works on anything you can see; only the deterministic first pass is lost.
+The miner reads **HTML mockups**, and its component detection keys on two corpus conventions: `<x-import component-from-global-scope="NS.Name">` imports and `data-component` attributes. `M<n>` module-tag comments are read as well, but only to label sections (they populate each band's `module_tags`), never to detect components. A plain-HTML corpus without the import and `data-component` conventions still gets its bands grouped, but the candidate-component list comes back empty — components are then found entirely by eye. Mockups that are not HTML at all (Figma frames, images) cannot be mined: say so, skip the script, and do the cartography of this file wholly by eye. The same-structure test works on anything you can see; only the deterministic first pass is lost.
 
 ## Optional slots — one pattern, or two?
 

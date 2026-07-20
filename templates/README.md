@@ -1,6 +1,6 @@
 # Production-side templates
 
-The health-check and discovery step reaches production **only** through the Novamira MCP control channel ([ADR-0001](../docs/adr/0001-novamira-mcp-sole-control-channel.md)). The runtime skill sends these templates over that channel; their raw output is piped to `scripts/discovery.py`, which parses it into the one canonical discovery document every later recommendation derives from.
+The health-check and discovery step reaches production **only** through the Novamira MCP control channel ([ADR-0001](../docs/adr/0001-novamira-mcp-sole-control-channel.md)). The runtime skill sends the `execute-php` payloads in this directory over that channel; their raw output is piped to `scripts/discovery.py`, which parses it into the one canonical discovery document every later recommendation derives from. One file here is the exception: `kntnt-wp-skills-mailpit.php` is a local mu-plugin, not a channel payload — see [The local capture mu-plugin](#the-local-capture-mu-plugin) below.
 
 ## These templates are inert here
 
@@ -17,9 +17,13 @@ Nothing in this directory is executed against a live site during the build. Per 
 | `discovery.php` | `execute-php` | The single read-only discovery call: gather everything the discovery document is built from and echo it as one JSON object (Discovery section). |
 | `manifest.php` | `execute-php` | Walk production's **whole** content tree, unfiltered, and echo path, size, and mtime per file. Takes no exclusion payload (issue #18) — `scripts/filter_manifest.py` restricts the result to the resolved scope locally before it reaches `scripts/baseline_diff.py`, which diffs it against the stored last-sync baseline (Baseline diff section). |
 
+## The local capture mu-plugin
+
+`kntnt-wp-skills-mailpit.php` is the odd one out in this directory: it is **not** an `execute-php` payload and never travels over the control channel. It is a standalone WordPress mu-plugin — a full plugin header, `declare(strict_types=1)`, and its own `Kntnt\Wp_Skills\Mailpit` namespace — that the engine drops into the **local** copy's `wp-content/mu-plugins/` when the mail decision resolves to capture. It short-circuits `wp_mail` at `PHP_INT_MIN` priority and re-routes every message to DDEV's Mailpit, so a fresh copy can never mail real recipients ([ADR-0009](../docs/adr/0009-live-mail-default-with-mass-send-valve.md)).
+
 ## PHP payload convention
 
-Each `.php` payload is a fragment sent over `execute-php` and evaluated in the WordPress runtime's global scope. It therefore has no `declare(strict_types=1)` and no namespace (both are illegal or meaningless in that context), unlike a standalone PHP source file under the project coding standard. Each payload ends by echoing a single `json_encode(...)` object and nothing else, so its stdout is the raw JSON the helper reads.
+Each payload in the table above is a fragment sent over `execute-php` and evaluated in the WordPress runtime's global scope. It therefore has no `declare(strict_types=1)` and no namespace (both are illegal or meaningless in that context), unlike a standalone PHP source file under the project coding standard — such as the capture mu-plugin above, which is exactly that. Each payload ends by echoing a single `json_encode(...)` object and nothing else, so its stdout is the raw JSON the helper reads.
 
 ## The raw discovery contract
 

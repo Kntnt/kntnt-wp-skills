@@ -20,7 +20,7 @@ in one shot by asking the install itself:
   * the active theme and its parent, to confirm Ollie is the foundation.
 
 Usage:
-    uv run dump_ground_truth.py [--runner "ddev wp"] [--json out.json]
+    uv run dump_ground_truth.py [--runner "ddev wp"] [--json out.json] [--parse-css styles.css]
 
 Runner defaults to `ddev wp` when a `.ddev/` directory is found nearby,
 otherwise `wp`. Override for any environment (`--runner "wp --path=/var/www"`).
