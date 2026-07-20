@@ -13,7 +13,10 @@ the same surface by design. ``mkwp`` scaffolds a brand-new site — it is not
 part of that engine, has no production discovery to override, and its flags
 map onto `mkwp`'s own site-identity and content options instead, so its
 surface is unrelated and kept in its own registry entry rather than folded
-into the same flat set.
+into the same flat set. ``build-ollie-site`` is different again: it builds a
+site out on the Ollie block theme, is gate-driven and human-in-the-loop with
+no autonomous mode, and so carries no operational flags at all — only the help
+gate.
 
 This registry is the authority that binds the documentation to the
 implementation: the help/docs consistency test asserts every flag a manual
@@ -73,6 +76,7 @@ SKILL_FLAGS: dict[str, frozenset[str]] = {
     "clone": frozenset(CLONE_PULL_OPERATIONAL_FLAGS + HELP_FORMS),
     "pull": frozenset(CLONE_PULL_OPERATIONAL_FLAGS + HELP_FORMS),
     "mkwp": frozenset(MKWP_OPERATIONAL_FLAGS + HELP_FORMS),
+    "build-ollie-site": frozenset(HELP_FORMS),
 }
 
 # Every token any skill accepts, flattened — for a consumer that genuinely

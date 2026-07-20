@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- `build-ollie-site` — a fourth, standalone skill that builds a coherent, token-correct WordPress site on the Ollie block theme from a design system and a set of mockups, bottom-up by Atomic Design. It shares none of the transfer engine's machinery — no production, no Novamira, no recommendation-gate backbone — and works through gated phases where a later layer is never built before the one below it is locked and verified: ground truth (the tokens the install actually resolves and the patterns it already registers), pattern cartography (the pattern taxonomy derived from the mockups' structure, human-in-the-loop, into a confirmed manifest), the token foundation in an Ollie child theme's `theme.json`, component patterns (`Inserter: no` molecules), section patterns (composed by `wp:pattern` slug reference so a component edit cascades), and pages. Ollie supplies only tokens and global styles; the site's patterns are the operator's own, verified against what the install actually emits rather than Ollie's prose.
+- Four helper scripts for `build-ollie-site` under `skills/build-ollie-site/scripts/`: `dump_ground_truth.py` (resolved tokens and registered patterns from the live install), `mine_structures.py` (the pattern-cartography first pass, grouping mockup bands by a content-blind structural signature), `lint_markup.py` (the on-system gate — no hardcoded values, no invented token slugs, no dangling `wp:pattern` references), and `check_contrast.py` (the WCAG-AA gate for the design system's colour pairings).
+- Being gate-driven and human-in-the-loop, `build-ollie-site` carries no operational flags — only the help gate — and its `scripts/flags.py` registry entry, its manual page, and the help/docs consistency test's per-skill binding reflect that.
+
 ## [0.2.0] – 2026-07-20
 
 ### Added

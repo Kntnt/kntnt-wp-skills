@@ -23,7 +23,7 @@ The manual pages under `docs/man/` are the single source of truth: `help` reads 
 
 | Option | Description |
 |---|---|
-| `skill` | Name of a skill (`clone`, `pull`, `mkwp`) whose full manual page to echo. Omit it for the overview. |
+| `skill` | Name of a skill (`clone`, `pull`, `mkwp`, `build-ollie-site`) whose full manual page to echo. Omit it for the overview. |
 | `help` | Show this manual page (the reader documenting itself). |
 
 ## EXAMPLES
