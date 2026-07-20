@@ -15,23 +15,23 @@ The skill that refreshes an existing local copy from production. Never pushes an
 _Avoid_: sync, refresh, update
 
 **mkwp** (skill):
-The standalone skill that scaffolds a brand-new local WordPress site by driving the `mkwp` command — no production, no Novamira, no transfer engine underneath. Named after, and driving, the `mkwp` command itself.
+The standalone skill that scaffolds a brand-new local WordPress site by driving the `mkwp` command — no production, no control channel, no transfer engine underneath. Named after, and driving, the `mkwp` command itself.
 
 **build-ollie-site** (skill):
-The standalone skill that builds a site out on the **Ollie** block theme from a design system and a set of mockups, bottom-up by Atomic Design — pattern cartography, then tokens, component patterns, section patterns, and pages. Shares none of the transfer engine's machinery — no production, no Novamira, no recommendation gates. Its patterns are the operator's own; Ollie supplies only tokens and global styles.
+The standalone skill that builds a site out on the **Ollie** block theme from a design system and a set of mockups, bottom-up by Atomic Design — pattern cartography, then tokens, component patterns, section patterns, and pages. Shares none of the transfer engine's machinery — no production, no control channel, no recommendation gates. Its patterns are the operator's own; Ollie supplies only tokens and global styles.
 _Avoid_: theme generator, page builder
 
 **Transfer engine**:
 The shared machinery `clone` and `pull` run — discovery, packing on production, download, verification, remote cleanup, import, localisation. Clone and pull differ only at the bookends; `mkwp` and `build-ollie-site` are not part of it.
 
 **Control channel**:
-The Novamira MCP server on the production site — the sole way the skills reach production. There is no SSH.
+The [Kntnt Extractor](https://github.com/Kntnt/kntnt-extractor) plugin's REST API on the production site — the sole way the skills reach production. There is no SSH ([ADR-0016](./adr/0016-kntnt-extractor-replaces-novamira-as-control-channel.md), superseding [ADR-0001](./adr/0001-novamira-mcp-sole-control-channel.md)).
 
 **Health check**:
 Mandatory step 0 of every run: verify every local and production dependency the run needs, that the channel is live, targets production, can spawn processes, and can serve downloads — before any heavy work, with guided remediation on anything missing.
 
 **Discovery**:
-The read-only production scan (one `execute-php` call) that feeds every live-derived recommendation: sizes, versions, prefix, drop-ins, the mass-send risk scan, the thumbnail exclude-list.
+The read-only production scan — computed client-side from Kntnt Extractor's table-list and manifest calls, no longer a single server-side payload — that feeds every live-derived recommendation: sizes, versions, prefix, drop-ins, the mass-send risk scan, the thumbnail exclude-list.
 
 ### Decisions and run modes
 
