@@ -53,6 +53,7 @@ MULTILINGUAL_PLUGIN_SLUGS = frozenset(
         "weglot",
         "multilingualpress",
         "qtranslate-xt",
+        "bogo",
     }
 )
 

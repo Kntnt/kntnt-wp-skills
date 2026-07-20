@@ -263,22 +263,84 @@ def test_check_entity_counts_are_individually_skippable():
             (
                 "ddev",
                 "wp",
-                "post",
-                "list",
-                "--post_type=post",
-                "--post_status=publish",
-                "--format=count",
+                "db",
+                "query",
+                "SELECT COUNT(*) FROM `wp_posts` WHERE post_type = 'post' AND post_status = 'publish'",
+                "--skip-column-names",
             ): FakeCompleted(stdout="361\n"),
         }
     )
 
-    results = smoke_test.check_entity_counts({"publishedPosts": 361}, run)
+    results = smoke_test.check_entity_counts({"publishedPosts": 361}, run, "wp_")
 
     by_id = {r.id: r for r in results}
     assert by_id["count_published_posts"].status == "pass"
     assert by_id["count_published_pages"].status == "skip"
     assert by_id["count_attachments"].status == "skip"
     assert by_id["count_users"].status == "skip"
+
+
+def test_check_entity_counts_use_raw_sql_so_a_query_filtering_plugin_cannot_false_fail():
+    """Regression for the Bogo false-positive (issue #33). Bogo hooks the
+    main query and narrows WP_Query to one locale, so
+    ``wp post list --format=count`` returns roughly half the true row count
+    (live-verified: 46 of 92 published pages) — while the discovery template
+    derived the expectation from an unfiltered raw ``COUNT(*)`` (92). Counting
+    the same raw-SQL way over ``wp db query`` — never through WP_Query — the
+    check sees the full 92 and PASSes a complete copy the old WP_Query count
+    would have FAILed."""
+
+    # The WP_Query-based count Bogo would have filtered down to — wired to
+    # document what the old check saw and prove the fixed check never consumes
+    # it (it asserts the raw 92, not the filtered 46).
+    filtered_wp_query_count = (
+        "ddev", "wp", "post", "list", "--post_type=page", "--post_status=publish", "--format=count",
+    )
+    raw_sql_count = (
+        "ddev",
+        "wp",
+        "db",
+        "query",
+        "SELECT COUNT(*) FROM `wp_posts` WHERE post_type = 'page' AND post_status = 'publish'",
+        "--skip-column-names",
+    )
+    run = fake_run_command(
+        {
+            filtered_wp_query_count: FakeCompleted(stdout="46\n"),
+            raw_sql_count: FakeCompleted(stdout="92\n"),
+        }
+    )
+
+    results = smoke_test.check_entity_counts({"publishedPages": 92}, run, "wp_")
+
+    by_id = {r.id: r for r in results}
+    assert by_id["count_published_pages"].status == "pass"
+    assert "92" in by_id["count_published_pages"].detail
+
+
+def test_check_entity_counts_use_the_sites_real_table_prefix():
+    """The raw-SQL count must target the site's real prefixed tables (a
+    non-default prefix leaves WordPress finding zero rows in ``wp_posts``);
+    the prefix threads in from the expectations document's ``tablePrefix``."""
+
+    run = fake_run_command(
+        {
+            (
+                "ddev",
+                "wp",
+                "db",
+                "query",
+                "SELECT COUNT(*) FROM `smt_users`",
+                "--skip-column-names",
+            ): FakeCompleted(stdout="7\n"),
+        }
+    )
+
+    results = smoke_test.check_entity_counts({"users": 7}, run, "smt_")
+
+    assert results[0].id == "count_published_posts" and results[0].status == "skip"
+    by_id = {r.id: r for r in results}
+    assert by_id["count_users"].status == "pass"
 
 
 def test_check_sample_urls_fails_on_fatal_error_marker():
@@ -993,10 +1055,9 @@ def test_generate_expectations_never_derives_attachment_count_from_discoverys_at
     derive the thumbnail exclude-set's metadata (``templates/discovery.php``
     is an INNER JOIN on ``_wp_attached_file`` with no post_status filter),
     not to count attachments — a different population from the verifying
-    check's ``wp post list --post_type=attachment --format=count`` (WP-CLI's
-    own default ``post_status`` of 'any' — every status except 'trash' and
-    'auto-draft' — when the flag is omitted). On a real site with trashed
-    media (MEDIA_TRASH) or a broken attachment row missing
+    check's raw-SQL ``COUNT(*) ... WHERE post_type = 'attachment' AND
+    post_status NOT IN ('trash', 'auto-draft')`` (issue #33). On a real site
+    with trashed media (MEDIA_TRASH) or a broken attachment row missing
     ``_wp_attached_file``, the two totals diverge, so deriving the count from
     the list length would FAIL a correct copy. The list's length must never
     feed ``counts.attachments``."""
@@ -1016,22 +1077,22 @@ def test_generate_expectations_never_derives_attachment_count_from_discoverys_at
 
 
 def test_templates_entity_count_queries_agree_exactly_with_check_entity_counts():
-    """Cross-module contract: ``templates/discovery.php``'s ``entity_counts``
-    SQL and ``check_entity_counts``'s own ``_COUNT_COMMANDS`` argv must count
-    the exact same population per entity, or the generator and the checker
-    silently disagree and a correct copy either FAILs or a genuine drift goes
-    undetected (review finding against the original generator/checker
-    mismatch on the attachment count).
+    """Cross-module contract: the checker now counts with raw SQL over
+    ``wp db query`` — never through ``wp post list`` / ``wp user list``,
+    which any active main-query-filtering plugin (Bogo and its whole class)
+    silently narrows (issue #33). Its per-entity table + WHERE clause must
+    therefore match ``templates/discovery.php``'s own ``entity_counts`` SQL
+    clause-for-clause, or the generator and the checker disagree and a correct
+    copy either FAILs or a genuine drift goes undetected.
 
-    - ``publishedPosts``/``publishedPages`` — the checker passes
-      ``--post_status=publish`` explicitly, so the template's query must
-      filter on ``post_status = 'publish'`` too.
-    - ``attachments`` — the checker passes no ``--post_status`` at all, so
-      WP-CLI's own default (``any`` — every status except ``trash`` and
-      ``auto-draft``) governs; the template's query must filter those two
-      out explicitly to match, never an unfiltered ``COUNT(*)``.
-    - ``users`` — the checker passes no filter of any kind, so the template's
-      query must be an unfiltered ``COUNT(*)`` too.
+    - ``publishedPosts``/``publishedPages`` — post_type + ``post_status =
+      'publish'``, counted over the prefixed ``posts`` table.
+    - ``attachments`` — post_type ``attachment`` with ``trash`` and
+      ``auto-draft`` excluded, matching the population WP-CLI's own default
+      ``post_status`` of ``any`` would have counted, so a MEDIA_TRASH site
+      never diverges.
+    - ``users`` — an unfiltered ``COUNT(*)`` over the prefixed ``users``
+      table, no WHERE clause at all.
     """
 
     template_source = (
@@ -1039,19 +1100,27 @@ def test_templates_entity_count_queries_agree_exactly_with_check_entity_counts()
     ).read_text(encoding="utf-8")
     entity_counts_source = template_source[template_source.index("$entity_counts = [") :]
 
-    assert "--post_status=publish" in " ".join(smoke_test._COUNT_COMMANDS["publishedPosts"])
+    posts_suffix, posts_where = smoke_test._COUNT_QUERIES["publishedPosts"]
+    assert posts_suffix == "posts"
+    assert posts_where == "WHERE post_type = 'post' AND post_status = 'publish'"
     assert re.search(r"post_type = 'post'.*?post_status = 'publish'", entity_counts_source)
 
-    assert "--post_status=publish" in " ".join(smoke_test._COUNT_COMMANDS["publishedPages"])
+    pages_suffix, pages_where = smoke_test._COUNT_QUERIES["publishedPages"]
+    assert pages_suffix == "posts"
+    assert pages_where == "WHERE post_type = 'page' AND post_status = 'publish'"
     assert re.search(r"post_type = 'page'.*?post_status = 'publish'", entity_counts_source)
 
-    assert not any(arg.startswith("--post_status") for arg in smoke_test._COUNT_COMMANDS["attachments"])
+    attach_suffix, attach_where = smoke_test._COUNT_QUERIES["attachments"]
+    assert attach_suffix == "posts"
+    assert attach_where == "WHERE post_type = 'attachment' AND post_status NOT IN ('trash', 'auto-draft')"
     assert re.search(
         r"post_type = 'attachment'.*?post_status NOT IN \(\s*'trash'\s*,\s*'auto-draft'\s*\)",
         entity_counts_source,
     )
 
-    assert smoke_test._COUNT_COMMANDS["users"] == ("user", "list", "--format=count")
+    users_suffix, users_where = smoke_test._COUNT_QUERIES["users"]
+    assert users_suffix == "users"
+    assert users_where == ""
     users_query = entity_counts_source[entity_counts_source.index("'users'") :]
     assert "COUNT(*) FROM {$wpdb->users}" in users_query
     assert "WHERE" not in users_query.split(";")[0].split(")")[0]

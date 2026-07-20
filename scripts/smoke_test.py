@@ -104,14 +104,23 @@ FATAL_ERROR_MARKERS: tuple[str, ...] = (
     "Error establishing a database",
 )
 
-# Every entity-count sub-check's id and the `ddev wp` argv that answers it,
-# keyed by the expectations sub-key so `check_entity_counts` can iterate one
-# table rather than repeating four near-identical bodies.
-_COUNT_COMMANDS: dict[str, tuple[str, ...]] = {
-    "publishedPosts": ("post", "list", "--post_type=post", "--post_status=publish", "--format=count"),
-    "publishedPages": ("post", "list", "--post_type=page", "--post_status=publish", "--format=count"),
-    "attachments": ("post", "list", "--post_type=attachment", "--format=count"),
-    "users": ("user", "list", "--format=count"),
+# Every entity-count sub-check's prefix-relative table and the raw-SQL WHERE
+# clause that scopes it, keyed by the expectations sub-key so
+# `check_entity_counts` can iterate one table rather than repeating four
+# near-identical bodies. The count is issued as raw SQL over `wp db query`,
+# never `wp post list` / `wp user list` — those go through WP_Query, which any
+# active plugin hooking the main query (Bogo narrows it to one locale, and the
+# whole class of membership / geo-restriction / post-visibility plugins does
+# the like) silently filters, FAILing a complete copy against an expectation
+# the discovery template derived from an unfiltered COUNT(*) (issue #33). Each
+# WHERE clause mirrors templates/discovery.php's own entity_counts SQL
+# clause-for-clause, so the checker counts the exact population the expectation
+# was built from; the clauses are code constants, never operator input.
+_COUNT_QUERIES: dict[str, tuple[str, str]] = {
+    "publishedPosts": ("posts", "WHERE post_type = 'post' AND post_status = 'publish'"),
+    "publishedPages": ("posts", "WHERE post_type = 'page' AND post_status = 'publish'"),
+    "attachments": ("posts", "WHERE post_type = 'attachment' AND post_status NOT IN ('trash', 'auto-draft')"),
+    "users": ("users", ""),
 }
 
 RunCommand = Callable[[Sequence[str]], "subprocess.CompletedProcess[str]"]
@@ -250,10 +259,12 @@ def _run_ddev_wp(run: RunCommand, *args: str) -> tuple[bool, str]:
 _SAFE_TABLE_NAME_RE = re.compile(r"^[A-Za-z0-9_]+$")
 
 
-def _table_row_count(run: RunCommand, table: str) -> tuple[bool, int | None, str]:
-    """Query one table's row count via `ddev wp db query`, returning ``(ok,
-    count, raw_output)``. Backtick-quoted so a table name is never mistaken
-    for SQL syntax.
+def _table_row_count(
+    run: RunCommand, table: str, where: str = ""
+) -> tuple[bool, int | None, str]:
+    """Query one table's row count via `ddev wp db query`, optionally scoped
+    by ``where``, returning ``(ok, count, raw_output)``. Backtick-quoted so a
+    table name is never mistaken for SQL syntax.
 
     ``table`` comes from an expectations file the generator built from
     production's own discovery output — a remote system — so it is rejected
@@ -264,14 +275,20 @@ def _table_row_count(run: RunCommand, table: str) -> tuple[bool, int | None, str
     ``;``-separated statements, turning a malicious table name into
     arbitrary SQL against the local clone (including, at pull, against the
     rollback backup's source database).
+
+    ``where`` is only ever one of :data:`_COUNT_QUERIES`'s own code-constant
+    clauses (never operator input), so it needs no such sanitising — it scopes
+    an entity count to the same population ``templates/discovery.php`` counted.
     """
 
     if not _SAFE_TABLE_NAME_RE.match(table):
         return False, None, f"table name {table!r} contains characters outside [A-Za-z0-9_] — refusing to query it"
 
-    ok, output = _run_ddev_wp(
-        run, "db", "query", f"SELECT COUNT(*) FROM `{table}`", "--skip-column-names"
-    )
+    query = f"SELECT COUNT(*) FROM `{table}`"
+    if where:
+        query = f"{query} {where}"
+
+    ok, output = _run_ddev_wp(run, "db", "query", query, "--skip-column-names")
     if not ok:
         return False, None, output
     try:
@@ -424,28 +441,32 @@ def check_local_urls(expected: Any, run: RunCommand) -> list[CheckResult]:
     return results
 
 
-def check_entity_counts(expected: Any, run: RunCommand) -> list[CheckResult]:
-    """Published posts, pages, attachments, and users — each individually
-    skippable, so an expectations file that only pins the counts a baseline
-    actually captured still runs the rest."""
+def check_entity_counts(
+    expected: Any, run: RunCommand, table_prefix: str
+) -> list[CheckResult]:
+    """Published posts, pages, attachments, and users — each counted with the
+    raw ``ddev wp db query`` SQL :data:`_COUNT_QUERIES` defines (never through
+    WP_Query, for the reason documented there — issue #33), against the site's
+    real prefixed table (``table_prefix`` + ``posts`` / ``users``, from the
+    expectations document's ``tablePrefix``).
+
+    Each count is individually skippable, so an expectations file that only
+    pins the counts a baseline actually captured still runs the rest.
+    """
 
     expected = expected or {}
     results: list[CheckResult] = []
-    for key, args in _COUNT_COMMANDS.items():
+    for key, (suffix, where) in _COUNT_QUERIES.items():
         check_id = f"count_{_snake(key)}"
         if key not in expected:
             results.append(_skip(check_id))
             continue
-        ok, output = _run_ddev_wp(run, *args)
+        table = f"{table_prefix}{suffix}"
+        ok, count, output = _table_row_count(run, table, where)
         if not ok:
-            results.append(CheckResult(check_id, "fail", f"ddev wp {' '.join(args)} failed: {output}"))
+            results.append(CheckResult(check_id, "fail", f"could not query `{table}`: {output}"))
             continue
-        try:
-            actual = int(output)
-        except ValueError:
-            results.append(CheckResult(check_id, "fail", f"non-numeric count output: {output!r}"))
-            continue
-        results.append(_bool_result(check_id, actual == expected[key], f"expected {expected[key]}, got {actual}"))
+        results.append(_bool_result(check_id, count == expected[key], f"{table}: expected {expected[key]}, got {count}"))
     return results
 
 
@@ -772,7 +793,7 @@ def run_checks(
     results.append(check_table_prefix(expectations.get("tablePrefix"), run))
     results.extend(check_local_urls(expectations.get("localUrl"), run))
 
-    results.extend(check_entity_counts(expectations.get("counts"), run))
+    results.extend(check_entity_counts(expectations.get("counts"), run, expectations.get("tablePrefix") or ""))
 
     tables = expectations.get("tables") or {}
     results.append(check_total_table_count(tables.get("total"), run))
@@ -844,21 +865,22 @@ def generate_expectations(envelope: Mapping[str, Any]) -> dict[str, Any]:
     ``counts`` is primarily sourced from ``discovery.entity_counts`` —
     ``templates/discovery.php``'s cheap ``COUNT(*)`` queries for published
     posts, published pages, attachments, and users, threaded through by
-    ``scripts/discovery.py``. ``attachments`` in particular is **never**
-    derived from discovery's raw attachment list — that list exists to
-    derive the thumbnail exclude-set's metadata
-    (``templates/discovery.php``'s query is an INNER JOIN on
-    ``_wp_attached_file`` with no post_status filter), a different
-    population from the verifying check's own
-    ``wp post list --post_type=attachment --format=count``. WP-CLI itself
-    defaults that command's ``post_status`` to ``any`` when the flag is
-    omitted — every status except ``trash`` and ``auto-draft`` — so
-    ``templates/discovery.php``'s own count query filters out those same two
-    statuses to match exactly, rather than counting every row unconditionally
-    (which would sweep in trashed media on a ``MEDIA_TRASH`` site and FAIL a
-    correct copy the checker itself would pass) or deriving the count from
-    the raw attachment list (which would FAIL on a broken attachment row
-    missing ``_wp_attached_file`` instead).
+    ``scripts/discovery.py``. Both sides now count the same raw-SQL way:
+    :func:`check_entity_counts` issues the same unfiltered ``COUNT(*)`` over
+    ``wp db query`` that the template ran, clause-for-clause (issue #33), so
+    the expectation and the verifying count share one population by
+    construction — no longer by ``wp post list``'s WP_Query count happening to
+    match, which any active main-query-filtering plugin (Bogo and its class)
+    would break. ``attachments`` in particular is **never** derived from
+    discovery's raw attachment list — that list exists to derive the thumbnail
+    exclude-set's metadata (``templates/discovery.php``'s query is an INNER
+    JOIN on ``_wp_attached_file`` with no post_status filter), a different
+    population from the ``post_type = 'attachment' AND post_status NOT IN
+    ('trash', 'auto-draft')`` count both the template and the checker run.
+    That ``trash``/``auto-draft`` exclusion is what keeps a ``MEDIA_TRASH``
+    site from sweeping in trashed media (which would FAIL a correct copy), and
+    counting rows rather than list length is what keeps a broken attachment
+    row missing ``_wp_attached_file`` from throwing the count off.
 
     - ``entityCounts`` (optional) — ``{"publishedPosts", "publishedPages",
       "attachments", "users"}``; a per-key override the caller may supply

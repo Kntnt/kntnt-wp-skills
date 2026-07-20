@@ -4,6 +4,11 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed
+
+- The entity-count smoke-test check no longer produces a false-positive FAIL on a site whose active plugin filters the main query. `scripts/smoke_test.py`'s `check_entity_counts` now derives its live counts with raw SQL over `ddev wp db query` — the same unfiltered `COUNT(*)` `templates/discovery.php` builds the expectation from, mirrored clause-for-clause per entity (published posts, published pages, attachments with `trash`/`auto-draft` excluded, users) against the site's real table prefix — rather than through `wp post list` / `wp user list`, which go via `WP_Query` and are silently narrowed by any active main-query-filtering plugin (Bogo, and the broader membership/geo-restriction/post-visibility class); a complete clone of such a site tripped the check on every run ([#33](https://github.com/Kntnt/kntnt-wp-skills/issues/33)).
+- Bogo (`bogo/bogo.php`) is now recognised as a multilingual plugin by `scripts/discovery.py`'s `detect_multilingual`, so the localised-subpage rewrite-flush smoke-test canary is armed on Bogo sites instead of being silently skipped ([#33](https://github.com/Kntnt/kntnt-wp-skills/issues/33)).
+
 ## [0.3.0] – 2026-07-20
 
 ### Added

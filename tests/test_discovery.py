@@ -208,6 +208,23 @@ def test_multilingual_plugin_is_detected_among_active_plugins() -> None:
     assert plugins["multilingual_plugin"] == "polylang/polylang.php"
 
 
+def test_bogo_is_recognised_as_a_multilingual_plugin() -> None:
+    # Arrange — a real bilingual Bogo site: Bogo filters the main query by
+    # locale exactly as Polylang does, so it must arm the localised-subpage
+    # rewrite-flush canary (issue #33).
+    payload = load_fixture("monolingual-site.json")
+    payload["discovery"]["active_plugins"].append("bogo/bogo.php")
+
+    # Act.
+    result = run_on(payload)
+    assert result.returncode == 0, result.stderr.decode()
+    plugins = json.loads(result.stdout)["plugins"]
+
+    # Assert — Bogo flips the multilingual flag and names its own entry.
+    assert plugins["multilingual_active"] is True
+    assert plugins["multilingual_plugin"] == "bogo/bogo.php"
+
+
 def test_a_poised_campaign_flips_the_mail_recommendation() -> None:
     # Arrange & Act — a recognised engine with a queued campaign and a real list.
     mass_send = document_for("poised-campaign-site.json")["mass_send"]
