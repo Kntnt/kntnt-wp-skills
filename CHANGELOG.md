@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.3.1] – 2026-07-20
+
 ### Fixed
 
 - The entity-count smoke-test check no longer produces a false-positive FAIL on a site whose active plugin filters the main query. `scripts/smoke_test.py`'s `check_entity_counts` now derives its live counts with raw SQL over `ddev wp db query` — the same unfiltered `COUNT(*)` `templates/discovery.php` builds the expectation from, mirrored clause-for-clause per entity (published posts, published pages, attachments with `trash`/`auto-draft` excluded, users) against the site's real table prefix — rather than through `wp post list` / `wp user list`, which go via `WP_Query` and are silently narrowed by any active main-query-filtering plugin (Bogo, and the broader membership/geo-restriction/post-visibility class); a complete clone of such a site tripped the check on every run ([#33](https://github.com/Kntnt/kntnt-wp-skills/issues/33)).
@@ -42,7 +44,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - Initial release.
 
-[Unreleased]: https://github.com/Kntnt/kntnt-wp-skills/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Kntnt/kntnt-wp-skills/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.3.1
 [0.3.0]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.1.0
