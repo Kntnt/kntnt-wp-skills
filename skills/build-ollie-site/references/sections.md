@@ -1,6 +1,6 @@
 # Section patterns (organisms)
 
-A section pattern is a full-width page band — a hero, a feature grid, a CTA band, an intro. It owns its band (the standard section wrapper in `markup.md`) and **composes** the component patterns it needs by slug reference. Build every section the manifest names, after its components are locked.
+A section pattern is a full-width page band — a hero, a feature grid, a CTA band, an intro. It owns its band (the standard section wrapper in `markup.md`) and **composes** the component patterns it needs. Build every section the manifest names, after its components are locked.
 
 ## File and headers
 
@@ -15,26 +15,34 @@ One file per section in `patterns/`:
  * Inserter: yes
  */
 ?>
-<!-- the band wrapper, containing component references and one-off blocks -->
+<!-- the band wrapper, containing composed components and one-off blocks -->
 ```
 
 Sections are `Inserter: yes` (the default) under a `<theme>-sections` category, so a page author can drop them onto a page. Add `Viewport Width` for a truer inserter preview, and `Block Types`/`Template Types`/`Post Types` only if a section is meant to seed a specific block or template.
 
-## Compose by reference — the one mechanic that matters
+## The reference block — what it really does
 
-Inside the section's constrained inner group, nest a component with the **pattern reference block**:
+Inside a section's constrained inner group, a component is composed with the **pattern reference block**:
 
 ```html
 <!-- wp:pattern {"slug":"<theme>/card"} /-->
 ```
 
-This is core's `core/pattern` block, and its behaviour is the reason the whole workflow composes instead of copies:
+Two truths about this block, and both matter:
 
-- **It is a live reference by slug, not a copy.** At render, `render_block_core_pattern()` looks the slug up in `WP_Block_Patterns_Registry` and expands the referenced pattern's blocks with `do_blocks()`. Because the section file stores the *reference*, not the component's markup, **editing the component file changes every section that references it** — the cascade you built components for.
-- **It nests recursively.** A section may reference a component that itself references another pattern; each resolves at render. Recursion is guarded by a static `seen_refs` set: a pattern that would include itself is halted (rendering stops for that ref), while the same component used twice in separate places renders both times. So a component may not reference itself or an ancestor, but may be reused freely.
-- **Editor caveat.** The reference renders on the front end and in most editor contexts; in some it may not render inside the inserter's Block Preview thumbnail. On WordPress 7.0+, an unsynced pattern inserted from the inserter defaults to `contentOnly` editing. Neither changes the file-level truth: the reference resolves at render, and the cascade holds. Verify by loading the page, not only the inserter preview.
+- **At front-end render** it is a live reference: `render_block_core_pattern()` looks the slug up in `WP_Block_Patterns_Registry` and expands the referenced pattern's blocks with `do_blocks()`. Recursion is guarded (a pattern may not include itself or an ancestor; the same component used twice in separate places renders both times). An unregistered slug renders as an empty string — silently.
+- **In the editor** it does not survive: Gutenberg's pattern block *replaces itself with a clone of the pattern's contents* the moment the document loads (`PatternEdit` calls `replaceBlocks`), and the author's first save persists that expansion. A reference that reaches the editor is therefore just an instance you did not stamp — the "live cascade" it seems to promise dies on first edit.
 
-**A repeated component is repeated references.** A grid of four cards is four `wp:pattern` references (or a wrapping columns/grid block holding them), not four pasted copies and not one card with the markup duplicated. If you catch yourself pasting a component's blocks into a section, stop — replace it with a reference.
+The consequence is the composition rule of the whole workflow: **references are authoring notation inside pattern files; pages hold stamped instances** produced by `scripts/instantiate_patterns.py` (see `pages.md`). Within theme files the reference keeps one source per structure — editing the component file changes every section that composes it, because the files are the source the instantiation reads.
+
+**A repeated component is repeated references.** A grid of four cards is four `wp:pattern` references (or a wrapping columns/grid block holding them), not four hand-pasted copies. If you catch yourself pasting a component's blocks into a per-page section file, stop — compose a reference instead.
+
+## Fixed or per-page — what the file contains
+
+The manifest classifies every section's content (`cartography.md`), and the classification decides what the section *file* holds:
+
+- **`content: per-page`** — the file is a structure source: component references plus placeholder content in its own raw blocks. Real content never enters this file; it is set on each page's instance in Phase 5.
+- **`content: fixed`** — the file carries the **real copy**, verbatim, because the band is identical wherever it appears and `reapply --fixed` must be able to overwrite built instances blindly from it. Where that copy lives inside a composed component (the real button label inside a button-pair), a bare reference cannot hold it — embed a **stamped instance** of the component instead, produced with `instantiate_patterns.py flatten`, and edit the copy into it. The stamp keeps the embed traceable: after a component edit, `instantiate_patterns.py audit --patterns-dir patterns/` lists which fixed sections embed instances that need re-flattening.
 
 ## One-offs stay raw
 
@@ -42,8 +50,8 @@ Structure that the manifest marked as a genuine one-off — unique to a single s
 
 ## Chrome is template parts, not sections
 
-A site header and footer are **template parts** (`parts/*.html`), assembled in Phase 5, not page sections — they live around the content, not in its vertical sequence. A band that recurs *within* the content across pages (a breadcrumbs bar, a subscribe CTA) is a genuine section pattern; build it here and reference it from each page. The line is the same as everywhere: if it is a band in the page's scroll sequence, it is a section; if it frames the page, it is a template part.
+A site header and footer are **template parts** (`parts/*.html`), assembled in Phase 5, not page sections — they live around the content, not in its vertical sequence. A band that recurs *within* the content across pages (a breadcrumbs bar, a subscribe CTA) is a genuine section pattern; build it here and instantiate it on each page. The line is the same as everywhere: if it is a band in the page's scroll sequence, it is a section; if it frames the page, it is a template part.
 
 ## Lock
 
-The section layer is locked when every section in the manifest is registered, each is lint-clean, and **every `wp:pattern` reference resolves**. Prove the references with `lint_markup.py --ground-truth ground-truth.json --patterns-dir patterns/` — its `PATTERN-REF` check fails on any slug that is neither registered in ground truth nor present as a local pattern file, catching a dangling reference before a page renders it empty.
+The section layer is locked when every section in the manifest is registered, each is lint-clean, and **every `wp:pattern` reference resolves**. Prove the references with `lint_markup.py --ground-truth ground-truth.json --patterns-dir patterns/` — its `PATTERN-REF` check fails on any slug that is neither registered in ground truth nor present as a local pattern file, catching a dangling reference before it renders empty. Then prove each section actually renders with `instantiate_patterns.py check <slug>` — a live `do_blocks()` render of the registered pattern that must come back non-empty.

@@ -1,6 +1,6 @@
 # Foundation — the design system in theme.json
 
-The foundation is the whole point: every block, component, and section above it gets its appearance from these tokens and adds almost nothing of its own. Build it once, verify it resolves, and never revisit it after a pattern starts referencing it.
+The foundation is the whole point: every block, component, and section above it gets its appearance from these tokens and adds almost nothing of its own. Build it once, verify it resolves, and after a pattern starts referencing it change it only through the amendment procedure below — never by casual drive-by edits.
 
 ## The child theme
 
@@ -46,3 +46,15 @@ The foundation is locked only when the install proves it:
 2. Run `check_contrast.py --ground-truth ground-truth.json <bg:text pairs>` for every background/text pairing the design system promises. All clear AA (4.5:1 normal, 3:1 large/UI). A pairing scoped to large text only (a bright accent behind big numerals) is checked with `--large`.
 
 When both hold, the foundation is ground truth for every layer above. `ground-truth.json` is now the reference `lint_markup.py` checks against.
+
+## Amending a locked foundation
+
+A later phase will sometimes prove a token missing — a hue the mockups use that the design system forgot, a radius step nothing covers. The answer is neither a literal in the markup nor a silent `theme.json` edit; it is the controlled amendment:
+
+1. Decide with the user whether the value deserves a token (a value used more than once, or plausibly reusable, does) or is a genuine one-off (then it goes to the manifest's `one_off_styles` with a `lint:allow` pragma instead — `markup.md`).
+2. Add the token to `theme.json` under the correct slot (preset value, or `settings.custom` for a private name).
+3. Re-run `dump_ground_truth.py --json ground-truth.json` and confirm the new token resolves.
+4. Re-run `check_contrast.py` for any pairing the new token participates in.
+5. Re-lint every existing pattern file against the fresh dump — an amendment must never orphan a reference that used to resolve.
+
+Amendments are additive by default. Changing an *existing* token's value is a design change, not an amendment — it repaints everything referencing the token, so it needs the user's explicit go-ahead.

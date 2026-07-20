@@ -1,6 +1,6 @@
 # Component patterns (molecules)
 
-A component pattern is a small reusable unit that lives inside sections — a card, a stat, a button pair, an icon-feature, a quote. It is built once and referenced everywhere it recurs, so editing it cascades. Build every component the manifest names before building any section, because a section cannot reference a component that is not yet registered.
+A component pattern is a small reusable unit that lives inside sections — a card, a stat, a button pair, an icon-feature, a quote. It is built once and composed everywhere it recurs, so it has exactly one source file. Build every component the manifest names before building any section, because a section cannot compose a component that is not yet registered.
 
 ## File and headers
 
@@ -31,8 +31,8 @@ One file per component in the child theme's `patterns/` directory. WordPress reg
 
 ## Placeholder content
 
-Fill text and images with representative placeholder content, not lorem ipsum that hides structure and not the mockup's exact copy (which is content, not structure). The component's job is the *shape*; page authors replace the words later. Keep placeholders short enough that the structure reads at a glance.
+Fill text and images with representative placeholder content, not lorem ipsum that hides structure and not the mockup's exact copy (which is content, not structure). The component's job is the *shape*: placeholders are the file's structural illustration, and they reach a real page only as the last resort of the Phase 5 content priority (`pages.md`) — given copy first, the mockup's copy second, placeholders only when both are silent, flagged. Keep placeholders short enough that the structure reads at a glance.
 
 ## Lock
 
-A component layer is locked when every component in the manifest is registered, each is lint-clean against ground truth, and each has been confirmed to render once (insert it on a scratch page, or preview it, and see the shape). Only then do sections start referencing them.
+A component layer is locked when every component in the manifest is registered, each is lint-clean against ground truth, and each renders — prove it with `instantiate_patterns.py check <slug>`, a live `do_blocks()` render that must come back non-empty and works for `Inserter: no` patterns the inserter cannot preview. Only then do sections start composing them.

@@ -16,14 +16,22 @@ Checks (error unless noted):
     `var(--wp--…)`, and named-attribute slug (`"backgroundColor":"primary"`)
     resolves to a property present in ground truth. Catches invented names like
     `--wp--preset--color--sage`.
-  * NO-HARDCODE   — no hex/rgb/hsl colour, and no raw px/rem font-size or
-    spacing, in block attributes or style values. (rem inside a clamp() token
-    value you copied verbatim is fine — those live in theme.json, not here.)
+  * NO-HARDCODE   — no hex/rgb/hsl colour, and no raw px/rem font-size,
+    spacing, radius, or min-height, in block attributes or style values. (rem
+    inside a clamp() token value you copied verbatim is fine — those live in
+    theme.json, not here.)
   * NO-RAW-HTML   — no `core/html` block and no inline `<style>`.
   * PATTERN-REF   — every `<!-- wp:pattern {"slug":"ns/name"} /-->` resolves to
     a registered pattern (ground truth) or a local pattern file (--patterns-dir).
-  * COMPONENT-BAND (warn) — a file under a components/ path should not set
-    `align:"full"`; that is section-band chrome, not a molecule.
+  * COMPONENT-BAND (warn) — a component pattern (a `…components` category in
+    its header, or a components/ path segment) should not set `align:"full"`;
+    that is section-band chrome, not a molecule.
+
+Sanctioned one-offs: a literal the design system genuinely lacks a token for
+(the manifest's `one_off_styles`) is allowed past a check by a pragma comment
+on the same or the preceding line — `<!-- lint:allow NO-HARDCODE -->`. The
+finding is still printed as a note, so the exception stays reviewable; it just
+stops failing the gate. Use it per deliberate exception, never wholesale.
 
 Usage:
     uv run lint_markup.py <pattern.php|.html> [more…] \\
@@ -57,9 +65,19 @@ NAMED_ATTR = {
 NAMED_ATTR_RE = re.compile(
     r"\"(" + "|".join(NAMED_ATTR) + r")\"\s*:\s*\"([a-z0-9-]+)\""
 )
-# A raw size in a typography/spacing style value, e.g. "fontSize":"42px" or
-# padding "3rem" written directly (not as a var:preset token).
-RAW_SIZE = re.compile(r"\"(?:fontSize|top|bottom|left|right|blockGap|padding|margin)\"\s*:\s*\"(\d[\d.]*(?:px|rem|em))\"")
+# A raw size in a typography/spacing/border style value, e.g. "fontSize":"42px",
+# padding "3rem", or a border "radius":"10px" written directly (not as a
+# var:preset token). Image width/height attributes are deliberately not listed —
+# intrinsic media sizing is content, and no token category covers it.
+RAW_SIZE = re.compile(
+    r"\"(?:fontSize|top|bottom|left|right|blockGap|padding|margin"
+    r"|radius|topLeft|topRight|bottomLeft|bottomRight|minHeight)\""
+    r"\s*:\s*\"(\d[\d.]*(?:px|rem|em))\""
+)
+
+# The sanctioned-exception pragma: `<!-- lint:allow CODE [CODE…] -->` downgrades
+# matching findings on its own or the following line from error to note.
+LINT_ALLOW = re.compile(r"<!--\s*lint:allow\s+([A-Z][A-Z-]*(?:\s+[A-Z][A-Z-]*)*)\s*-->")
 
 
 def camel_to_kebab(s: str) -> str:
@@ -175,9 +193,25 @@ def lint(path: Path, props: set[str] | None, slugs: set[str] | None,
                 out.append(Finding("error", "PATTERN-REF", off(m.start()), f"wp:pattern references unregistered slug \"{m.group(1)}\"."))
 
     # COMPONENT-BAND (warn) — a molecule should not claim the full-width band.
-    if "components" in str(path).lower().replace("\\", "/").split("/"):
+    # A component is recognised by its header's `…components` category (the
+    # documented convention), with a components/ path segment as fallback.
+    header = text[:body_start]
+    is_component = (bool(re.search(r"^\s*\*?\s*Categories:.*components", header, re.M | re.I))
+                    or "components" in str(path).lower().replace("\\", "/").split("/"))
+    if is_component:
         for m in re.finditer(r"\"align\"\s*:\s*\"full\"", body):
             out.append(Finding("warn", "COMPONENT-BAND", off(m.start()), "component pattern sets align:full; band chrome belongs to section patterns."))
+
+    # Downgrade findings a lint:allow pragma sanctions (same or next line) to
+    # notes, so deliberate one-offs stay visible without failing the gate.
+    allows: dict[int, set[str]] = {}
+    for m in LINT_ALLOW.finditer(body):
+        allows.setdefault(off(m.start()), set()).update(m.group(1).split())
+    for fd in out:
+        sanctioned = allows.get(fd.line, set()) | allows.get(fd.line - 1, set())
+        if fd.code in sanctioned:
+            fd.level = "note"
+            fd.msg += " [allowed by lint:allow pragma]"
 
     return out
 

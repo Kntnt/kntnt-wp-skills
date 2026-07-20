@@ -11,6 +11,25 @@ Colours, font sizes, spacing, radius, and shadows reference a design token, neve
 
 No hex, `rgb()`, `hsl()`, or raw `px`/`rem`/`em` in block attributes. No `core/html` block. No inline `<style>`. `lint_markup.py` enforces all of this against ground truth; run it on every file.
 
+**The sanctioned exception.** Occasionally the design genuinely needs a value no token covers — a 100px corner radius on one media frame, say. That is allowed, but only deliberately: list it in the manifest's `one_off_styles`, and mark the line with a pragma so the linter downgrades the finding to a visible note instead of failing:
+
+```html
+<!-- lint:allow NO-HARDCODE -->
+<!-- wp:group {"style":{"border":{"radius":{"bottomRight":"100px"}}}} -->
+```
+
+One pragma per deliberate exception, on the same or the preceding line — never a blanket waiver. An exception that is not in `one_off_styles` is not sanctioned; a first instinct to reach for a literal should instead trigger the foundation amendment procedure (`foundation.md`) — most "missing" values deserve a token.
+
+## The provenance stamp
+
+An instantiated pattern carries its origin in the root block's `metadata` attribute — `instantiate_patterns.py` writes it, `audit` reads it:
+
+```html
+<!-- wp:group {"tagName":"section","align":"full","metadata":{"patternSlug":"<theme>/hero"}} -->
+```
+
+`metadata` has no HTML face — no class, no rendered output — so the stamp changes nothing visually and nothing in the comment↔HTML sync rule below. Leave stamps alone when editing content on an instance; they are how the Phase 5 audit tells an instance from hand-written duplication, and how `reapply` finds what to update.
+
 ## The comment and the HTML must agree
 
 A block is a comment carrying the attributes plus the HTML they render to, and the two are one source with two faces:
