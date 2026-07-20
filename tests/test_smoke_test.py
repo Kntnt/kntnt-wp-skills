@@ -1297,6 +1297,111 @@ def test_generate_expectations_falls_back_to_classifications_when_no_resolved_ta
     assert expectations["tables"]["operationalEmpty"] == ["wp_relevanssi"]
 
 
+def test_generate_expectations_moves_rebuilt_search_index_tables_from_empty_to_nonempty():
+    """Issue #10: the reindex step fills a search-index plugin's main table
+    after import, so a table the classifier's split would otherwise expect
+    empty must instead be expected non-empty. ``rebuiltSearchIndexTables``
+    names the table(s) whose rebuild command actually ran; each one is
+    subtracted from ``tables.operationalEmpty`` and added to
+    ``tables.contentNonEmpty``, mirroring the existing
+    ``objectCacheDropinPresent`` / ``preservedInactivePlugins`` override
+    pattern."""
+
+    envelope = {
+        "discovery": {"database": {"table_prefix": "wp_"}},
+        "classifications": {
+            "tables": {
+                "empty": [
+                    {"name": "wp_relevanssi", "category": "search_index"},
+                    {"name": "wp_fsmpt_email_logs", "category": "email_log"},
+                ],
+                "full": ["wp_posts", "wp_options", "wp_users"],
+            }
+        },
+        "rebuiltSearchIndexTables": ["wp_relevanssi"],
+    }
+
+    expectations = smoke_test.generate_expectations(envelope)
+
+    assert expectations["tables"]["operationalEmpty"] == ["wp_fsmpt_email_logs"]
+    assert "wp_relevanssi" not in expectations["tables"]["operationalEmpty"]
+    assert expectations["tables"]["contentNonEmpty"] == ["wp_options", "wp_posts", "wp_relevanssi", "wp_users"]
+
+
+def test_generate_expectations_drops_operational_empty_key_when_every_table_was_rebuilt():
+    """When every operationally-empty table named by the split was also
+    rebuilt, ``operationalEmpty`` has nothing left to assert and must be
+    omitted entirely — an empty list would make ``check_operational_tables_
+    empty`` iterate zero tables, which is a different (if harmless) shape
+    than the key being genuinely absent, and this derivation always prefers
+    the latter, matching every other "nothing to derive" field."""
+
+    envelope = {
+        "discovery": {"database": {"table_prefix": "wp_"}},
+        "classifications": {
+            "tables": {
+                "empty": [{"name": "wp_relevanssi", "category": "search_index"}],
+                "full": ["wp_posts"],
+            }
+        },
+        "rebuiltSearchIndexTables": ["wp_relevanssi"],
+    }
+
+    expectations = smoke_test.generate_expectations(envelope)
+
+    assert "operationalEmpty" not in expectations["tables"]
+    assert expectations["tables"]["contentNonEmpty"] == ["wp_posts", "wp_relevanssi"]
+
+
+def test_generate_expectations_handles_a_rebuilt_table_absent_from_the_empty_list_without_crashing():
+    """A name ``rebuiltSearchIndexTables`` supplies that never appears in the
+    derived ``operationalEmpty`` list (a stale override, a typo, a plugin the
+    classifier did not tag) must not raise — it is still folded into
+    ``contentNonEmpty``, and the rest of the table split is left untouched."""
+
+    envelope = {
+        "discovery": {"database": {"table_prefix": "wp_"}},
+        "classifications": {
+            "tables": {
+                "empty": [{"name": "wp_fsmpt_email_logs", "category": "email_log"}],
+                "full": ["wp_posts"],
+            }
+        },
+        "rebuiltSearchIndexTables": ["wp_not_actually_empty"],
+    }
+
+    expectations = smoke_test.generate_expectations(envelope)
+
+    assert expectations["tables"]["operationalEmpty"] == ["wp_fsmpt_email_logs"]
+    assert expectations["tables"]["contentNonEmpty"] == ["wp_not_actually_empty", "wp_posts"]
+
+
+def test_generate_expectations_omitting_rebuilt_search_index_tables_matches_todays_output():
+    """The omitted-key contract every override in this function follows:
+    an envelope that never supplies ``rebuiltSearchIndexTables`` must derive
+    an output bit-identical to one that never knew the key existed —
+    verified against a fixed, hand-computed snapshot rather than a second
+    call, so a future change to the surrounding derivation cannot
+    accidentally make both sides of a self-comparison drift together."""
+
+    envelope = {
+        "discovery": {"database": {"table_prefix": "wp_"}},
+        "classifications": {
+            "tables": {
+                "empty": [{"name": "wp_relevanssi", "category": "search_index"}],
+                "full": ["wp_posts", "wp_options", "wp_users"],
+            }
+        },
+    }
+
+    expectations = smoke_test.generate_expectations(envelope)
+
+    assert expectations["tables"] == {
+        "operationalEmpty": ["wp_relevanssi"],
+        "contentNonEmpty": ["wp_options", "wp_posts", "wp_users"],
+    }
+
+
 def test_generate_expectations_omits_fields_it_has_nothing_to_derive():
     expectations = smoke_test.generate_expectations({"discovery": {}})
 
