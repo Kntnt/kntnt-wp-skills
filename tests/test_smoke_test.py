@@ -361,6 +361,89 @@ def test_check_local_asset_urls_passes_when_clean():
     assert result.status == "pass"
 
 
+# The 18 URL-shaped forms of a leaked production host that
+# docs/implementation-notes.md's localisation search-replace passes rewrite:
+# 3 scheme prefixes (``https:``, ``http:``, and the empty prefix for a
+# protocol-relative URL) x 3 slash-escaping levels (none, the JSON-escaped
+# ``\/``, and the JSON-in-JSON double-escaped ``\\/``) x 2 domain variants
+# (bare host, ``www.``-prefixed). Written out literally rather than
+# generated, so a regression in the check's own form-generation logic cannot
+# quietly shrink the family this test locks in place.
+_EIGHTEEN_URL_SHAPED_PRODUCTION_HOST_FORMS = [
+    "https://smoltek.com",
+    "https://www.smoltek.com",
+    "http://smoltek.com",
+    "http://www.smoltek.com",
+    "//smoltek.com",
+    "//www.smoltek.com",
+    "https:\\/\\/smoltek.com",
+    "https:\\/\\/www.smoltek.com",
+    "http:\\/\\/smoltek.com",
+    "http:\\/\\/www.smoltek.com",
+    "\\/\\/smoltek.com",
+    "\\/\\/www.smoltek.com",
+    "https:\\\\/\\\\/smoltek.com",
+    "https:\\\\/\\\\/www.smoltek.com",
+    "http:\\\\/\\\\/smoltek.com",
+    "http:\\\\/\\\\/www.smoltek.com",
+    "\\\\/\\\\/smoltek.com",
+    "\\\\/\\\\/www.smoltek.com",
+]
+
+
+@pytest.mark.parametrize("leaked_form", _EIGHTEEN_URL_SHAPED_PRODUCTION_HOST_FORMS)
+def test_check_local_asset_urls_fails_on_each_url_shaped_production_host_form(leaked_form):
+    """Every one of the 18 URL-shaped forms a leaked production reference can
+    take still fails the check — this is the actual search-replace-miss
+    signal the check exists to catch (issue #31)."""
+
+    fetch = fake_fetch_url({"https://smoltek.ddev.site/": (200, f'{{"asset":"{leaked_form}/theme.css"}}')})
+
+    result = smoke_test.check_local_asset_urls(
+        {"url": "https://smoltek.ddev.site/", "productionHost": "smoltek.com"}, fetch
+    )
+
+    assert result.status == "fail"
+
+
+def test_check_local_asset_urls_catches_bare_leak_when_production_host_has_www():
+    """productionHost may be given with a leading 'www.' (the canonical
+    form); a leaked bare-domain URL (no 'www.') must still fail — both
+    domain variants belong to the same production site."""
+
+    fetch = fake_fetch_url({"https://smoltek.ddev.site/": (200, '{"asset":"https://smoltek.com/theme.css"}')})
+
+    result = smoke_test.check_local_asset_urls(
+        {"url": "https://smoltek.ddev.site/", "productionHost": "www.smoltek.com"}, fetch
+    )
+
+    assert result.status == "fail"
+
+
+def test_check_local_asset_urls_flags_email_and_cookie_domain_as_attention_not_fail():
+    """A cookie-consent plugin's leading-dot domain value
+    (``"host":".<host>"``) and an e-mail address's domain (``info@<host>``)
+    are legitimate domain-valued data, not a URL-shaped leak — the check
+    must not FAIL a correct clone over either (issue #31). It is still
+    worth a human's glance, hence the softer ``attention`` verdict rather
+    than a silent PASS."""
+
+    fetch = fake_fetch_url(
+        {
+            "https://smoltek.ddev.site/": (
+                200,
+                '{"contact":"info@smoltek.com","cookieDomain":{"host":".smoltek.com"}}',
+            )
+        }
+    )
+
+    result = smoke_test.check_local_asset_urls(
+        {"url": "https://smoltek.ddev.site/", "productionHost": "smoltek.com"}, fetch
+    )
+
+    assert result.status == "attention"
+
+
 def test_check_local_asset_urls_fails_loud_when_url_is_missing():
     """The expectations file's ``localAssetCheck`` object is operator-editable
     input; a missing 'url' key must fail this one check with a diagnostic
