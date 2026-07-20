@@ -583,12 +583,48 @@ def check_sample_urls(expected: Any, fetch: FetchUrl) -> list[CheckResult]:
     return results
 
 
+def _bare_host(production_host: str) -> str:
+    """Normalise an expectations-file ``productionHost`` — given with or
+    without a leading ``www.`` — to its bare root, so callers never have to
+    special-case which form the operator happened to record."""
+
+    return production_host.removeprefix("www.")
+
+
+def _url_shaped_production_host_forms(production_host: str) -> list[str]:
+    """The 18 URL-shaped forms a leaked *production_host* reference can take
+    on a rendered page — the exact source-form family
+    ``docs/implementation-notes.md``'s localisation search-replace passes
+    rewrite: 3 scheme prefixes (``https:``, ``http:``, and the empty prefix
+    for a protocol-relative URL) x 3 slash-escaping levels (none, the
+    JSON-escaped ``\\/``, and the JSON-in-JSON double-escaped ``\\\\/``) x 2
+    domain variants (bare host, ``www.``-prefixed). Reusing this exact
+    family — rather than a bare-substring needle — is what lets the check
+    tell a leaked URL apart from legitimate domain-valued data (a
+    cookie-domain string, an e-mail address) that merely contains the host.
+    """
+
+    bare_host = _bare_host(production_host)
+    domains = (bare_host, f"www.{bare_host}")
+    slash_forms = ("//", "\\/\\/", "\\\\/\\\\/")
+    scheme_prefixes = ("https:", "http:", "")
+    return [f"{scheme}{slashes}{domain}" for scheme in scheme_prefixes for slashes in slash_forms for domain in domains]
+
+
 def check_local_asset_urls(expected: Any, fetch: FetchUrl) -> CheckResult:
-    """The rendered front page references only local asset URLs — no
-    lingering production host, including the escaped-slash JSON forms
-    page builders store (``https:\\/\\/<host>``) that a plain search-replace
-    pass can miss. ``expected`` is ``{"url": <local front page>,
-    "productionHost": <bare production host>}``."""
+    """The rendered front page carries no lingering **URL-shaped** reference
+    to the production host — no bare, protocol-relative, or escaped/
+    double-escaped JSON form of it (:func:`_url_shaped_production_host_forms`,
+    the same 18-form family the localisation search-replace passes rewrite).
+    A bare occurrence of the host *outside* any of those forms — a
+    cookie-consent plugin's leading-dot domain value (``"host":".<host>"``)
+    or an e-mail address's domain (``info@<host>``) — is legitimate
+    domain-valued data, not a search-replace miss; it earns the softer
+    ``attention`` verdict (visible in the report, never a FAIL), since
+    bare-domain search-replace is itself forbidden by design (it would
+    corrupt those very values). ``expected`` is ``{"url": <local front
+    page>, "productionHost": <production host, with or without a leading
+    "www.">}``."""
 
     if expected is None:
         return _skip("local_asset_urls")
@@ -609,19 +645,30 @@ def check_local_asset_urls(expected: Any, fetch: FetchUrl) -> CheckResult:
     if status != 200:
         return CheckResult("local_asset_urls", "fail", f"{url}: HTTP {status}")
 
-    needles = {
-        production_host,
-        f"https:\\/\\/{production_host}",
-        f"http:\\/\\/{production_host}",
-    }
-    leaks = sorted(needle for needle in needles if needle in body)
+    leaks = sorted(needle for needle in _url_shaped_production_host_forms(production_host) if needle in body)
     if leaks:
         return CheckResult(
             "local_asset_urls",
             "fail",
-            f"{url}: production host still present ({', '.join(leaks)}) — search-replace miss",
+            f"{url}: production host still present in URL form ({', '.join(leaks)}) — search-replace miss",
         )
-    return CheckResult("local_asset_urls", "pass", f"{url}: no production-host references, including escaped-slash JSON forms")
+
+    # The host string appears, but never inside a URL shape — a cookie
+    # banner's domain value or an e-mail address, not a leaked asset URL.
+    # Bare-domain search-replace is forbidden by design, so this is never
+    # fixable and never a FAIL; it is only worth a human's glance.
+    bare_host = _bare_host(production_host)
+    if bare_host in body:
+        return CheckResult(
+            "local_asset_urls",
+            "attention",
+            f"{url}: '{bare_host}' present outside any URL form (e.g. an e-mail address or a cookie-domain "
+            "value) — not a search-replace miss, worth a look",
+        )
+
+    return CheckResult(
+        "local_asset_urls", "pass", f"{url}: no production-host references, including escaped-slash JSON forms"
+    )
 
 
 def check_db_check_clean(expected: Any, run: RunCommand) -> CheckResult:
