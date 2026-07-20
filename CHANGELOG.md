@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.2.0] – 2026-07-20
+
 ### Added
 
 - Plugin help: the `/kntnt-wp-skills:help` command and a full manual page for each skill (`clone`, `pull`) and for the `help` command itself, so `/kntnt-wp-skills:help help` documents the reader (without listing `help` among the skills).
@@ -12,6 +14,7 @@ All notable changes to this project are documented here. The format follows [Kee
 - The shared transfer engine, reached solely over the Novamira MCP (no SSH): a mandatory health check — starting with a dependency step that verifies `ddev` and its container backend, the required CLI tools (`uv`, `jq`, `curl`, `shasum`/`sha256sum`, `openssl`), `mkwp` for `clone` (via the shared `scripts/mkwp_guard.py` guard), and the target site's connected Novamira server with its full `discover-abilities` inventory, stopping early with per-dependency remediation on the first thing missing — a single read-only discovery scan, a background pack that dumps, archives, and encrypts outside the docroot, download-and-verify with immediate remote cleanup, and a deterministic post-clone/pull smoke test of the finished copy against an expectations file (`scripts/smoke_test.py`), runnable standalone and with a `--generate` mode that derives an expectations file from a discovery document.
 - Recommendation-driven decisions behind accept-or-override gates, resolved over layered defaults (built-in < live derivation < saved config < this-run answer); `--yes` runs unattended and records every decision, and a saved plan (`.kntnt-wp-skills.json`) collapses a repeat run to a single replay gate.
 - Discovery-derived recommendations: wp-config define porting with secrets auto-excluded, operational tables carried empty, heavy-blob and generated-thumbnail exclusion, and the object-cache drop-in ownership rule at pull.
+- After import, the derived data the transfer deliberately drops is rebuilt locally so the copy is fully functional: generated thumbnails are regenerated from their originals, and a Relevanssi or SearchWP search index is rebuilt in place through the plugin's own WP-CLI command when the install provides one — otherwise the run reports a manual-rebuild instruction rather than shipping the index ([ADR-0011](docs/adr/0011-metadata-driven-thumbnail-regeneration.md), [ADR-0015](docs/adr/0015-search-index-excluded-and-rebuilt-locally.md)).
 - A fifth table classification family, `user_submissions` (WS Form, Fluent Forms, Formidable, WPForms, Gravity Forms), with its own carry/empty gate defaulting to empty — the most privacy-sensitive data the transfer handles is excluded by default rather than silently emptied alongside the operational tables ([ADR-0014](docs/adr/0014-user-submissions-own-gate-default-empty.md)).
 - Safety behaviours: user data encrypted in transit and deleted from production once verified, deletion mirroring off by default and always to a timestamped trash, and a mass-send valve that keeps the real mailer live by default but flips to Mailpit capture on a poised campaign (`--live-mail` / `--capture-mail` pin it), with the risk warning always emitted.
 - The minimal flag surface — `--yes`, `--include-media` / `--exclude-media`, `--include-blobs`, `--live-mail` / `--capture-mail`, `--no-cron`, `--regenerate-all`, and the help forms — as a single canonical registry.
@@ -26,5 +29,6 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - Initial release.
 
-[Unreleased]: https://github.com/Kntnt/kntnt-wp-skills/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Kntnt/kntnt-wp-skills/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.1.0

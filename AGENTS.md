@@ -15,3 +15,10 @@ in the moment.
 - `CONTEXT.md` — the project glossary; use its terms in code, docs, and dialogue.
 - `agents.d/coding-standard/general.md` — read before writing or changing any code
 - `agents.d/coding-standard/python.md` — read before writing or changing Python
+
+## Release configuration
+
+- Version locations (keep in sync on every release):
+  - `.claude-plugin/plugin.json` — the `version` field (canonical).
+  - `CHANGELOG.md` — the latest release heading (promoted from `[Unreleased]`).
+- Archive build: none. This is a marketplace-distributed Claude Code plugin; there is no user-facing zip to build or attach.
