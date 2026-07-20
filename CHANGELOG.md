@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.3.2] – 2026-07-20
+
+### Fixed
+
+- Documentation reconciled with the code across the specification, the manual pages, and `templates/README.md`, with no change to behaviour: `templates/README.md` now documents `kntnt-wp-skills-mailpit.php` as the local capture mu-plugin the engine drops into the copy — not an `execute-php` control-channel payload — and scopes the "no `declare(strict_types=1)`, no namespace" convention to the payload table so it no longer contradicts that file; `docs/spec.md` lists the fifth `build-ollie-site` helper (`instantiate_patterns.py`) and the local manifest-filtering helper (`filter_manifest.py`), and no longer claims the saved plan records the empty-table classification patterns (they are re-derived `classify.py` constants, never persisted); the `clone`/`pull` manual pages describe the `--include-media`/`--exclude-media` default as the built-in constant it is rather than a discovery-derived one; `README.md` notes the production-side pack script is generated at runtime by `scripts/pack_script.py` rather than shipped as a static shell template; and `docs/implementation-notes.md` corrects the Mailpit host to `127.0.0.1:1025` and adds `@@collation_database` to the discovery queries. The `build-ollie-site` reference and helper docstrings are likewise corrected (`M<n>` module tags label sections rather than detect components; the `check_contrast.py` and `dump_ground_truth.py` usage strings).
+
 ## [0.3.1] – 2026-07-20
 
 ### Fixed
@@ -44,7 +50,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - Initial release.
 
-[Unreleased]: https://github.com/Kntnt/kntnt-wp-skills/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/Kntnt/kntnt-wp-skills/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.3.2
 [0.3.1]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.3.1
 [0.3.0]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.2.0
