@@ -71,9 +71,11 @@ PASS_KEY_EXCLUDED_FROM_UPLOAD_PATTERN: re.Pattern[str] = re.compile(
 )
 
 # The mandatory-for-both-transports statement on the server-side SHA256 gate.
+# "both transports" is the only accepted tail — never "SHA256" as a
+# fallback, which a doc could satisfy while never actually saying the gate
+# applies to both transports (e.g. "the mandatory gate hashes ... SHA256").
 SHA256_GATE_BOTH_TRANSPORTS_PATTERN: re.Pattern[str] = re.compile(
-    r"(?:mandatory[^.\n]*(?:both transports|gate)|gate[^.\n]*mandatory)"
-    r"[^.\n]*(?:both transports|SHA256)",
+    r"(?:mandatory[^.\n]*gate|gate[^.\n]*mandatory)[^.\n]*both transports",
     re.IGNORECASE,
 )
 
@@ -185,9 +187,14 @@ def test_pack_doc_names_create_upload_link_for_large_payloads(doc: str) -> None:
 def test_pack_doc_states_the_upload_link_sequence_in_order(doc: str) -> None:
     """AC: the upload-link path is documented as a strict sequence — gzipped
     upload into the docroot download dir, a server-side move outside the
-    docroot, the SHA256 verify, then immediate deletion of the docroot copy —
-    each step's anchor appearing after the previous one's, not merely present
-    anywhere in the file."""
+    docroot, a decompress of the moved copy, the SHA256 verify, then
+    immediate deletion of the docroot copy — each step's anchor appearing
+    after the previous one's, not merely present anywhere in the file.
+
+    The decompress step matters on its own, not just for ordering: the local
+    SHA256 in step 1 is computed against the plaintext ``pack.sh``, so a gate
+    that hashed the still-gzipped moved copy could never match it — the
+    blessed upload-link path would always return ``FAILED``."""
 
     text = _text(PACK_TRANSPORT_DOCS[doc])
     window = _window_after(text, UPLOAD_LINK_PATTERN, size=1200)
@@ -197,13 +204,14 @@ def test_pack_doc_states_the_upload_link_sequence_in_order(doc: str) -> None:
         "gzip": lower.find("gzip"),
         "docroot": lower.find("docroot"),
         "move": lower.find("move"),
+        "gunzip": lower.find("gunzip"),
         "sha256": lower.find("sha256"),
         "delete": lower.find("delete"),
     }
     for step, pos in positions.items():
         assert pos != -1, f"{doc}'s upload-link sequence never mentions {step!r}"
 
-    ordered = ["gzip", "docroot", "move", "sha256", "delete"]
+    ordered = ["gzip", "docroot", "move", "gunzip", "sha256", "delete"]
     for earlier, later in zip(ordered, ordered[1:]):
         assert positions[earlier] < positions[later], (
             f"{doc}'s upload-link sequence is out of order: "
