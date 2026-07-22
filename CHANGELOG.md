@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.4.0] – 2026-07-22
+
+### Changed
+
+- The control channel is now the [Kntnt Extractor](https://github.com/Kntnt/kntnt-extractor) plugin's REST API instead of the Novamira MCP `execute-php` channel. `clone` and `pull` reach production over HTTPS as a real WordPress user authenticated with an Application Password (HTTP basic auth), and every data call is gated on both the `kntnt_extractor_operate` and `manage_options` capabilities. Production now requires Kntnt Extractor (REST API version ≥ 2) installed and enabled in place of the Novamira MCP server; there is no arbitrary PHP or WP-CLI execution and no SSH path ([#24](https://github.com/Kntnt/kntnt-wp-skills/issues/24), ADR-0016, ADR-0017).
+- Discovery is now a two-phase reconstruction over that surface: `GET /environment`, `GET /tables`, and the paged `GET /files` supply the runtime, table, and file facts, and a cheap bootstrap extraction — parsed client-side — supplies the attachment metadata, entity counts, and mass-send poised-campaign scan that shape the main extraction, replacing the single server-side `execute-php` discovery scan.
+- The extraction, per-segment sealing, one-time download link, and cleanup are now owned by the plugin's own background job; the engine only builds the selection, submits it, polls the job to completion, downloads, and unseals the sealed container to the run's ephemeral X25519 key pair. Data comes down sealed under authenticated encryption rather than a passphrase-encrypted archive, so no passphrase is ever generated or web-served, and the database password and the auth keys/salts/nonces are masked server-side and never enter model context.
+- The `mkwp` skill now recommends installing Kntnt Extractor by default on a freshly scaffolded site — resolving `kntnt-extractor-*.zip` from the plugin's latest GitHub release, with a graceful drop on failure — so the new site is already reachable by a later `clone`/`pull`.
+- The required CLI tool floor is now `uv`, `jq`, and `curl`. `shasum`/`sha256sum` and `openssl` are no longer needed: integrity is authenticated encryption verified when the container unseals, and the unseal is a `uv`-run helper with `pynacl` as an inline dependency.
+
+### Removed
+
+- The Novamira MCP control channel and its `execute-php`/`run-wp-cli` abilities, the SSH path, and the entire client-side pack machinery — the generated `pack.sh`, the server-side passphrase, the `openssl` encryption, the outside-docroot working directory, and the docroot download directory — all superseded by the plugin-owned background extraction ([#24](https://github.com/Kntnt/kntnt-wp-skills/issues/24), ADR-0016, ADR-0017).
+
 ## [0.3.2] – 2026-07-20
 
 ### Fixed
@@ -50,7 +64,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - Initial release.
 
-[Unreleased]: https://github.com/Kntnt/kntnt-wp-skills/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/Kntnt/kntnt-wp-skills/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.4.0
 [0.3.2]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.3.2
 [0.3.1]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.3.1
 [0.3.0]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.3.0

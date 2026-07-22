@@ -1,6 +1,6 @@
 {
   "name": "kntnt-wp-skills",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "description": "Mirror a live WordPress site down into a local DDEV copy, scaffold a brand-new one from nothing, or build one out on the Ollie block theme. Four user-invoked skills: `clone` creates a fresh local copy of a production site and `pull` refreshes an existing one incrementally, both over one transfer engine reached solely through the Kntnt Extractor plugin's REST API — never over SSH; `mkwp` scaffolds a brand-new local site standalone, with no production involved; and `build-ollie-site` builds a coherent, token-correct site on Ollie, bottom-up by Atomic Design, from a design system and a set of mockups. Every skill puts every decision to you as a recommendation you accept or override.",
   "author": {
     "name": "Thomas Barregren",
