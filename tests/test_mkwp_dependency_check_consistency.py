@@ -20,7 +20,6 @@ silently drift into two different definitions of "the local portion."
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
@@ -28,8 +27,12 @@ MKWP_SKILL: Path = REPO_ROOT / "skills" / "mkwp" / "SKILL.md"
 CLONE_SKILL: Path = REPO_ROOT / "skills" / "clone" / "SKILL.md"
 
 # The required CLI tool roster clone's own dependency step names — mkwp's own
-# local check must name the same set, never a divergent one.
-REQUIRED_TOOLS: tuple[str, ...] = ("uv", "jq", "curl", "sha256sum", "openssl")
+# local check must name the same set, never a divergent one. The floor is now
+# `uv`, `jq`, `curl`: the sealed-container unseal is a `uv`-run helper with
+# `pynacl` as an inline dependency, so no client-side checksum (`shasum` /
+# `sha256sum`) or encryption (`openssl`) binary is required any more
+# (ADR-0016, ADR-0017).
+REQUIRED_TOOLS: tuple[str, ...] = ("uv", "jq", "curl")
 
 
 def _section(text: str, heading: str) -> str:

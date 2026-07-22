@@ -1,18 +1,20 @@
-"""Health-check step-order consistency test — issue #15.
+"""Health-check step-order consistency test — issue #15 (Extractor cutover).
 
 The smoke test against a real site exposed a batching hazard: the health check
-ordered the download preflight (step 5) before the stranded-workspace sweep
-(step 6), so a batched pair of calls let the sweep delete the preflight's own
-throwaway probe directory before the local ``curl`` fetched it, forcing a redo.
+ordered the download preflight before the stranded-job sweep, so a batched pair
+of calls let the sweep cancel the preflight's own throwaway probe job before the
+local side fetched it, forcing a redo.
 
 The fix is a step swap, not new behaviour, so this suite is the anti-drift
 binding: it holds ``skills/clone/SKILL.md``, ``skills/pull/SKILL.md``,
-``docs/spec.md``, both manual pages, and ``templates/README.md`` to the new
-order — sweep first, then preflight — and to the one-line note that the two
-must never run concurrently. Anchors are the literal step prose, never a
-snippet of this suite's own text, so a faithful rewrite stays green while a
-regression (the old order restored anywhere, or the concurrency note dropped)
-reddens.
+``docs/spec.md``, and both manual pages to the new order — sweep first, then
+preflight — and to the one-line note that the two must never run concurrently.
+After the Extractor cutover the sweep is of stranded *jobs* (`GET /extractions`
++ `DELETE /extractions/{id}`), not docroot workspaces, and the preflight is a
+throwaway extraction; the anchors track that new prose. They remain the literal
+step prose, never a snippet of this suite's own text, so a faithful rewrite
+stays green while a regression (the old order restored anywhere, or the
+concurrency note dropped) reddens.
 """
 
 from __future__ import annotations
@@ -30,7 +32,6 @@ PULL_SKILL: Path = REPO_ROOT / "skills" / "pull" / "SKILL.md"
 SPEC: Path = REPO_ROOT / "docs" / "spec.md"
 CLONE_MANPAGE: Path = REPO_ROOT / "docs" / "man" / "clone.md"
 PULL_MANPAGE: Path = REPO_ROOT / "docs" / "man" / "pull.md"
-TEMPLATES_README: Path = REPO_ROOT / "templates" / "README.md"
 
 # The documents whose health-check prose must agree on the new order. Each
 # entry pairs the file with the pattern that anchors its "sweep" step and its
@@ -41,38 +42,32 @@ ORDERED_DOCS: tuple[tuple[str, Path, str, str], ...] = (
     (
         "clone SKILL.md",
         CLONE_SKILL,
-        r"Sweep stranded workspaces",
+        r"Sweep stranded jobs",
         r"Preflight the download path",
     ),
     (
         "pull SKILL.md",
         PULL_SKILL,
-        r"Sweep stranded workspaces",
+        r"Sweep stranded jobs",
         r"Preflight the download path",
     ),
     (
         "spec.md",
         SPEC,
-        r"Sweep production's temp and download bases",
+        r"Sweep stranded jobs",
         r"Preflight the download path",
     ),
     (
         "clone manual page",
         CLONE_MANPAGE,
-        r"sweeps stranded workspaces",
+        r"sweeps stranded jobs",
         r"preflights the download path",
     ),
     (
         "pull manual page",
         PULL_MANPAGE,
-        r"sweeps stranded workspaces",
+        r"sweeps stranded jobs",
         r"preflights the download path",
-    ),
-    (
-        "templates README",
-        TEMPLATES_README,
-        r"`stranded-sweep\.php`[\s\S]*?health check step 5",
-        r"`download-preflight\.php`[\s\S]*?health check step 6",
     ),
 )
 

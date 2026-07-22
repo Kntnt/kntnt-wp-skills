@@ -4,23 +4,24 @@ This file preserves the invocation-level literals from the superseded design-and
 
 ## Shipped templates
 
-- The plugin ships two templates alongside its helper scripts: the pack script template and the Mailpit mu-plugin template. The engine instantiates them per run.
+- The plugin ships the Mailpit capture mu-plugin template alongside its helper scripts; the engine instantiates it per run. The extraction, sealing, and cleanup the old client-side pack-script template once produced are now owned by the Kntnt Extractor plugin ([ADR-0017](./adr/0017-discovery-over-extractor-rest-two-phase.md)), so no pack template ships.
 - The capture mu-plugin is `kntnt-wp-skills-mailpit.php`: it short-circuits `wp_mail` at top priority and delivers to DDEV's Mailpit at `127.0.0.1:1025`. Installed only in the capture branch.
 
 ## Health check
 
-- Liveness probe: one trivial `execute-php` returning `home_url()`, `ABSPATH`, `phpversion()`, and `$_SERVER['SERVER_SOFTWARE']`.
-- Exec probe (independent of `run-wp-cli`): check `function_exists('exec')`, inspect `disable_functions`, and run a live `exec('printf ok')` round-trip.
-- Stranded-workspace sweep (runs before the preflight below): look for leftover `kntnt-wp-skills-*` directories in both the outside-docroot temp base and the docroot download base, and remove them. Never concurrent with an in-flight preflight — a batched pair of calls must not let the sweep delete the preflight's own probe directory.
-- Download preflight: write a tiny **extension-less** test file into a throwaway docroot dir, fetch it with `curl -fsS` over HTTPS from the local side, then delete it.
+The channel is the Kntnt Extractor REST API over HTTPS with an Application Password (HTTP basic auth); every probe is a REST call, not a PHP payload ([ADR-0016](./adr/0016-kntnt-extractor-replaces-novamira-as-control-channel.md), [ADR-0017](./adr/0017-discovery-over-extractor-rest-two-phase.md)).
 
-## Discovery
+- API-version handshake: `GET /status` (unauthenticated) proves the Extractor endpoint is reachable and reports API version ≥ 2 — the version that ships the `environment` endpoint, structure-only extraction, and caller job listing together. An absent, unreachable, or too-old Extractor fails here with a precise install-or-upgrade instruction.
+- Liveness, targeting, and authorisation in one round trip: `GET /environment` (requires both `kntnt_extractor_operate` and `manage_options`). A `200` is the liveness proof, its `home_url` is the verify-targets-production check (must match the intended production URL and must not be the local DDEV site), and a `200` proves the user holds both capabilities. A `403` fails fast with a per-capability remediation, disambiguated where useful by whether `GET /audit-log` (which is `manage_options`-only) also refuses.
+- Stranded-job sweep (runs before the preflight below): `GET /extractions` lists the caller's own non-terminal jobs, and `DELETE /extractions/{id}` cancels each — belt-and-braces with the plugin's own TTL cleanup. Never concurrent with an in-flight preflight, so a batched pair of calls cannot cancel the preflight's own probe job.
+- Download preflight: `POST /extractions` for a single tiny structure-only table and no files, poll it to completion, fetch its one-time `download_url` over HTTPS from the local side, unseal it, then consume the job with `POST /extractions/{id}/consume`. This exercises the real serving path — permissions, extension rules, basic auth, WAF/CDN behaviour — before the heavy extraction.
 
-- DB flavour, version, and default collation: `SELECT VERSION()`, `@@version_comment` (MySQL 8 vs MariaDB), and `@@collation_database`.
-- Environment probes: `phpversion()`, `disk_free_space()`, `is_writable(ABSPATH)`, `get_option('active_plugins')`.
-- Thumbnail exclude-set source: each attachment's `_wp_attachment_metadata → sizes[*].file`; the original is `_wp_attached_file` (this is what disambiguates a `banner-1920x1080.jpg` original from a same-named derivative).
-- Binary probe list: `mysqldump mysql openssl tar gzip sha256sum nohup bash`.
-- `DB_HOST` may be `host:port` (e.g. `127.0.0.1:3306`) — split host and port for the client credentials file.
+Discovery is reconstructed client-side from `GET /environment`, `GET /tables`, `GET /files`, and a small bootstrap extraction parsed locally — no longer a single server-side payload ([ADR-0017](./adr/0017-discovery-over-extractor-rest-two-phase.md)).
+
+- Runtime/config scalars come from `GET /environment`: PHP version, server software, WordPress core version, home and site URL, table prefix, content and uploads dirs, the DB server flavour/version/default collation (MySQL 8 vs MariaDB, to pin DDEV and avoid the collation import crash), active plugins, drop-ins present, and the resolved `wp-config` defines with the secret family masked to `null` server-side. The secrets are never fetched, so there is no `DB_HOST`/`DB_PASSWORD` to split or leak.
+- Sizes and enumerations come from `GET /tables` and `GET /files` (the latter paged via an opaque `cursor`): DB total and top tables, the authoritative table list, the per-subdirectory uploads breakdown, plugin/theme directories, drop-in presence, the blob-heuristic inputs, and the candidate generated-thumbnail files.
+- Thumbnail exclude-set source: each attachment's `_wp_attachment_metadata → sizes[*].file`, parsed client-side from the bootstrap extraction; the original is `_wp_attached_file` (this is what disambiguates a `banner-1920x1080.jpg` original from a same-named derivative).
+- The InnoDB-consistency, disk-space, and production-binary checks the old single-call discovery ran are gone: dumping now happens inside the Extractor plugin, which owns those concerns.
 
 ## wp-config define classification
 
@@ -32,33 +33,28 @@ This file preserves the invocation-level literals from the superseded design-and
 
 ## Baseline manifest and local filtering (issue #18)
 
-- `templates/manifest.php` takes no exclusion payload: it walks and echoes production's **whole** content tree, unfiltered, as `{ "entries": [ { "path", "size", "mtime" }, ... ] }`, anchored at the WordPress root.
-- Filter that raw walk locally with `uv run scripts/filter_manifest.py`, feeding it `{ "entries": <the raw walk's entries>, "exclusions": <the resolved exclusion set> }` on stdin. It restricts the entries to the in-scope subset and attaches the resolved set as `{ "scope": { "exclusions": [...] } }` on stdout — the shape `scripts/baseline_diff.py` has always consumed as its `current` side.
+- Production's **whole** content tree comes from `GET /files` (paged via an opaque `cursor`) as `{ "path", "size", "mtime" }` entries, unfiltered and anchored at the install root — the exclusion set never travels to production as part of the request.
+- Filter that raw walk locally with `uv run scripts/filter_manifest.py`, feeding it `{ "entries": <the GET /files entries>, "exclusions": <the resolved exclusion set> }` on stdin. It restricts the entries to the in-scope subset and attaches the resolved set as `{ "scope": { "exclusions": [...] } }` on stdout — the shape `scripts/baseline_diff.py` has always consumed as its `current` side.
 - Only the locally-filtered result — never the raw walk — is combined with the stored baseline for `scripts/baseline_diff.py`, and only the locally-filtered result is persisted as the next run's baseline.
-- The exclusion set never travels to production as part of a manifest request: a real site's set can run into the thousands of entries (one smoke test measured 6,135 / ~436KB), which is wasteful to embed in a production payload and bloats agent context. Requesting the unfiltered tree keeps the *request* small; the harness auto-saves the (potentially large) *response* to file.
+- Keeping the exclusion set client-side matters because a real site's set can run into the thousands of entries (one smoke test measured 6,135 / ~436KB), which would be wasteful to embed in a production request and would bloat agent context. The whole enumeration comes down over the paged `GET /files`; the harness auto-saves the (potentially large) response to file.
 - Scope semantics are unchanged from the former production-side filter — an exact match or a path-segment-aware descendant of an exclusion prefix.
-- Unfiltered, the walk can no longer be pruned around a hazard, so `templates/manifest.php` builds its `RecursiveIteratorIterator` with `RecursiveIteratorIterator::CATCH_GET_CHILD` — a permission-denied subdirectory (a root-owned cache dir, a restricted upload subtree) would otherwise throw `UnexpectedValueException` and abort the whole walk with no exclusion-based recovery; the flag skips just that subtree instead. `json_encode()` on the final payload passes `JSON_INVALID_UTF8_SUBSTITUTE`, so a single invalid-UTF-8 filename anywhere in the tree substitutes rather than making the encode return `false` and the payload echo nothing.
+- The Extractor plugin owns the robustness of the walk itself: a permission-denied subdirectory is skipped rather than aborting the enumeration, and an invalid-UTF-8 filename is handled server-side, so `GET /files` returns a complete, well-formed page regardless of what the tree contains.
 
-## Pack (production side)
+## Extraction (production side) — owned by the plugin
 
-- Working dir preference order: `sys_get_temp_dir()/kntnt-wp-skills-<rand>` → a writable dir above `ABSPATH`. If neither is writable, abort rather than fall back to a working dir inside the docroot — `pass.key` is written into that same working dir and must never enter the docroot, not even transiently.
-- Working-dir contents: `pass.key` (mode `0600`), `.my.cnf` (mode `0600`, written from the DB constants so credentials never appear on a command line; consumed via `--defaults-extra-file`), `pack.sh`, `pack.log`.
-- Launch: `nohup bash pack.sh >> pack.log 2>&1 & echo $!` — the echoed PID is what the poll's liveness check uses.
-- Passphrase: PHP `random_bytes(32)` as hex into `pass.key`; passed to openssl as `-pass file:pass.key`, never as an argument.
-- DB dump, two passes, both with `mysqldump --single-transaction --quick --skip-lock-tables`: full data for the content tables, then `--no-data` for the empty-classified ones. Then `gzip`, then `openssl enc -aes-256-cbc -pbkdf2 -salt -pass file:pass.key` → `db.enc`.
-- Files: `tar --exclude-from=<exclude-file> --anchored --no-wildcards --warning=no-file-changed -czf - <tree>` piped straight through the same `openssl enc` invocation → `files.enc` (no intermediate plaintext archive on disk).
-- Exclusion-file entries are full anchored relative paths, one per line: the DB-known thumbnail paths, the excluded blobs, drop-ins, `wp-config.php`, logs, caches, `upgrade*`, `novamira-sandbox`.
-- Checksums over the final names: `sha256sum db.enc files.enc > SHA256`.
-- Publish: move `db.enc`, `files.enc`, `SHA256` into the random-named docroot download dir, mode `0644`.
-- Robustness: `pack.sh` runs under `set -euo pipefail`; an error trap writes `FAILED` plus the last ~40 lines of `pack.log` (*free choice*) into the download dir and exits; on success it `touch`es `DONE`.
-- Self-destruct: a detached `( sleep 3600; rm -rf "$WORKDIR" "$DLDIR" ) &` — the 3600 s delay is a *free choice*.
-- Poll: check for `DONE` / `FAILED` / `kill -0 $PID`, with an explicit maximum wait; on `FAILED` surface the log tail; on timeout with a live PID keep waiting to the cap, then abort with the tail.
+The whole client-side pack machinery this section once pinned — the outside-docroot working dir, `pass.key`, `.my.cnf`, `nohup bash pack.sh`, the two `mysqldump` passes, `gzip`, `openssl enc`, `tar`, `sha256sum`, the docroot download dir, the self-destruct timer, and the `DONE`/`FAILED`/`kill -0` poll — is retired. The Kntnt Extractor plugin owns all of it now ([ADR-0017](./adr/0017-discovery-over-extractor-rest-two-phase.md)); `kntnt-wp-skills` generates no shell script, handles no passphrase, runs no `openssl`, and stages nothing in the docroot. What the skills own is only the client side of it:
 
-## Download and verify (local)
+- Build the **selection** from the resolved plan — `tables` (full data), `tables_structure_only` (DROP/CREATE DDL, no rows, for every empty-classified table), and `files` (install-root-relative paths, already reduced locally by the exclusion set). The selection is an explicit list of paths, so no command-line exclusion patterns or argument-limit hazards arise.
+- Submit with `POST /extractions`, sealed to the run's ephemeral X25519 `public_key` (base64). The plugin runs the extraction as its own detached background job outside the docroot, seals each table and file segment into the `KNTNTEXT` container, and exposes a **one-time `download_url`** once the job reaches its terminal success state.
+- Poll the job by id to that state, with an explicit maximum wait; a failed, stalled, or vanished job is treated as failure, surfacing the state the plugin reports rather than hanging. Structure-only tables count toward poll progress.
+- The DB dump, live-site consistency handling, sealing, TTL/watchdog cleanup, and outside-docroot staging are all the plugin's responsibility — the equivalents of the old `--single-transaction --quick --skip-lock-tables` passes and the self-destruct timer live inside Extractor now.
 
-- Fetch order: `SHA256` first, then `db.enc` and `files.enc`, each with `curl -fSL -C - --retry 3`, into the local scratch area.
-- Verify: `sha256sum -c SHA256` — the names match creation time exactly, no renaming.
-- Fetch `pass.key` via Novamira `execute-php` (`file_get_contents`) — it lives outside the docroot, so `read-file` cannot reach it, and it is never web-served over HTTP — decrypt both artifacts with `openssl enc -d -aes-256-cbc -pbkdf2 -pass file:<local pass.key>`, and `gunzip` the DB dump.
+## Download and unseal (local)
+
+- Fetch the sealed container over HTTPS from the one-time `download_url` with resume and retry: `curl -fSL -C - --retry 3` into the local scratch area.
+- Unseal with the deterministic helper `uv run scripts/unseal.py` (`pynacl` inline dependency): the ephemeral private key — which never leaves the operator's machine and is never transmitted — opens each segment's sealed key (`crypto_box_seal` open), each segment is decrypted (`crypto_secretbox` open), and the container is reassembled — table segments concatenated into one importable `.sql` with a prepended connection-safe preamble, file segments written to disk by their install-root-relative path.
+- The `crypto_secretbox` authentication is what catches a truncated or corrupted download — a tampered or short segment fails to open, so a bad transfer is caught before it touches the local site. No separate checksum file is needed, and none is produced.
+- Immediately after the container unseals, consume the job with `POST /extractions/{id}/consume` and confirm it is gone. `DELETE /extractions/{id}` is only for cancelling a stranded or aborted job, never the happy-path close. The plugin's own TTL/watchdog cleanup and the next health check's stranded-job sweep are the backstops.
 
 ## Import and localise (local)
 
@@ -84,8 +80,8 @@ This file preserves the invocation-level literals from the superseded design-and
 
 ## Harmless stderr noise (never treat as failure)
 
-- `mysqldump: Deprecated program name…` — MariaDB's dump tool announcing itself; cosmetic.
-- WP-CLI `Deprecated:` notices under newer PHP — cosmetic; filter them from reports.
+- WP-CLI `Deprecated:` notices under newer PHP (the local `ddev wp` calls) — cosmetic; filter them from reports.
+- Production-side dump noise (e.g. MariaDB's `mysqldump: Deprecated program name…`) no longer reaches the client at all — the Extractor plugin runs the dump inside its own background job, and the skills only fetch the sealed result.
 
 ## Saved plan — illustrative shape
 
@@ -93,7 +89,7 @@ All keys optional; a missing key falls back to the built-in default. From the su
 
 ```jsonc
 {
-  "source": { "mcpServer": "novamira-<site>", "liveUrl": "https://www.example.com" },
+  "source": { "extractorUrl": "https://www.example.com/wp-json/kntnt-extractor/v2", "liveUrl": "https://www.example.com" },
   "target": { "ddevProject": "<name>" },
   "db": { "emptyTables": ["wp_independent_analytics%", "wp_rcb_consent%", "wp_fsmpt_email_logs", "wp_relevanssi%"] },
   "scope": { "includeMedia": true, "excludeBlobs": ["wp-content/uploads/<gallery>", "wp-content/uploads/<maxmind-db-dir>"] },
@@ -113,6 +109,8 @@ Retrofitting the manpage help model onto each sibling plugin is: add the per-ski
 ## Appendix — security-review reconciliation (historic record)
 
 The 20-point security/robustness review raised during grilling, row by row, so a later reader never mistakes a conscious decision for an oversight. Rows marked **Departed/Deferred — settled** are recorded as ADRs; do not re-open them.
+
+The table below is a **historic record** of how the review was dispositioned at the time, kept verbatim. Several rows (1–5, 8, 14, 15) describe the retired client-side pack/encryption/exec machinery — the server-side passphrase, the `.enc` artifacts, the `tar` exclusion file, the `DONE` poll, the `exec` probe. That whole mechanism was superseded by the control-channel cutover: the Kntnt Extractor plugin now owns the extraction, per-segment sealing (`crypto_secretbox` under a `crypto_box_seal`-wrapped key, no passphrase and no `openssl`), the one-time download link, and TTL cleanup ([ADR-0016](./adr/0016-kntnt-extractor-replaces-novamira-as-control-channel.md), [ADR-0017](./adr/0017-discovery-over-extractor-rest-two-phase.md)). The security *intents* those rows adopted are all still met — just inside the plugin rather than in a generated `pack.sh`. The rows are not live instructions.
 
 | # | Review point | Disposition |
 |---|---|---|
@@ -139,4 +137,4 @@ The 20-point security/robustness review raised during grilling, row by row, so a
 
 On point 6 — the one substantive departure: the operator explicitly chose the running-cron, live-mail default over the reviewer's (and the author's) more cautious proposal; the full rationale is [ADR-0009](./adr/0009-live-mail-default-with-mass-send-valve.md).
 
-On point 12 — refined 2026-07-19 (explicit operator authority): the "avoid walking excluded trees" mechanism moved — production now walks the whole tree unfiltered, and the exclusion set is applied locally by `scripts/filter_manifest.py` instead of being embedded in the production-side walk (issue #18). The adopted resolution, "store scope in the baseline", and the deletion diff's scope-intersection rule are unchanged; see the [ADR-0006](./adr/0006-baseline-manifest-diff-with-scope.md) addendum.
+On point 12 — refined 2026-07-19 (explicit operator authority): the "avoid walking excluded trees" mechanism moved — the whole tree is now enumerated unfiltered over the Extractor `GET /files` endpoint (paged via `cursor`), and the exclusion set is applied locally by `scripts/filter_manifest.py` instead of being embedded in a production-side walk (issue #18, carried forward under [ADR-0017](./adr/0017-discovery-over-extractor-rest-two-phase.md)). The adopted resolution, "store scope in the baseline", and the deletion diff's scope-intersection rule are unchanged; see the [ADR-0006](./adr/0006-baseline-manifest-diff-with-scope.md) addendum.

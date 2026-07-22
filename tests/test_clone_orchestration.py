@@ -36,24 +36,25 @@ SPEC_TEXT: str = SPEC.read_text(encoding="utf-8")
 # The deterministic helpers the clone flow must drive rather than compute by hand
 # (spec "The deterministic helper seam"). ``baseline_diff.py`` is deliberately
 # absent — a clone has no baseline to diff, it only *writes* the first one.
+# After the Extractor cutover the flow drives the assembler ``discovery.py``, the
+# ``bootstrap_parse.py`` row-signal parser, the ``build_selection.py`` extraction
+# builder, and the ``unseal.py`` sealed-container opener; ``pack_script.py`` is
+# retired.
 REQUIRED_HELPERS: tuple[str, ...] = (
     "scripts/discovery.py",
+    "scripts/bootstrap_parse.py",
     "scripts/classify.py",
     "scripts/resolve_plan.py",
     "scripts/filter_manifest.py",
-    "scripts/pack_script.py",
+    "scripts/build_selection.py",
+    "scripts/unseal.py",
     "scripts/dump_sanity.py",
 )
 
-# The production-side templates the clone flow sends over the control channel.
-REQUIRED_TEMPLATES: tuple[str, ...] = (
-    "templates/liveness.php",
-    "templates/exec-probe.php",
-    "templates/download-preflight.php",
-    "templates/stranded-sweep.php",
-    "templates/discovery.php",
-    "templates/manifest.php",
-)
+# The only production-side template that survives the Extractor cutover: the
+# local capture mu-plugin, dropped into the *local* copy (never a channel
+# payload). Every retired ``execute-php`` payload is gone.
+REQUIRED_TEMPLATES: tuple[str, ...] = ("templates/kntnt-wp-skills-mailpit.php",)
 
 # Phrases that mark the file as still (or again) a stub — the notice AC #1 says
 # must be gone.
@@ -125,9 +126,9 @@ def test_help_gate_short_circuits_before_the_health_check() -> None:
     for form in flags.HELP_FORMS:
         assert f"`{form}`" in SKILL_TEXT, f"help-gate omits the {form!r} form"
 
-    # The help-gate precedes the first production-touching step (the liveness
-    # probe), so ``help`` never reaches the control channel.
-    assert _pos(r"scripts/help\.py") < _pos(r"templates/liveness\.php")
+    # The help-gate precedes the first production-touching step (the ``GET
+    # /status`` handshake), so ``help`` never reaches the control channel.
+    assert _pos(r"scripts/help\.py") < _pos(r"GET /status")
 
 
 @pytest.mark.parametrize("helper", REQUIRED_HELPERS)
@@ -140,11 +141,12 @@ def test_drives_every_deterministic_helper(helper: str) -> None:
 
 
 @pytest.mark.parametrize("template", REQUIRED_TEMPLATES)
-def test_sends_every_production_side_template(template: str) -> None:
-    """Each health-check and discovery step is driven by its production-side
-    template over the control channel, not improvised PHP."""
+def test_references_the_local_capture_template(template: str) -> None:
+    """The one surviving template — the local capture mu-plugin — is still
+    referenced where the mail decision resolves to capture; the retired
+    ``execute-php`` payloads are gone with the Novamira channel."""
 
-    assert template in SKILL_TEXT, f"clone SKILL.md does not send {template}"
+    assert template in SKILL_TEXT, f"clone SKILL.md does not reference {template}"
 
 
 def test_no_referenced_helper_or_template_path_dangles() -> None:
@@ -159,9 +161,10 @@ def test_no_referenced_helper_or_template_path_dangles() -> None:
 
 
 def test_manifest_transport_carries_no_exclusion_payload() -> None:
-    """Issue #18: the manifest request must not embed an exclusion payload —
-    ``manifest.php`` is sent unfiltered and ``scripts/filter_manifest.py`` filters
-    the result locally before it is stored as the baseline."""
+    """Issue #18: the manifest request must not embed an exclusion payload — the
+    whole content tree is fetched unfiltered over ``GET /files`` and
+    ``scripts/filter_manifest.py`` filters the result locally before it is stored
+    as the baseline."""
 
     assert "scripts/filter_manifest.py" in SKILL_TEXT, (
         "the baseline write must filter production's manifest locally"
@@ -170,12 +173,13 @@ def test_manifest_transport_carries_no_exclusion_payload() -> None:
         "the manifest request must not describe injecting an exclusion payload"
     )
 
-    # Scoped to the baseline-write step itself — not the earlier helper-seam
-    # bullet list — so the check proves the step's own narrative.
-    manifest_pos = _pos(r"templates/manifest\.php")
-    filter_pos = _pos_after(r"scripts/filter_manifest\.py", manifest_pos)
-    assert manifest_pos < filter_pos, (
-        "the manifest is filtered locally after the unfiltered walk, not before"
+    # Scoped to the baseline-write step itself — the ``GET /files`` fetch precedes
+    # the local ``filter_manifest.py`` filter within that step's own narrative.
+    baseline_pos = _pos(r"Write the baseline")
+    files_pos = _pos_after(r"GET /files", baseline_pos)
+    filter_pos = _pos_after(r"scripts/filter_manifest\.py", files_pos)
+    assert baseline_pos < files_pos < filter_pos, (
+        "the manifest is fetched unfiltered over GET /files, then filtered locally"
     )
 
 
@@ -259,23 +263,28 @@ def test_nothing_heavy_runs_before_the_health_check() -> None:
     assert health < _pos(r"uv run scripts/discovery\.py"), (
         "discovery parsing must be driven after the health-check step"
     )
-    assert health < _pos(r"uv run scripts/pack_script\.py"), (
-        "pack-script generation must be driven after the health-check step"
+    assert health < _pos(r"uv run scripts/build_selection\.py"), (
+        "extraction-selection building must be driven after the health-check step"
     )
 
 
 def test_exposure_window_closes_immediately_after_verification() -> None:
-    """AC #3: the artifacts and the remote workspace are deleted immediately after
-    checksum verification — the exposure window closes before the destructive
-    local import ever begins."""
+    """AC #3: the extraction job is consumed immediately after the download
+    unseals — the exposure window closes before the destructive local import
+    ever begins. After the Extractor cutover the happy-path close is
+    ``POST /extractions/{id}/consume``, and integrity is the sealed container's
+    own authentication (no separate checksum), so the closure follows the unseal,
+    never a `sha256sum -c`."""
 
     assert re.search(r"exposure window", SKILL_TEXT, re.IGNORECASE)
     close = _pos(r"close the exposure window")
-    # Anchor on the download-side verification (`sha256sum -c SHA256` in step 6),
-    # not the first "checksum" mention, which is the pack step's SHA256 creation
-    # in step 5 — closure must follow the download verify, not merely the pack.
-    assert _pos(r"sha256sum -c SHA256") < close, (
-        "the window must close only after the download checksum verification"
+    # The window closes only after the container unseals (step 6), and the close
+    # is the consume call, never a DELETE.
+    assert _pos(r"scripts/unseal\.py unseal") < close, (
+        "the window must close only after the download unseals"
+    )
+    assert re.search(r"consume", SKILL_TEXT[close:], re.IGNORECASE), (
+        "the happy-path close must consume the job (POST /extractions/{id}/consume)"
     )
     assert close < _pos(r"ddev import-db"), "the window must close before local import"
 
@@ -324,8 +333,9 @@ def test_verify_phase_uses_live_state_and_documents_the_operator_residual() -> N
 SAFETY_RAILS: dict[str, str] = {
     "verify-targets-prod": r"targets production",
     "db-password-never-in-context": r"password[^.\n]*(?:never|not).*context|never[^.\n]*password",
-    "passphrase-authenticated-not-http": r"passphrase",
-    "encrypted-outside-docroot": r"outside the docroot",
+    "sealed-to-ephemeral-key": r"ephemeral",
+    "extraction-outside-docroot": r"outside the docroot",
+    "authenticated-unseal-catches-corruption": r"authenticat",
     "escaped-json-search-replace": r"\\/\\/",
     "double-escaped-json-search-replace": r"\\\\/\\\\/",
     "escaped-protocol-relative-www-search-replace": r"`\\/\\/www",
@@ -342,10 +352,11 @@ SAFETY_RAILS: dict[str, str] = {
 @pytest.mark.parametrize("rail,pattern", list(SAFETY_RAILS.items()))
 def test_safety_rails_are_stated(rail: str, pattern: str) -> None:
     """Each safety rail that converges in the clone flow is stated in the
-    orchestration — the risk warning, the outside-docroot packing, the secret
-    handling, and the URL-scoped search-replace including the escaped-JSON,
-    double-escaped-JSON, and their protocol-relative counterparts — a stored
-    protocol-relative URL has no scheme to anchor a scheme-ful pass, so it needs
-    its own escaped and double-escaped entries in the list."""
+    orchestration — the risk warning, the outside-docroot extraction, the secret
+    handling, the sealing to the run's ephemeral key, the authenticated unseal
+    that catches a corrupt download, and the URL-scoped search-replace including
+    the escaped-JSON, double-escaped-JSON, and their protocol-relative
+    counterparts — a stored protocol-relative URL has no scheme to anchor a
+    scheme-ful pass, so it needs its own escaped and double-escaped entries."""
 
     assert re.search(pattern, SKILL_TEXT, re.IGNORECASE), f"safety rail {rail!r} not stated"

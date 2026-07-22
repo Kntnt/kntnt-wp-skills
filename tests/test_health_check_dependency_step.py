@@ -1,23 +1,20 @@
-"""Dependency-check consistency test — issue #23.
+"""Dependency-check consistency test — issue #23 (Extractor cutover).
 
-The shared health check used to start with "locate the connected Novamira
-server" and left every local dependency (``ddev``, `mkwp`, the required CLI
-tools) and the production ability inventory (`discover-abilities`) entirely
-unchecked; `clone` additionally carried its own ad hoc `mkwp` version check as
-a *separate*, late step (its old step 7) instead of sharing the one guard the
-`mkwp` skill already reads (`scripts/mkwp_guard.py`).
+The shared health check's dependency step runs **first** — local checks before
+any production call, then the target Kntnt Extractor endpoint's own
+`GET /status` API-version handshake — carrying the remediation contract (stop at
+the first missing dependency, name what to install and the re-run command, never
+install anything itself). After the Extractor cutover the production side is no
+longer a Novamira ability inventory but the Extractor status handshake; the CLI
+floor drops the retired encryption/checksum binaries (`shasum`/`openssl`) since
+the sealed-container unseal is a `uv`-run `pynacl` helper. `clone`'s local checks
+alone fold in the shared `mkwp` guard; `pull` never mentions `mkwp` at all, since
+it never scaffolds.
 
-This suite is the anti-drift binding for the fix: both `SKILL.md` files and
-`docs/spec.md` must prescribe a **dependency step that runs first** — local
-checks before any production call, then the target server plus its ability
-inventory — carrying the remediation contract (stop at the first missing
-dependency, name what to install and the re-run command, never install
-anything itself). `clone`'s local checks alone fold in the shared `mkwp`
-guard; `pull` never mentions `mkwp` at all, since it never scaffolds.
-
-Anchors are the literal step prose, never a snippet of this suite's own text,
-matching the convention set by `test_health_check_sweep_order.py` and the
-other orchestration-consistency suites.
+This suite is the anti-drift binding for that shape. Anchors are the literal
+step prose, never a snippet of this suite's own text, matching the convention
+set by `test_health_check_sweep_order.py` and the other orchestration-
+consistency suites.
 """
 
 from __future__ import annotations
@@ -47,11 +44,11 @@ DEPENDENCY_ANCHOR: dict[str, str] = {
     "spec.md": r"Verify every local and production dependency",
 }
 
-# "Prove the channel is live" is the literal phrase every one of these three
-# documents already uses for what was step 1 (clone/pull SKILL.md) or step 2
-# (spec.md) — the first item downstream of the new dependency step, so its
-# position is the ordering anchor.
-LIVE_ANCHOR = r"Prove the channel is live"
+# "Prove the channel" is the literal phrase every one of these three documents
+# uses for the first item downstream of the dependency step — the SKILL.md files
+# spell it "Prove the channel is live, correctly targeted, and authorised", the
+# spec "Prove the channel live, ...", so the shared prefix is the ordering anchor.
+LIVE_ANCHOR = r"Prove the channel"
 
 DOCS_UNDER_TEST: tuple[tuple[str, Path], ...] = (
     ("clone SKILL.md", CLONE_SKILL),
@@ -60,26 +57,22 @@ DOCS_UNDER_TEST: tuple[tuple[str, Path], ...] = (
 )
 
 # Local dependency terms every document's dependency step must name — the
-# tools this run needs on ``PATH`` regardless of which skill is running.
+# tools this run needs on ``PATH`` regardless of which skill is running. The
+# sealed-container unseal is a ``uv``-run ``pynacl`` helper, so the retired
+# ``shasum``/``sha256sum``/``openssl`` binaries are no longer in the floor.
 REQUIRED_LOCAL_TOOL_TERMS: tuple[str, ...] = (
     "ddev",
     "uv",
     "jq",
     "curl",
-    "shasum",
-    "sha256sum",
-    "openssl",
 )
 
-# The five Novamira abilities the production side must inventory via
-# discover-abilities, plus the call itself.
-REQUIRED_ABILITY_TERMS: tuple[str, ...] = (
-    "discover-abilities",
-    "execute-php",
-    "run-wp-cli",
-    "read-file",
-    "write-file",
-    "list-directory",
+# The Extractor production check the dependency step must name — the
+# ``GET /status`` API-version handshake against the target endpoint, replacing
+# the retired Novamira ability inventory.
+REQUIRED_PRODUCTION_TERMS: tuple[str, ...] = (
+    "get /status",
+    "api version",
 )
 
 
@@ -126,22 +119,6 @@ def test_dependency_step_precedes_prove_channel_is_live(
 
 
 @pytest.mark.parametrize("doc_name, path", DOCS_UNDER_TEST)
-def test_dependency_step_locates_the_target_server_within_itself(
-    doc_name: str, path: Path
-) -> None:
-    """Locating the connected Novamira server for the target production URL
-    is folded into the dependency step itself, not left behind as a separate,
-    disconnected step — the ability inventory below needs to know which
-    server to call ``discover-abilities`` against."""
-
-    window = _dependency_window(doc_name, path)
-    assert re.search(r"novamira-\*|several.*novamira", window, re.IGNORECASE), (
-        f"{doc_name}'s dependency step never mentions locating the target "
-        "site's connected server among several possible `novamira-*` ones"
-    )
-
-
-@pytest.mark.parametrize("doc_name, path", DOCS_UNDER_TEST)
 def test_dependency_step_lists_required_local_tools(doc_name: str, path: Path) -> None:
     """Every required local CLI tool is named inside the dependency step's own
     text — not merely somewhere in the document — so the step's own prose is
@@ -155,18 +132,19 @@ def test_dependency_step_lists_required_local_tools(doc_name: str, path: Path) -
 
 
 @pytest.mark.parametrize("doc_name, path", DOCS_UNDER_TEST)
-def test_dependency_step_lists_required_production_abilities(
+def test_dependency_step_names_the_extractor_status_handshake(
     doc_name: str, path: Path
 ) -> None:
-    """Every one of the five required Novamira abilities, plus the
-    `discover-abilities` call that inventories them, is named inside the
-    dependency step's own text."""
+    """The production side of the dependency step is the Kntnt Extractor
+    ``GET /status`` API-version handshake against the target endpoint —
+    reachability and API version ≥ 2 — named inside the dependency step's own
+    text, replacing the retired Novamira ability inventory."""
 
     window = _dependency_window(doc_name, path).lower()
-    for term in REQUIRED_ABILITY_TERMS:
+    for term in REQUIRED_PRODUCTION_TERMS:
         assert term in window, (
             f"{doc_name}'s dependency step never names the required "
-            f"production ability term {term!r}"
+            f"production term {term!r}"
         )
 
 

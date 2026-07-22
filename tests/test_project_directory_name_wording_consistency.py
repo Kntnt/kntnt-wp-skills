@@ -47,10 +47,10 @@ def test_pull_skill_helper_seam_bullet_names_both_derived_names() -> None:
     assert "the derived project and directory names" in bullet, (
         f"pull/SKILL.md's classify.py bullet still names only the project name: {bullet!r}"
     )
-    combine_paragraph = _seam_bullet_line(text, "Combine the discovery output")
-    assert "the derived project and directory names" in combine_paragraph, (
-        "pull/SKILL.md's 'Combine the discovery output' paragraph still names "
-        f"only the project name: {combine_paragraph!r}"
+    assembly_paragraph = _seam_bullet_line(text, "Assemble the three sources")
+    assert "the derived project and directory names" in assembly_paragraph, (
+        "pull/SKILL.md's discovery-assembly paragraph still names "
+        f"only the project name: {assembly_paragraph!r}"
     )
 
 

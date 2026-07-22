@@ -22,7 +22,6 @@ Two edges are exercised separately, per the project's testing decisions:
 from __future__ import annotations
 
 import json
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -1076,14 +1075,15 @@ def test_generate_expectations_never_derives_attachment_count_from_discoverys_at
     assert "attachments" not in expectations.get("counts", {})
 
 
-def test_templates_entity_count_queries_agree_exactly_with_check_entity_counts():
-    """Cross-module contract: the checker now counts with raw SQL over
-    ``wp db query`` — never through ``wp post list`` / ``wp user list``,
-    which any active main-query-filtering plugin (Bogo and its whole class)
-    silently narrows (issue #33). Its per-entity table + WHERE clause must
-    therefore match ``templates/discovery.php``'s own ``entity_counts`` SQL
-    clause-for-clause, or the generator and the checker disagree and a correct
-    copy either FAILs or a genuine drift goes undetected.
+def test_check_entity_count_queries_carry_the_expected_table_and_where_clauses():
+    """The checker counts with raw SQL over ``wp db query`` — never through
+    ``wp post list`` / ``wp user list``, which any active main-query-filtering
+    plugin (Bogo and its whole class) silently narrows (issue #33). After the
+    Extractor cutover the ``entity_counts`` these are compared against at run
+    time are produced by ``scripts/bootstrap_parse.py`` from the bootstrap
+    extraction's parsed rows (the retired ``templates/discovery.php`` SQL scan
+    is gone), so this test pins only the checker's own per-entity table +
+    WHERE-clause contract, the half that lives in ``smoke_test._COUNT_QUERIES``.
 
     - ``publishedPosts``/``publishedPages`` — post_type + ``post_status =
       'publish'``, counted over the prefixed ``posts`` table.
@@ -1095,35 +1095,21 @@ def test_templates_entity_count_queries_agree_exactly_with_check_entity_counts()
       table, no WHERE clause at all.
     """
 
-    template_source = (
-        Path(__file__).resolve().parent.parent / "templates" / "discovery.php"
-    ).read_text(encoding="utf-8")
-    entity_counts_source = template_source[template_source.index("$entity_counts = [") :]
-
     posts_suffix, posts_where = smoke_test._COUNT_QUERIES["publishedPosts"]
     assert posts_suffix == "posts"
     assert posts_where == "WHERE post_type = 'post' AND post_status = 'publish'"
-    assert re.search(r"post_type = 'post'.*?post_status = 'publish'", entity_counts_source)
 
     pages_suffix, pages_where = smoke_test._COUNT_QUERIES["publishedPages"]
     assert pages_suffix == "posts"
     assert pages_where == "WHERE post_type = 'page' AND post_status = 'publish'"
-    assert re.search(r"post_type = 'page'.*?post_status = 'publish'", entity_counts_source)
 
     attach_suffix, attach_where = smoke_test._COUNT_QUERIES["attachments"]
     assert attach_suffix == "posts"
     assert attach_where == "WHERE post_type = 'attachment' AND post_status NOT IN ('trash', 'auto-draft')"
-    assert re.search(
-        r"post_type = 'attachment'.*?post_status NOT IN \(\s*'trash'\s*,\s*'auto-draft'\s*\)",
-        entity_counts_source,
-    )
 
     users_suffix, users_where = smoke_test._COUNT_QUERIES["users"]
     assert users_suffix == "users"
     assert users_where == ""
-    users_query = entity_counts_source[entity_counts_source.index("'users'") :]
-    assert "COUNT(*) FROM {$wpdb->users}" in users_query
-    assert "WHERE" not in users_query.split(";")[0].split(")")[0]
 
 
 def test_generate_expectations_takes_the_attachment_count_as_a_supplementary_live_fact():

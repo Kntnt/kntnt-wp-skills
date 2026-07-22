@@ -2,7 +2,7 @@
 the ``clone``/``pull`` orchestration (issue #13).
 
 A full clone run pushed the orchestrating agent's own context past ~300k
-tokens, almost entirely transport noise (MCP round-trips, curl/checksum
+tokens, almost entirely transport noise (REST round-trips, curl/download
 output, thumbnail-regeneration warning spam) rather than decisions. The fix
 ships four pinned subagents under ``agents/`` — one per heavy phase — and has
 both ``SKILL.md`` files delegate to them explicitly, each with a structured
@@ -45,7 +45,7 @@ ROSTER: dict[str, dict[str, object]] = {
         "effort": "low",
         "skills": ("clone", "pull"),
     },
-    "pack-transfer": {
+    "extract-transfer": {
         "model": "sonnet",
         "effort": "medium",
         "skills": ("clone", "pull"),
@@ -222,7 +222,7 @@ def _delegation_windows(text: str, anchor: str, size: int = 1200) -> list[str]:
 # committed SKILL.md prose so the assertions are never vacuous.
 EVIDENCE_FIELD_TERMS: dict[str, tuple[str, ...]] = {
     "discovery-classify": ("sha256", "exit code", "counts"),
-    "pack-transfer": ("sha256", "byte size"),
+    "extract-transfer": ("sha256", "byte size"),
     "manifest-baseline-diff": ("sha256", "exit code", "row count"),
     "thumbnail-smoke-test": ("exit code", "count"),
 }
@@ -268,8 +268,8 @@ RECHECK_PATTERN: dict[tuple[str, str], str] = {
         "pull",
         "manifest-baseline-diff",
     ): r"confirm the manifest's row count structurally",
-    ("clone", "pack-transfer"): r"re-run `sha256sum -c`",
-    ("pull", "pack-transfer"): r"re-run `sha256sum -c`",
+    ("clone", "extract-transfer"): r"re-run `scripts/dump_sanity\.py`",
+    ("pull", "extract-transfer"): r"re-run `scripts/dump_sanity\.py`",
     ("clone", "thumbnail-smoke-test"): r"re-run `wp db check`",
     ("pull", "thumbnail-smoke-test"): r"re-run `wp db check`",
 }

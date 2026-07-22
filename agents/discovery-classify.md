@@ -1,13 +1,13 @@
 ---
 name: discovery-classify
 description: >
-  Runs the read-only production discovery scan and the deterministic
-  classification pass for the kntnt-wp-skills transfer engine. Invoked only by
-  the `clone` and `pull` skills' own orchestration via the Task tool — never
-  autonomously, and never mid-run by anything else. Give it the health-check
-  outputs and the target MCP server; it returns the canonical discovery
-  document's and classifications' scratchpad paths, a one-line summary, and
-  its evidence block.
+  Runs the read-only, two-phase production discovery reconstruction and the
+  deterministic classification pass for the kntnt-wp-skills transfer engine.
+  Invoked only by the `clone` and `pull` skills' own orchestration via the Task
+  tool — never autonomously, and never mid-run by anything else. Give it the
+  target Extractor endpoint and Application Password; it returns the canonical
+  discovery document's and classifications' scratchpad paths, a one-line
+  summary, and its evidence block.
 model: sonnet
 effort: low
 ---
@@ -22,17 +22,22 @@ You perform the discovery-and-classify phase of a `kntnt-wp-skills` `clone` or `
 
 The task prompt gives you:
 
-- `mcp_server` — the Novamira MCP server name the health check already verified as targeting production.
-- `plugin_root` — `${CLAUDE_PLUGIN_ROOT}`, so you can locate `scripts/discovery.py` and `scripts/classify.py`.
-- `liveness` and `exec_probe` — the JSON the health check already collected from `templates/liveness.php` and `templates/exec-probe.php`.
+- `extractor_endpoint` — the Kntnt Extractor REST base URL the health check already verified as targeting production and at API version ≥ 2.
+- `application_password` — the HTTP-basic credentials for the both-capability calls (`GET /environment`, `GET /tables`, `GET /files`, and the bootstrap extraction).
+- `plugin_root` — `${CLAUDE_PLUGIN_ROOT}`, so you can locate `scripts/unseal.py`, `scripts/bootstrap_parse.py`, `scripts/discovery.py`, and `scripts/classify.py`.
+- `table_prefix` — production's table prefix (from the health check's `GET /environment`), which `bootstrap_parse.py` needs.
 - `scratchpad_dir` — where to write the large JSON documents this phase produces.
 
 ## What to do
 
-1. Send `templates/discovery.php` over the `execute-php` MCP ability against `mcp_server`. It echoes one JSON object: sizes and versions, the table prefix, the database flavour and collation, InnoDB status, active plugins and any multilingual plugin, drop-ins, themes, the core version, the mass-send risk scan, raw attachment metadata, cheap entity counts (published posts, pages, attachments, users), wp-config defines, and the required-binary probe.
-2. Combine that output with the given `liveness` and `exec_probe` into one JSON envelope and pipe it to `uv run "${plugin_root}/scripts/discovery.py"`. Write its stdout to `<scratchpad_dir>/discovery.json`.
-3. Pipe that document to `uv run "${plugin_root}/scripts/classify.py"`. Write its stdout to `<scratchpad_dir>/classifications.json`.
-4. If either helper exits non-zero, do not retry or guess at a fix — stop and return `FAILED` with the helper's stderr verbatim.
+1. Gather the three discovery sources over the REST surface:
+   - `GET /environment` — the runtime/config scalars (home/site URLs, content/uploads paths, core version, table prefix, PHP version, database flavour/version/collation), the active plugins, the drop-ins, and the resolved `wp-config` defines with the secret family already redacted server-side.
+   - `GET /tables` — every table with its row-count and byte size.
+   - `GET /files` — the whole content tree (path/size/mtime, install-root-relative), **paged via the opaque `cursor`**: loop, following the cursor until it is null, and flatten the pages into one manifest.
+2. Run the cheap bootstrap extraction to reconstruct the row-level signals: `uv run "${plugin_root}/scripts/unseal.py" keygen` for the run's ephemeral key pair, then `POST /extractions` of `wp_posts`, `wp_postmeta`, `wp_users`, the active recognised-mailer tables, and Action Scheduler, and no files, sealed to the base64 public key. Poll `GET /extractions/{id}` to `ready`, fetch its `download_url`, `uv run "${plugin_root}/scripts/unseal.py" unseal` the container into a `.sql`, `uv run "${plugin_root}/scripts/bootstrap_parse.py"` it with `{ "sql_path": ..., "table_prefix": ... }`, then `POST /extractions/{id}/consume` the job. A `429` means a job is still active — do not force it; stop and return `FAILED`.
+3. Assemble `{ "environment": ..., "tables": ..., "files": <flattened manifest>, "bootstrap": <bootstrap_parse.py output> }` and pipe it to `uv run "${plugin_root}/scripts/discovery.py"`. Write its stdout to `<scratchpad_dir>/discovery.json`.
+4. Pipe that document to `uv run "${plugin_root}/scripts/classify.py"`. Write its stdout to `<scratchpad_dir>/classifications.json`.
+5. If any helper exits non-zero, or the bootstrap extraction fails to reach `ready`, do not retry or guess at a fix — stop and return `FAILED` with the helper's stderr (or the reported job state) verbatim.
 
 ## What to return
 

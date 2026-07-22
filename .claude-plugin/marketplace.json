@@ -1,6 +1,6 @@
 {
   "name": "kntnt-wp-skills",
-  "description": "Kntnt's WordPress-skills plugin — mirror a live WordPress site down into a local DDEV copy: `clone` a fresh copy of production, or `pull` to refresh an existing one, driven solely through the Novamira MCP; `mkwp` to scaffold a brand-new local site from nothing; or `build-ollie-site` to build one out on the Ollie block theme, bottom-up by Atomic Design.",
+  "description": "Kntnt's WordPress-skills plugin — mirror a live WordPress site down into a local DDEV copy: `clone` a fresh copy of production, or `pull` to refresh an existing one, driven solely through the Kntnt Extractor plugin's REST API; `mkwp` to scaffold a brand-new local site from nothing; or `build-ollie-site` to build one out on the Ollie block theme, bottom-up by Atomic Design.",
   "owner": {
     "name": "Thomas Barregren",
     "email": "thomas@kntnt.com"
@@ -9,7 +9,7 @@
     {
       "name": "kntnt-wp-skills",
       "source": "./",
-      "description": "Mirror a live WordPress site down into a local DDEV copy, scaffold a brand-new one from nothing, or build one out on the Ollie block theme. Four user-invoked skills: `clone` creates a fresh local copy of a production site and `pull` refreshes an existing one incrementally, both reaching production solely through the Novamira MCP — never over SSH; `mkwp` scaffolds a brand-new local site standalone; and `build-ollie-site` builds a coherent, token-correct site on Ollie, bottom-up by Atomic Design, from a design system and a set of mockups.",
+      "description": "Mirror a live WordPress site down into a local DDEV copy, scaffold a brand-new one from nothing, or build one out on the Ollie block theme. Four user-invoked skills: `clone` creates a fresh local copy of a production site and `pull` refreshes an existing one incrementally, both reaching production solely through the Kntnt Extractor plugin's REST API — never over SSH; `mkwp` scaffolds a brand-new local site standalone; and `build-ollie-site` builds a coherent, token-correct site on Ollie, bottom-up by Atomic Design, from a design system and a set of mockups.",
       "homepage": "https://github.com/Kntnt/kntnt-wp-skills"
     }
   ]

@@ -47,25 +47,20 @@ SPEC_TEXT: str = SPEC.read_text(encoding="utf-8")
 # against, so only the new/changed set moves.
 REQUIRED_HELPERS: tuple[str, ...] = (
     "scripts/discovery.py",
+    "scripts/bootstrap_parse.py",
     "scripts/classify.py",
     "scripts/resolve_plan.py",
     "scripts/filter_manifest.py",
     "scripts/baseline_diff.py",
-    "scripts/pack_script.py",
+    "scripts/build_selection.py",
+    "scripts/unseal.py",
     "scripts/dump_sanity.py",
 )
 
-# The production-side templates the pull flow sends over the control channel.
-# ``manifest.php`` emits production's current in-scope tree — the ``current`` side
-# of the baseline diff, and the document stored as the next run's baseline.
-REQUIRED_TEMPLATES: tuple[str, ...] = (
-    "templates/liveness.php",
-    "templates/exec-probe.php",
-    "templates/download-preflight.php",
-    "templates/stranded-sweep.php",
-    "templates/discovery.php",
-    "templates/manifest.php",
-)
+# The only production-side template that survives the Extractor cutover: the
+# local capture mu-plugin, dropped into the *local* copy (never a channel
+# payload). Every retired ``execute-php`` payload is gone.
+REQUIRED_TEMPLATES: tuple[str, ...] = ("templates/kntnt-wp-skills-mailpit.php",)
 
 # Phrases that mark the file as still (or again) a stub — the notice AC #1 says
 # must be gone.
@@ -127,9 +122,9 @@ def test_help_gate_short_circuits_before_the_health_check() -> None:
     for form in flags.HELP_FORMS:
         assert f"`{form}`" in SKILL_TEXT, f"help-gate omits the {form!r} form"
 
-    # The help-gate precedes the first production-touching step (the liveness
-    # probe), so ``help`` never reaches the control channel.
-    assert _pos(r"scripts/help\.py") < _pos(r"templates/liveness\.php")
+    # The help-gate precedes the first production-touching step (the ``GET
+    # /status`` handshake), so ``help`` never reaches the control channel.
+    assert _pos(r"scripts/help\.py") < _pos(r"GET /status")
 
 
 @pytest.mark.parametrize("helper", REQUIRED_HELPERS)
@@ -144,11 +139,12 @@ def test_drives_every_deterministic_helper(helper: str) -> None:
 
 
 @pytest.mark.parametrize("template", REQUIRED_TEMPLATES)
-def test_sends_every_production_side_template(template: str) -> None:
-    """Each health-check, discovery, and manifest step is driven by its
-    production-side template over the control channel, not improvised PHP."""
+def test_references_the_local_capture_template(template: str) -> None:
+    """The one surviving template — the local capture mu-plugin — is still
+    referenced where the mail decision resolves to capture; the retired
+    ``execute-php`` payloads are gone with the Novamira channel."""
 
-    assert template in SKILL_TEXT, f"pull SKILL.md does not send {template}"
+    assert template in SKILL_TEXT, f"pull SKILL.md does not reference {template}"
 
 
 def test_no_referenced_helper_or_template_path_dangles() -> None:
@@ -163,9 +159,10 @@ def test_no_referenced_helper_or_template_path_dangles() -> None:
 
 
 def test_manifest_transport_carries_no_exclusion_payload() -> None:
-    """Issue #18: the manifest request must not embed an exclusion payload —
-    ``manifest.php`` is sent unfiltered and ``scripts/filter_manifest.py`` filters
-    the result locally before it is diffed and stored as the new baseline."""
+    """Issue #18: the manifest request must not embed an exclusion payload — the
+    whole content tree is fetched unfiltered over ``GET /files`` and
+    ``scripts/filter_manifest.py`` filters the result locally before it is diffed
+    and stored as the new baseline."""
 
     assert "scripts/filter_manifest.py" in SKILL_TEXT, (
         "the baseline diff must filter production's manifest locally"
@@ -174,63 +171,15 @@ def test_manifest_transport_carries_no_exclusion_payload() -> None:
         "the manifest request must not describe injecting an exclusion payload"
     )
 
-    # Scoped to the diff step itself — not the earlier helper-seam bullet list —
-    # so the check proves the step's own narrative, not just that both names
-    # appear somewhere in the file.
-    manifest_pos = _pos(r"templates/manifest\.php")
-    filter_pos = _pos_after(r"scripts/filter_manifest\.py", manifest_pos)
+    # Scoped to the diff step itself — the ``GET /files`` fetch precedes the local
+    # filter, which precedes the diff, within that step's own narrative.
+    diff_start = _pos(r"\*\*Diff the baseline\.\*\*")
+    files_pos = _pos_after(r"GET /files", diff_start)
+    filter_pos = _pos_after(r"scripts/filter_manifest\.py", files_pos)
     diff_pos = _pos_after(r"scripts/baseline_diff\.py", filter_pos)
-    assert manifest_pos < filter_pos < diff_pos, (
-        "the manifest must be sent unfiltered, then locally filtered, then diffed"
-    )
-
-
-def test_pack_step_never_claims_an_exclude_file_for_the_pull_archive() -> None:
-    """Cross-issue integration regression guard (#17 x #18): #17 removed the
-    exclusion heredoc from the generated pull pack.sh (pull now passes an empty
-    exclude list), and the generation paragraph of this same step says so. But a
-    stale sentence four lines later, describing the *running* script, still
-    claimed the archive goes "through an anchored exclude file" — the runtime
-    model reads both claims in the same step, so a contradiction here is as
-    dangerous as one left uncorrected in the code itself."""
-
-    section_start = _pos(r"## 5\. Pack on production")
-    section_end = _pos(r"## 6\. Download, verify, decrypt")
-    section = SKILL_TEXT[section_start:section_end]
-
-    assert re.search(r"empty exclude list", section, re.IGNORECASE), (
-        "the generation paragraph must still state pull passes an empty exclude list"
-    )
-    assert not re.search(r"exclude file", section, re.IGNORECASE), (
-        "the pack step still claims an exclude file archives the pull set — "
-        "the generated pack.sh carries no exclude file for pull (#17)"
-    )
-    assert not re.search(r"--anchored|--no-wildcards", section), (
-        "the pack step still cites the anchored/no-wildcards tar flags pull's "
-        "generated script omits (#17)"
-    )
-
-
-def test_spec_pack_section_scopes_the_exclusion_file_to_clone_only() -> None:
-    """Cross-issue integration regression guard (#17 x #18): AGENTS.md declares
-    ``docs/spec.md`` the single source of truth for the build, so a stale claim
-    there actively misleads future implementation work. The *Pack on
-    production* section must not state, unscoped, that "the file archive is
-    built from an exclusion file" — after #17 that is true only at clone; the
-    pull archive set is already filtered locally (per *Baseline diff (files)*,
-    just above) and carries no exclusion file at all."""
-
-    pack_start = SPEC_TEXT.index("### Pack on production")
-    pack_end = SPEC_TEXT.index("### Download, verify, and close the exposure window")
-    section = SPEC_TEXT[pack_start:pack_end]
-
-    assert not re.search(r"^- the file archive is built from an exclusion file", section, re.IGNORECASE | re.MULTILINE), (
-        "the archive-exclusion-file claim must be scoped to clone, never stated "
-        "as a blanket fact — pull's archive carries no exclusion file (#17)"
-    )
-    assert re.search(r"clone", section, re.IGNORECASE) and re.search(r"pull", section, re.IGNORECASE), (
-        "the archive bullet must distinguish clone's exclusion file from pull's "
-        "already-scope-filtered, exclusion-file-free archive"
+    assert files_pos < filter_pos < diff_pos, (
+        "the manifest must be fetched unfiltered over GET /files, then locally "
+        "filtered, then diffed"
     )
 
 
@@ -268,8 +217,8 @@ def test_nothing_heavy_runs_before_the_health_check() -> None:
     assert health < _pos(r"uv run scripts/discovery\.py"), (
         "discovery parsing must be driven after the health-check step"
     )
-    assert health < _pos(r"uv run scripts/pack_script\.py"), (
-        "pack-script generation must be driven after the health-check step"
+    assert health < _pos(r"uv run scripts/build_selection\.py"), (
+        "extraction-selection building must be driven after the health-check step"
     )
 
 
@@ -351,14 +300,19 @@ def test_deletion_mirroring_is_off_by_default_and_reversible() -> None:
 
 
 def test_exposure_window_closes_immediately_after_verification() -> None:
-    """AC: the artifacts and the remote workspace are deleted immediately after
-    checksum verification — the exposure window closes before the destructive
-    local import ever begins."""
+    """AC: the extraction job is consumed immediately after the download unseals
+    — the exposure window closes before the destructive local import ever begins.
+    After the Extractor cutover the happy-path close is
+    ``POST /extractions/{id}/consume`` and integrity is the sealed container's own
+    authentication, so the closure follows the unseal, never a `sha256sum -c`."""
 
     assert re.search(r"exposure window", SKILL_TEXT, re.IGNORECASE)
     close = _pos(r"close the exposure window")
-    assert _pos(r"sha256sum -c SHA256") < close, (
-        "the window must close only after the download checksum verification"
+    assert _pos(r"scripts/unseal\.py unseal") < close, (
+        "the window must close only after the download unseals"
+    )
+    assert re.search(r"consume", SKILL_TEXT[close:], re.IGNORECASE), (
+        "the happy-path close must consume the job (POST /extractions/{id}/consume)"
     )
     assert close < _pos(r"ddev import-db"), "the window must close before local import"
 
@@ -461,7 +415,7 @@ def test_new_baseline_is_written_with_its_scope() -> None:
     taken under, after the restart, so the next pull's diff and its
     scope-intersection deletion rule stay honest (ADR-0006)."""
 
-    assert "templates/manifest.php" in SKILL_TEXT, "the baseline is not emitted by manifest.php"
+    assert "GET /files" in SKILL_TEXT, "the baseline is not emitted by the GET /files walk"
     assert "last-sync.json" in SKILL_TEXT, "the baseline is not stored as last-sync.json"
     assert re.search(r"scope", SKILL_TEXT, re.IGNORECASE), "the baseline scope is not stored"
 
@@ -499,8 +453,9 @@ def test_verify_phase_uses_live_state_and_documents_the_operator_residual() -> N
 SAFETY_RAILS: dict[str, str] = {
     "verify-targets-prod": r"targets production",
     "db-password-never-in-context": r"password[^.\n]*(?:never|not).*context|never[^.\n]*password",
-    "passphrase-authenticated-not-http": r"passphrase",
-    "encrypted-outside-docroot": r"outside the docroot",
+    "sealed-to-ephemeral-key": r"ephemeral",
+    "extraction-outside-docroot": r"outside the docroot",
+    "authenticated-unseal-catches-corruption": r"authenticat",
     "escaped-json-search-replace": r"\\/\\/",
     "double-escaped-json-search-replace": r"\\\\/\\\\/",
     "escaped-protocol-relative-www-search-replace": r"`\\/\\/www",

@@ -11,17 +11,17 @@ kntnt-wp-skills brings a live WordPress site down to your machine as a local DDE
 
 The first three are about *bringing a site down or standing one up*; `build-ollie-site` is about *building one out*. It takes a design system and mockups and builds a coherent, token-correct site on the [Ollie](https://olliewp.com) block theme, bottom-up by Atomic Design — deriving the pattern taxonomy from the mockups' structure, mapping the design system into an Ollie child theme's tokens, then building component patterns, composing them into section patterns by slug reference, and assembling pages from sections. It is the natural next step after a `clone` or `mkwp` has produced the local site to build into.
 
-The plugin reaches production through a single channel — the Novamira MCP server connected to the live site — and never over SSH. Every decision it makes, from which tables to carry with their data to which multi-gigabyte galleries to leave behind, is put to you as a recommendation you accept or override. A routine refresh is a short walk through a handful of gates; an unattended run is a single flag.
+The plugin reaches production through a single channel — the [Kntnt Extractor](https://github.com/Kntnt/kntnt-extractor) plugin's REST API on the live site, authenticated with an Application Password — and never over SSH. Every decision it makes, from which tables to carry with their data to which multi-gigabyte galleries to leave behind, is put to you as a recommendation you accept or override. A routine refresh is a short walk through a handful of gates; an unattended run is a single flag.
 
 ### Key features
 
 - Four skills: `clone` and `pull` over one shared transfer engine, the standalone `mkwp` for scaffolding a brand-new local site, and `build-ollie-site` for building a site out on the Ollie block theme.
 - Bottom-up, Atomic-Design site building on Ollie: tokens → component patterns → section patterns → pages, derived from your mockups and verified against what the live install actually resolves.
-- One control channel — the Novamira MCP — and no SSH.
+- One control channel — the Kntnt Extractor REST API — and no SSH.
 - A recommendation with an accept-or-override gate for every decision, so nothing surprising happens silently.
 - Three speeds: interactive by default, `--yes` for an unattended run, and replay of a saved plan for a quick repeat.
 - Incremental file transfer against a stored baseline, so a refresh moves only what has changed.
-- User data encrypted in transit, with the remote copy deleted the moment the download verifies.
+- User data sealed to a per-run ephemeral key in transit, with the remote extraction consumed the moment the download unseals.
 - URL-scoped search-replace and a rewrite flush with plugins loaded, so localised subpages keep working.
 - A per-site configuration committed alongside the project, so a copy is reproducible.
 
@@ -31,18 +31,18 @@ A faithful local copy of a production WordPress site is more fiddly than it firs
 
 ### How this plugin helps
 
-The plugin handles the fiddly parts and asks you only about the decisions that matter. It discovers the site's shape, packs a trimmed and encrypted copy on production, downloads only what has changed, imports it into DDEV, and localises the result — thumbnails regenerated, URLs rewritten, rewrite rules flushed with plugins loaded so language routes are not lost. Because it works solely through the Novamira plugin's admin-gated MCP server, enabling it on production is a far smaller ask than handing over SSH.
+The plugin handles the fiddly parts and asks you only about the decisions that matter. It discovers the site's shape, has the Kntnt Extractor plugin extract a trimmed, sealed copy on production, downloads only what has changed, imports it into DDEV, and localises the result — thumbnails regenerated, URLs rewritten, rewrite rules flushed with plugins loaded so language routes are not lost. Because it works solely through the Extractor plugin's capability-gated REST API, enabling it on production is a far smaller ask than handing over SSH.
 
 ## Requirements
 
 The plugin assumes you have already put a few things in place. Each note says why it is needed.
 
 - DDEV up and running, which in turn needs Docker (or an equivalent such as OrbStack) and DDEV's own dependencies. These are DDEV concerns, not this plugin's.
-- The free Novamira plugin installed and enabled on the production site, with its MCP server connected in Claude Code. This is the only channel to production; the free AGPL build is sufficient, and Novamira Pro is not required. Only `clone` and `pull` need this — `mkwp` does not.
+- The [Kntnt Extractor](https://github.com/Kntnt/kntnt-extractor) plugin (API version ≥ 2) installed and activated on the production site, and an Application Password for a WordPress user holding both the `kntnt_extractor_operate` and `manage_options` capabilities. This is the only channel to production, reached over HTTPS with that Application Password as HTTP basic auth. Only `clone` and `pull` need this — `mkwp` does not.
 - `mkwp` ≥ 1.8.1 on your `PATH`, used by both the `clone` skill and the `mkwp` skill to scaffold a site. Its `--dirname` flag is what lets the site's directory be named independently of its DDEV project name (e.g. after a full production host, while the DDEV project keeps a shorter, hostname-safe slug); 1.8.1 is the floor because it is the release that fixes [Kntnt/mkwp#3](https://github.com/Kntnt/mkwp/issues/3), where an earlier `mkwp` broke the scaffold outright whenever `--dirname` diverged from the site's name.
-- The CLI tools `uv`, `jq`, `curl`, `shasum` or `sha256sum`, and `openssl` on your `PATH` — used by the helper scripts and the transfer pipeline. `clone` and `pull` verify all of the above (and Novamira's abilities) automatically at the start of every run, telling you exactly what is missing and how to fix it rather than failing partway through.
+- The CLI tools `uv`, `jq`, and `curl` on your `PATH` — used by the helper scripts and the transfer pipeline. The sealed-container unseal is a `uv`-run helper with `pynacl` as an inline dependency, so no separate checksum or encryption binary is needed. `clone` and `pull` verify all of the above (and the target's Kntnt Extractor endpoint — its API-version handshake and that your Application Password's user holds both required capabilities) automatically at the start of every run, telling you exactly what is missing and how to fix it rather than failing partway through.
 
-`build-ollie-site` has narrower requirements, because it never touches production: a WordPress install running the **Ollie** block theme as the parent of a child theme you build into (a local DDEV copy that `clone` or `mkwp` produced is the assumed target), WP-CLI reachable as `wp` (or `ddev wp`), and `uv` for its helper scripts. It needs neither Novamira nor `mkwp`; the Ollie Abilities / MCP are optional, used only as a convenience hand for content operations.
+`build-ollie-site` has narrower requirements, because it never touches production: a WordPress install running the **Ollie** block theme as the parent of a child theme you build into (a local DDEV copy that `clone` or `mkwp` produced is the assumed target), WP-CLI reachable as `wp` (or `ddev wp`), and `uv` for its helper scripts. It needs neither Kntnt Extractor nor `mkwp`; the Ollie Abilities / MCP are optional, used only as a convenience hand for content operations.
 
 ## Installation
 
@@ -67,7 +67,7 @@ Run `/kntnt-wp-skills:pull` from the project directory. The skill takes a rollba
 
 ### Scaffold a brand-new local site
 
-Run `/kntnt-wp-skills:mkwp <name>` to create a local WordPress site from nothing — no production source involved. The skill derives what it can from context (site name, directory, title, locale, and so on) and confirms the rest at recommendation gates, the same shape `clone`/`pull` use; `--yes` accepts every recommendation, including installing Novamira so the site is already reachable by a later `/kntnt-wp-skills:clone`/`pull`. The first user's password is always `mkwp`'s own random generation, shown only in its own on-screen output.
+Run `/kntnt-wp-skills:mkwp <name>` to create a local WordPress site from nothing — no production source involved. The skill derives what it can from context (site name, directory, title, locale, and so on) and confirms the rest at recommendation gates, the same shape `clone`/`pull` use; `--yes` accepts every recommendation, including installing Kntnt Extractor so the site is already reachable by a later `/kntnt-wp-skills:clone`/`pull`. The first user's password is always `mkwp`'s own random generation, shown only in its own on-screen output.
 
 ### Build a site on Ollie
 
@@ -91,7 +91,7 @@ Found a bug or want to request a feature? Please [open an issue](https://github.
 
 ## Development
 
-The plugin's logic lives in Python helpers under `scripts/`; the production-side pack script is generated at runtime by one of them (`scripts/pack_script.py`), not shipped as a static asset. Clone the repository, then read the coding standard materialised under [`agents.d/coding-standard/`](agents.d/coding-standard/) — `general.md` plus `python.md` — before changing code.
+The plugin's logic lives in Python helpers under `scripts/`, invoked via `uv`; the heavy production-side work — extraction, per-segment sealing, the one-time download link, and cleanup — is owned by the Kntnt Extractor plugin, not generated here (ADR-0017). Clone the repository, then read the coding standard materialised under [`agents.d/coding-standard/`](agents.d/coding-standard/) — `general.md` plus `python.md` — before changing code.
 
 The helpers are covered by a pytest suite under `tests/`. One command runs the whole suite, provisioning pytest through `uv` (no separate install step):
 
