@@ -22,16 +22,16 @@ The standalone skill that builds a site out on the **Ollie** block theme from a 
 _Avoid_: theme generator, page builder
 
 **Transfer engine**:
-The shared machinery `clone` and `pull` run — discovery, packing on production, download, verification, remote cleanup, import, localisation. Clone and pull differ only at the bookends; `mkwp` and `build-ollie-site` are not part of it.
+The shared machinery `clone` and `pull` run — discovery, extraction on production, download, verification, remote cleanup, import, localisation. Clone and pull differ only at the bookends; `mkwp` and `build-ollie-site` are not part of it.
 
 **Control channel**:
 The [Kntnt Extractor](https://github.com/Kntnt/kntnt-extractor) plugin's REST API on the production site — the sole way the skills reach production. There is no SSH ([ADR-0016](./adr/0016-kntnt-extractor-replaces-novamira-as-control-channel.md), superseding [ADR-0001](./adr/0001-novamira-mcp-sole-control-channel.md)).
 
 **Health check**:
-Mandatory step 0 of every run: verify every local and production dependency the run needs, that the channel is live, targets production, can spawn processes, and can serve downloads — before any heavy work, with guided remediation on anything missing.
+Mandatory step 0 of every run: verify every local and production dependency the run needs, that the Extractor endpoint is live and at API ≥ 2 (`status` handshake), authorised and targeting production (its `environment` `home_url`), that any stranded earlier job is swept, and that the download path serves — before any heavy work, with guided remediation on anything missing.
 
 **Discovery**:
-The read-only production scan — computed client-side from Kntnt Extractor's table-list and manifest calls, no longer a single server-side payload — that feeds every live-derived recommendation: sizes, versions, prefix, drop-ins, the mass-send risk scan, the thumbnail exclude-list.
+The read-only, two-phase production scan — reconstructed client-side from Kntnt Extractor's `environment`, `tables`, and `files` calls plus a small bootstrap extraction parsed locally, no longer a single server-side payload — that feeds every live-derived recommendation: sizes, versions, prefix, drop-ins, the mass-send risk scan, the thumbnail exclude-list ([ADR-0017](./adr/0017-discovery-over-extractor-rest-two-phase.md)).
 
 ### Decisions and run modes
 
@@ -77,25 +77,40 @@ Local plugins/themes with no production counterpart — dev tools to keep or jun
 **Trash**:
 `.kntnt-wp-skills/trash/<timestamp>/` — where "deleted" local files actually go. Nothing is ever hard-`rm`ed.
 
-### Production-side packing
+### Production-side extraction
 
-**Pack**:
-The background job on production that dumps, archives, encrypts, and publishes the artifacts.
+**Extraction**:
+The Kntnt Extractor plugin's own background job that dumps, archives, seals, and publishes the selection outside the docroot. The skills submit it (`POST /extractions`) and poll it to a terminal state; they own none of its mechanics.
+_Avoid_: pack, pack job
 
-**Artifacts**:
-The three published outputs of a pack: `db.enc`, `files.enc`, `SHA256`. Encrypted and `.enc`-named from creation.
+**Selection**:
+The explicit lists submitted to an extraction — full-data `tables`, structure-only `tables_structure_only`, and `files` — all computed client-side, so only what survives every exclusion is ever named.
+_Avoid_: pack list
 
-**Working dir**:
-The outside-docroot temp dir where all packing happens — passphrase, `.my.cnf`, logs, intermediates. Never web-readable.
+**Structure-only table**:
+A table carried as DROP/CREATE DDL with no rows — how every empty-classified table travels, so the table exists locally with zero rows.
 
-**Download dir**:
-The random-named docroot dir holding only the finished artifacts, briefly, for `curl`.
+**Sealed container** (KNTNTEXT):
+The plugin's per-segment sealed output for one extraction, opened only client-side. Replaces the old encrypted `.enc` artifacts.
+_Avoid_: artifacts, `db.enc`/`files.enc`
+
+**Segment**:
+One unit inside the sealed container — a single table's dump or a single file — encrypted under its own `crypto_secretbox` key, itself sealed (`crypto_box_seal`) to the run's ephemeral public key.
+
+**Ephemeral key pair**:
+The per-run X25519 pair the client generates; only the public half is sent to production (in `POST /extractions`), and the private half never leaves the operator's machine and is never transmitted.
+_Avoid_: passphrase
+
+**Unseal**:
+The client-side reassembly of a sealed container: open each segment key, decrypt each segment, concatenate table segments into one importable `.sql` with a connection-safe preamble, and write file segments to disk by install-root-relative path.
+_Avoid_: decrypt (as the whole operation)
+
+**One-time download link** (`download_url`):
+The single-use URL the plugin exposes for a finished extraction; fetched once, then the job is consumed.
+_Avoid_: download dir
 
 **Exposure window**:
-The interval while artifacts sit in the download dir — closed immediately after checksums pass, backstopped by the self-destruct timer and the next health check's sweep.
-
-**Self-destruct timer**:
-The detached `sleep`-then-`rm` armed by the pack job, so the working and download dirs vanish even if the client never returns.
+The interval a finished extraction is fetchable on production — closed immediately by consuming the job (`DELETE /extractions/{id}`) once the download unseals, backstopped by the plugin's own TTL cleanup and the next health check's stranded-job sweep.
 
 ### Mail and side effects
 
