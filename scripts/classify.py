@@ -384,6 +384,20 @@ def uploads_root_relative(site: dict[str, Any]) -> PurePosixPath:
 
     root = site.get("root_path", "")
     uploads = site.get("uploads_base", "")
+
+    # Extractor's `environment` endpoint gives the uploads dir already
+    # install-root-relative, so it is the root-relative prefix directly — the
+    # form current discovery emits (with an empty root_path). A path that escapes
+    # the root ("../…") cannot be a root-relative anchor, so it falls back to the
+    # standard location the same way an absent path does.
+    if isinstance(uploads, str) and uploads and not uploads.startswith("/"):
+        candidate = PurePosixPath(uploads)
+        if ".." in candidate.parts:
+            return PurePosixPath(DEFAULT_UPLOADS_ROOT_RELATIVE)
+        return candidate
+
+    # Backward compatibility with an absolute-path document: derive the relative
+    # prefix from the absolute root and uploads dir.
     if not (isinstance(root, str) and root and isinstance(uploads, str) and uploads):
         return PurePosixPath(DEFAULT_UPLOADS_ROOT_RELATIVE)
 

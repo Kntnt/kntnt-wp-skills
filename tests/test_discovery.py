@@ -2,15 +2,16 @@
 # requires-python = ">=3.12"
 # dependencies = ["pytest==8.3.4"]
 # ///
-"""Behavioural tests for the discovery helper CLI.
+"""Behavioural tests for the discovery assembler CLI.
 
-The helper is the sole automated seam of the health-check/discovery step: raw
-probe and discovery output goes in as JSON on stdin, the validated canonical
-discovery document comes out as JSON on stdout, and malformed input fails loudly
-with a non-zero exit. Every test exercises that seam through the real command —
-fixtures in, observable output out — and never reaches into the helper's
-internals. The fixtures under ``fixtures/`` are what the production-side
-discovery template would emit for a given site; no test touches a real site.
+The helper is the assembler seam of two-phase discovery: the four Extractor REST
+sources — the ``environment`` response, the ``tables`` response, the flattened
+``files`` manifest, and the client-parsed ``bootstrap`` signals — go in as one
+JSON object on stdin, the canonical discovery document comes out on stdout, and
+malformed input fails loudly with a non-zero exit. Every test exercises that seam
+through the real command — fixtures in, observable output out — and never reaches
+into the helper's internals. The fixtures under ``fixtures/`` are what the two-
+phase discovery would assemble for a given site; no test touches a real site.
 """
 
 from __future__ import annotations
@@ -62,26 +63,31 @@ def test_valid_discovery_output_is_parsed_into_a_canonical_document() -> None:
 
     # Assert — the document carries the sections every later recommendation
     # derives from, keyed under a stable schema version.
-    assert document["schema_version"] == 1
+    assert document["schema_version"] == 2
     assert document["site"]["home_url"] == "https://www.example.com"
     assert document["site"]["core_version"] == "6.5.2"
     assert document["database"]["total_size_bytes"] == 268435456
     assert {"name": "wp_posts", "size_bytes": 104857600} in document["database"][
         "top_tables"
     ]
-    assert document["uploads"]["subdirectories"][0]["path"] == "2024"
-    assert document["binaries"]["mysqldump"] is True
+    subdirectory_paths = {
+        entry["path"] for entry in document["uploads"]["subdirectories"]
+    }
+    assert {"2024", "2023", "galleries"} <= subdirectory_paths
     assert document["dropins"] == ["object-cache.php", "advanced-cache.php"]
     assert document["themes"] == ["astra", "twentytwentyfour"]
 
 
 def test_the_canonical_document_carries_the_full_table_enumeration() -> None:
-    # Arrange — the raw scan enumerates every table, not only the heaviest for the
-    # report. The canonical document must carry the complete enumeration so
-    # classification and the dump cover every table (spec: all tables, always).
+    # Arrange — the tables source enumerates every table with its size. The
+    # canonical document must carry the complete enumeration so classification and
+    # the dump cover every table (spec: all tables, always), heaviest first.
     payload = load_fixture("representative-site.json")
-    payload["discovery"]["database"]["tables"] = [
-        "wp_posts", "wp_options", "wp_users", "wp_extra_plugin_state",
+    payload["tables"]["tables"] = [
+        {"name": "wp_posts", "rows": 10, "bytes": 4},
+        {"name": "wp_options", "rows": 10, "bytes": 3},
+        {"name": "wp_users", "rows": 10, "bytes": 2},
+        {"name": "wp_extra_plugin_state", "rows": 10, "bytes": 1},
     ]
 
     # Act.
@@ -89,18 +95,34 @@ def test_the_canonical_document_carries_the_full_table_enumeration() -> None:
     assert result.returncode == 0, result.stderr.decode()
     database = json.loads(result.stdout)["database"]
 
-    # Assert — the full enumeration survives intact, distinct from the heaviest-N
-    # report subset the document also carries.
+    # Assert — every table survives, ordered heaviest-first, distinct from the
+    # capped heaviest-N report the document also carries.
     assert database["tables"] == [
         "wp_posts", "wp_options", "wp_users", "wp_extra_plugin_state",
     ]
 
 
-def test_a_non_string_table_name_fails_loudly() -> None:
-    # Arrange — the full table enumeration must be a list of strings; a non-string
-    # element is malformed and must not ride into the document half-built.
+def test_the_total_size_is_the_sum_of_every_table() -> None:
+    # Arrange — the grand total is derived from the per-table byte sizes, never a
+    # separately-reported figure that could drift from the enumeration.
     payload = load_fixture("representative-site.json")
-    payload["discovery"]["database"]["tables"] = ["wp_posts", 42]
+    payload["tables"]["tables"] = [
+        {"name": "wp_posts", "rows": 1, "bytes": 100},
+        {"name": "wp_options", "rows": 1, "bytes": 25},
+    ]
+
+    # Act.
+    database = json.loads(run_on(payload).stdout)["database"]
+
+    # Assert.
+    assert database["total_size_bytes"] == 125
+
+
+def test_a_malformed_table_record_fails_loudly() -> None:
+    # Arrange — a table record whose name is not a string is malformed and must
+    # not ride into the document half-built.
+    payload = load_fixture("representative-site.json")
+    payload["tables"]["tables"] = [{"name": "wp_posts", "bytes": 1}, {"name": 42, "bytes": 1}]
 
     # Act.
     result = run_on(payload)
@@ -112,68 +134,61 @@ def test_a_non_string_table_name_fails_loudly() -> None:
     assert b"tables" in result.stderr
 
 
+def test_uploads_subdirectories_are_summed_from_the_file_manifest() -> None:
+    # Arrange — several files under one uploads subdirectory must sum into one
+    # subdirectory total (the blob heuristic's input), even when the site uses a
+    # non-default content directory.
+    payload = load_fixture("representative-site.json")
+    payload["environment"]["wordpress"]["content_dir"] = "app"
+    payload["environment"]["wordpress"]["uploads_dir"] = "app/uploads"
+    payload["files"] = [
+        {"path": "app/uploads/2024/a.jpg", "size": 100, "mtime": 1},
+        {"path": "app/uploads/2024/b.jpg", "size": 50, "mtime": 1},
+        {"path": "app/uploads/gallery/big.zip", "size": 900, "mtime": 1},
+        {"path": "app/themes/ollie/style.css", "size": 10, "mtime": 1},
+    ]
+
+    # Act.
+    document = json.loads(run_on(payload).stdout)
+
+    # Assert — the two 2024 files sum, the gallery stands alone, and the theme is
+    # found under the custom content dir.
+    subdirectories = {
+        entry["path"]: entry["size_bytes"]
+        for entry in document["uploads"]["subdirectories"]
+    }
+    assert subdirectories == {"2024": 150, "gallery": 900}
+    assert document["themes"] == ["ollie"]
+
+
 def test_database_password_never_appears_in_the_canonical_document() -> None:
-    # Arrange — the fixture's DB_PASSWORD carries a unique sentinel.
+    # Arrange — the fixture's DB_PASSWORD carries a unique sentinel, standing in
+    # for a hypothetically unredacted upstream value; the assembler must redact it
+    # defensively even though the environment endpoint already masks it.
     sentinel = "P@ssw0rd-NEVER-LEAK-2b91f"
 
     # Act — serialise the whole document so the scan cannot miss a nested leak.
     result = run_discovery((FIXTURES / "representative-site.json").read_bytes())
     document = json.loads(result.stdout)
 
-    # Assert — the secret is absent everywhere and the connection has no
-    # password-bearing key at all (safety rail: the DB password never enters
-    # model context).
+    # Assert — the secret is absent everywhere and its define value is redacted to
+    # null (safety rail 8: the DB password never enters model context).
     assert sentinel not in result.stdout.decode()
-    connection = document["database"]["connection"]
-    assert "password" not in {key.lower() for key in connection}
+    by_name = {entry["name"]: entry["value"] for entry in document["defines"]}
+    assert by_name["DB_PASSWORD"] is None
 
 
-def test_connection_host_with_embedded_port_is_split() -> None:
-    # Arrange & Act — the representative site's DB_HOST is "127.0.0.1:3306".
-    connection = document_for("representative-site.json")["database"]["connection"]
-
-    # Assert — host and port travel apart, as the client credentials file needs.
-    assert connection["host"] == "127.0.0.1"
-    assert connection["port"] == 3306
-    assert connection["socket"] is None
-
-
-def test_connection_host_without_a_port_leaves_the_port_null() -> None:
-    # Arrange & Act — the MariaDB fixture's DB_HOST is a bare "localhost".
-    connection = document_for("mariadb-site.json")["database"]["connection"]
-
-    # Assert.
-    assert connection["host"] == "localhost"
-    assert connection["port"] is None
-
-
-def test_connection_host_with_a_socket_path_is_split() -> None:
-    # Arrange — a DB_HOST that carries a unix socket path after the single colon.
-    payload = load_fixture("mariadb-site.json")
-    connection_in = payload["discovery"]["database"]["connection"]
-    connection_in["DB_HOST"] = "localhost:/var/run/mysqld/mysqld.sock"
-
-    # Act.
-    result = run_on(payload)
-    assert result.returncode == 0, result.stderr.decode()
-    connection = json.loads(result.stdout)["database"]["connection"]
-
-    # Assert — the socket travels apart from the host, with no spurious port, as
-    # the client credentials file needs.
-    assert connection["host"] == "localhost"
-    assert connection["port"] is None
-    assert connection["socket"] == "/var/run/mysqld/mysqld.sock"
-
-
-def test_mariadb_flavour_is_detected_from_the_version() -> None:
+def test_mariadb_flavour_is_reported_from_the_environment() -> None:
     # Arrange & Act.
     database = document_for("mariadb-site.json")["database"]
 
-    # Assert — the flavour pins DDEV and avoids the collation import crash.
+    # Assert — the flavour pins DDEV and avoids the collation import crash; it
+    # comes straight from the environment endpoint's database server field.
     assert database["flavour"] == "mariadb"
+    assert database["version"] == "10.11.6-MariaDB"
 
 
-def test_mysql_flavour_is_detected_from_the_version() -> None:
+def test_mysql_flavour_is_reported_from_the_environment() -> None:
     # Arrange & Act.
     database = document_for("representative-site.json")["database"]
 
@@ -213,7 +228,7 @@ def test_bogo_is_recognised_as_a_multilingual_plugin() -> None:
     # locale exactly as Polylang does, so it must arm the localised-subpage
     # rewrite-flush canary (issue #33).
     payload = load_fixture("monolingual-site.json")
-    payload["discovery"]["active_plugins"].append("bogo/bogo.php")
+    payload["environment"]["active_plugins"].append("bogo/bogo.php")
 
     # Act.
     result = run_on(payload)
@@ -303,7 +318,7 @@ def test_defines_are_carried_with_secret_values_redacted() -> None:
     # Assert — every define's name is carried so the classifier can account for
     # it, a portable define keeps its value, but a secret define's value is
     # redacted to None here at the boundary (safety rail 8), never riding into the
-    # document even before the classifier drops the whole auto-excluded value.
+    # document even though the environment endpoint already masked it.
     by_name = {entry["name"]: entry["value"] for entry in defines}
     assert by_name["WP_MEMORY_LIMIT"] == "256M"
     assert by_name["DB_PASSWORD"] is None
@@ -314,7 +329,7 @@ def test_a_malformed_define_record_fails_loudly() -> None:
     # Arrange — a define entry lacking its 'name' must fail loud rather than ride
     # into the document half-built or crash on a KeyError.
     payload = load_fixture("representative-site.json")
-    payload["discovery"]["defines"] = [{"value": "orphan"}]
+    payload["environment"]["defines"] = [{"value": "orphan"}]
 
     # Act.
     result = run_on(payload)
@@ -337,20 +352,21 @@ def test_malformed_json_input_fails_loudly() -> None:
     assert result.stdout == b""
 
 
-def test_missing_discovery_section_fails_loudly() -> None:
+def test_missing_environment_section_fails_loudly() -> None:
     # Arrange & Act — a well-formed object lacking the required section.
-    result = run_discovery(b'{"liveness": {}}')
+    result = run_discovery(b'{"tables": {}}')
 
     # Assert.
     assert result.returncode != 0
     assert b"missing" in result.stderr
+    assert b"environment" in result.stderr
     assert result.stdout == b""
 
 
 def test_a_required_field_of_the_wrong_type_fails_loudly() -> None:
     # Arrange — home_url is required and typed; a number is malformed.
     payload = load_fixture("representative-site.json")
-    payload["discovery"]["home_url"] = 12345
+    payload["environment"]["wordpress"]["home_url"] = 12345
 
     # Act.
     result = run_on(payload)
@@ -363,10 +379,10 @@ def test_a_required_field_of_the_wrong_type_fails_loudly() -> None:
 
 
 def test_a_malformed_structural_field_fails_loudly() -> None:
-    # Arrange — top_tables must be a list; a string is malformed and must not
-    # ride through into the document (AC1: never a half-built document on stdout).
+    # Arrange — the tables enumeration must be a list; a string is malformed and
+    # must not ride through into the document (AC1: never a half-built document).
     payload = load_fixture("representative-site.json")
-    payload["discovery"]["database"]["top_tables"] = "oops"
+    payload["tables"]["tables"] = "oops"
 
     # Act.
     result = run_on(payload)
@@ -375,14 +391,14 @@ def test_a_malformed_structural_field_fails_loudly() -> None:
     assert result.returncode != 0
     assert result.stdout == b""
     assert result.stderr.startswith(b"discovery:")
-    assert b"top_tables" in result.stderr
+    assert b"tables" in result.stderr
 
 
 def test_a_non_string_active_plugin_fails_loudly() -> None:
     # Arrange — a non-string element in active_plugins would otherwise crash the
     # multilingual scan with an uncaught traceback rather than a diagnostic.
     payload = load_fixture("representative-site.json")
-    payload["discovery"]["active_plugins"] = ["polylang/polylang.php", 42]
+    payload["environment"]["active_plugins"] = ["polylang/polylang.php", 42]
 
     # Act.
     result = run_on(payload)
@@ -395,13 +411,12 @@ def test_a_non_string_active_plugin_fails_loudly() -> None:
     assert b"active_plugins" in result.stderr
 
 
-def test_entity_counts_are_carried_from_the_raw_scan() -> None:
-    # Arrange — templates/discovery.php's new entity_counts section (review
-    # finding: nothing collected published-post/page/attachment/user counts
-    # before, leaving the Verify section's promised counts.* expectations with
-    # nothing to source).
+def test_entity_counts_are_carried_from_the_bootstrap_parse() -> None:
+    # Arrange — the bootstrap parse's entity_counts (the cheap COUNT signals it
+    # derives from the bootstrap extraction's rows) flow into the document, so the
+    # Verify section's promised counts.* expectations have a live fact to source.
     payload = load_fixture("representative-site.json")
-    payload["discovery"]["entity_counts"] = {
+    payload["bootstrap"]["entity_counts"] = {
         "published_posts": 361,
         "published_pages": 62,
         "attachments": 214,
@@ -422,30 +437,27 @@ def test_entity_counts_are_carried_from_the_raw_scan() -> None:
     }
 
 
-def test_entity_counts_section_is_empty_rather_than_zero_filled_when_the_scan_omits_it() -> None:
-    # Arrange & Act — the representative fixture predates this section, so the
-    # document must still build without failing loud on an absent optional
-    # section. Critically, it must NOT zero-fill every count: a stale document
-    # built from a pre-entity-counts scan (or a scan whose section a caller
-    # trims) would otherwise hand generate_expectations a false "0 posts, 0
-    # pages, 0 attachments, 0 users" fact, FAILing any non-empty real site
-    # (verification review finding against the advisory the original fix
-    # missed).
+def test_entity_counts_section_is_empty_rather_than_zero_filled_when_the_bootstrap_omits_it() -> None:
+    # Arrange & Act — the representative fixture's bootstrap carries no
+    # entity_counts, so the document must still build without failing loud on the
+    # absent optional section. Critically, it must NOT zero-fill every count: a
+    # document built from a bootstrap without them would otherwise hand
+    # generate_expectations a false "0 posts, 0 pages, 0 attachments, 0 users"
+    # fact, FAILing any non-empty real site.
     document = document_for("representative-site.json")
 
-    # Assert — the section is present (uniform document shape) but empty, so
-    # a downstream reader's "is this key present" check — never a "!= 0"
-    # check — is what decides whether a count was actually collected.
+    # Assert — the section is present (uniform document shape) but empty, so a
+    # downstream reader's "is this key present" check — never a "!= 0" check — is
+    # what decides whether a count was actually collected.
     assert document["entity_counts"] == {}
 
 
-def test_entity_counts_omits_only_the_specific_keys_the_scan_leaves_out() -> None:
-    # Arrange — a scan that reports some counts but not others (e.g. a
-    # partially-upgraded discovery.php, or a hand-trimmed re-verification
-    # payload) must carry exactly the counts it actually reports, never
-    # zero-filling the rest.
+def test_entity_counts_omits_only_the_specific_keys_the_bootstrap_leaves_out() -> None:
+    # Arrange — a bootstrap that reports some counts but not others (e.g. a
+    # selection lacking wp_users) must carry exactly the counts it actually
+    # reports, never zero-filling the rest.
     payload = load_fixture("representative-site.json")
-    payload["discovery"]["entity_counts"] = {"published_posts": 361, "users": 7}
+    payload["bootstrap"]["entity_counts"] = {"published_posts": 361, "users": 7}
 
     # Act.
     document = json.loads(run_on(payload).stdout)
@@ -460,7 +472,7 @@ def test_a_non_integer_entity_count_fails_loudly() -> None:
     # Arrange — a malformed count must not ride through into the document
     # (AC1: never a half-built document on stdout).
     payload = load_fixture("representative-site.json")
-    payload["discovery"]["entity_counts"] = {"published_posts": "oops"}
+    payload["bootstrap"]["entity_counts"] = {"published_posts": "oops"}
 
     # Act.
     result = run_on(payload)

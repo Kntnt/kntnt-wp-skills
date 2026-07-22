@@ -1,77 +1,26 @@
 {
-  "liveness": {
-    "home_url": "https://www.example.com",
-    "abspath": "/var/www/html/",
-    "php_version": "8.2.18",
-    "server_software": "Apache/2.4.57 (Debian)"
-  },
-  "exec": {
-    "exec_available": true,
-    "disable_functions": "",
-    "exec_roundtrip": "ok"
-  },
-  "discovery": {
-    "home_url": "https://www.example.com",
-    "site_url": "https://www.example.com",
-    "root_path": "/var/www/html/",
-    "content_path": "/var/www/html/wp-content",
-    "uploads_base": "/var/www/html/wp-content/uploads",
-    "core_version": "6.5.2",
+  "environment": {
     "php_version": "8.2.18",
     "server_software": "Apache/2.4.57 (Debian)",
-    "disk_free_bytes": 5368709120,
-    "root_writable": true,
-    "table_prefix": "wp_",
-    "database": {
-      "version": "8.0.36",
-      "version_comment": "MySQL Community Server - GPL",
-      "default_collation": "utf8mb4_0900_ai_ci",
-      "total_size_bytes": 268435456,
-      "tables": [
-        "wp_posts",
-        "wp_postmeta",
-        "wp_options",
-        "wp_users",
-        "wp_terms",
-        "wp_term_taxonomy"
-      ],
-      "top_tables": [
-        {"name": "wp_posts", "size_bytes": 104857600},
-        {"name": "wp_postmeta", "size_bytes": 83886080},
-        {"name": "wp_options", "size_bytes": 20971520}
-      ],
-      "content_tables_innodb": true,
-      "connection": {
-        "DB_HOST": "127.0.0.1:3306",
-        "DB_NAME": "wordpress",
-        "DB_USER": "wp_user",
-        "DB_PASSWORD": "P@ssw0rd-NEVER-LEAK-2b91f",
-        "DB_CHARSET": "utf8mb4",
-        "DB_COLLATE": ""
-      }
+    "wordpress": {
+      "core_version": "6.5.2",
+      "home_url": "https://www.example.com",
+      "site_url": "https://www.example.com",
+      "table_prefix": "wp_",
+      "content_dir": "wp-content",
+      "uploads_dir": "wp-content/uploads"
     },
-    "uploads_subdirectories": [
-      {"path": "2024", "size_bytes": 157286400},
-      {"path": "2023", "size_bytes": 104857600},
-      {"path": "galleries", "size_bytes": 2147483648}
-    ],
+    "database": {
+      "server": "mysql",
+      "version": "8.0.36",
+      "collation": "utf8mb4_0900_ai_ci"
+    },
     "active_plugins": [
       "polylang/polylang.php",
       "fluent-crm/fluent-crm.php",
       "woocommerce/woocommerce.php"
     ],
     "dropins": ["object-cache.php", "advanced-cache.php"],
-    "themes": ["astra", "twentytwentyfour"],
-    "mass_send": {
-      "engines": [
-        {"engine": "fluentcrm", "present": true, "queued_or_scheduled": false, "campaign": null, "recipient_count": 0}
-      ],
-      "unrecognised": {"sending_cron_scheduled": false, "pending_queue_size": 0}
-    },
-    "attachments": [
-      {"id": 12, "file": "2024/05/banner.jpg", "sizes": ["banner-150x150.jpg", "banner-300x200.jpg", "banner-1024x683.jpg"]},
-      {"id": 34, "file": "2024/05/banner-1920x1080.jpg", "sizes": ["banner-1920x1080-150x150.jpg"]}
-    ],
     "defines": [
       {"name": "DB_HOST", "value": "127.0.0.1:3306"},
       {"name": "DB_NAME", "value": "wordpress"},
@@ -89,9 +38,9 @@
       {"name": "NONCE_SALT", "value": "secret-nonce-salt"},
       {"name": "WP_HOME", "value": "https://www.example.com"},
       {"name": "WP_SITEURL", "value": "https://www.example.com"},
-      {"name": "WP_CONTENT_DIR", "value": "/var/www/html/wp-content"},
+      {"name": "WP_CONTENT_DIR", "value": "wp-content"},
       {"name": "WP_CONTENT_URL", "value": "https://www.example.com/wp-content"},
-      {"name": "ABSPATH", "value": "/var/www/html/"},
+      {"name": "ABSPATH", "value": ""},
       {"name": "WP_CACHE", "value": true},
       {"name": "DISABLE_WP_CRON", "value": true},
       {"name": "WP_REDIS_HOST", "value": "127.0.0.1"},
@@ -99,16 +48,35 @@
       {"name": "WP_MAX_MEMORY_LIMIT", "value": "512M"},
       {"name": "WP_DEBUG", "value": false},
       {"name": "FS_METHOD", "value": "direct"}
-    ],
-    "binaries": {
-      "mysqldump": true,
-      "mysql": true,
-      "openssl": true,
-      "tar": true,
-      "gzip": true,
-      "sha256sum": true,
-      "nohup": true,
-      "bash": true
-    }
+    ]
+  },
+  "tables": {
+    "tables": [
+      {"name": "wp_posts", "rows": 3200, "bytes": 104857600},
+      {"name": "wp_postmeta", "rows": 41000, "bytes": 83886080},
+      {"name": "wp_options", "rows": 900, "bytes": 20971520},
+      {"name": "wp_users", "rows": 7, "bytes": 33554432},
+      {"name": "wp_terms", "rows": 210, "bytes": 12582912},
+      {"name": "wp_term_taxonomy", "rows": 210, "bytes": 12582912}
+    ]
+  },
+  "files": [
+    {"path": "wp-content/uploads/2024/05/banner.jpg", "size": 157286400, "mtime": 1714500000},
+    {"path": "wp-content/uploads/2023/summary.jpg", "size": 104857600, "mtime": 1690000000},
+    {"path": "wp-content/uploads/galleries/archive.zip", "size": 2147483648, "mtime": 1712000000},
+    {"path": "wp-content/themes/astra/style.css", "size": 20480, "mtime": 1700000000},
+    {"path": "wp-content/themes/twentytwentyfour/style.css", "size": 18432, "mtime": 1699000000}
+  ],
+  "bootstrap": {
+    "mass_send": {
+      "engines": [
+        {"engine": "fluentcrm", "present": true, "queued_or_scheduled": false, "campaign": null, "recipient_count": 0}
+      ],
+      "unrecognised": {"sending_cron_scheduled": false, "pending_queue_size": 0}
+    },
+    "attachments": [
+      {"id": 12, "file": "2024/05/banner.jpg", "sizes": ["banner-150x150.jpg", "banner-300x200.jpg", "banner-1024x683.jpg"]},
+      {"id": 34, "file": "2024/05/banner-1920x1080.jpg", "sizes": ["banner-1920x1080-150x150.jpg"]}
+    ]
   }
 }
