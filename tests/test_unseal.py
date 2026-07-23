@@ -85,6 +85,23 @@ def test_keygen_emits_valid_public_key_and_private_file(tmp_path: Path) -> None:
     assert public_key not in private_key_path.read_text(errors="ignore")
 
 
+def test_keygen_with_empty_stdin_exits_nonzero_naming_private_key_path() -> None:
+    """keygen fed no stdin exits non-zero with a self-documenting diagnostic
+    naming the required ``private_key_path`` envelope, not a raw JSON-parse
+    error — so a caller who forgets the envelope learns the fix from stderr."""
+
+    result = subprocess.run(
+        ["uv", "run", "--script", str(SCRIPT), "keygen"],
+        input=b"",
+        capture_output=True,
+    )
+
+    assert result.returncode != 0
+    stderr = result.stderr.decode()
+    assert "private_key_path" in stderr
+    assert stderr.startswith("unseal.py: keygen requires JSON on stdin:")
+
+
 def test_round_trip_reassembles_sql_and_files(tmp_path: Path) -> None:
     """A sealed container of tables, structure-only tables, and a multi-part file
     unseals to a preamble-wrapped dump and the file written whole."""
