@@ -420,6 +420,67 @@ def test_a_large_subdirectory_below_the_floor_is_not_flagged() -> None:
     assert flagged == []
 
 
+def test_a_non_standard_install_root_directory_is_flagged() -> None:
+    # Arrange — a heavy stray directory at the install root (issue #38: the 8 GB
+    # `2026/` that transferred silently) must be flagged, while the WordPress core
+    # `wp-admin` tree and the content dir itself are standard and never flagged
+    # however large — no median test at this level.
+    document = {
+        "site": {"content_path": "wp-content"},
+        "root": {"subdirectories": [
+            {"path": "2026", "size_bytes": 8215479066},
+            {"path": "wp-admin", "size_bytes": 9663676416},
+            {"path": "wp-content", "size_bytes": 9663676416},
+        ]},
+    }
+
+    # Act.
+    flagged = classify_document(document)["blobs"]["flagged"]
+
+    # Assert — the stray root directory is offered for exclusion, anchored
+    # root-relative as its bare segment; the standard dirs are not.
+    entries = {entry["path"]: entry for entry in flagged}
+    assert "2026" in entries
+    assert "wp-admin" not in entries
+    assert "wp-content" not in entries
+    assert "non-standard install-root directory" in entries["2026"]["reason"]
+
+
+def test_a_non_standard_content_directory_is_flagged() -> None:
+    # Arrange — a heavy non-standard child of the content dir (an All-in-One WP
+    # Migration backup store) must be flagged, while the standard content children
+    # are not — uploads is the existing heuristic's territory, plugins is payload.
+    document = {
+        "site": {"content_path": "wp-content"},
+        "content": {"subdirectories": [
+            {"path": "ai1wm-backups", "size_bytes": 2147483648},
+            {"path": "uploads", "size_bytes": 5368709120},
+            {"path": "plugins", "size_bytes": 2147483648},
+        ]},
+    }
+
+    # Act.
+    flagged = classify_document(document)["blobs"]["flagged"]
+
+    # Assert — the backup store is flagged, anchored under the content path; the
+    # standard children are not, however large.
+    paths = {entry["path"] for entry in flagged}
+    assert "wp-content/ai1wm-backups" in paths
+    assert "wp-content/uploads" not in paths
+    assert "wp-content/plugins" not in paths
+
+
+def test_a_document_without_root_or_content_sections_flags_only_uploads() -> None:
+    # Arrange & Act — a canonical document from before this change carries neither
+    # a `root` nor a `content` section, so the wider rule contributes nothing and
+    # today's uploads flags are unchanged (backward compatible).
+    flagged = classify_fixture("classify-full-site.json")["blobs"]["flagged"]
+
+    # Assert.
+    paths = {entry["path"] for entry in flagged}
+    assert paths == {"wp-content/uploads/galleries"}
+
+
 # --- Thumbnail exclude-set ---------------------------------------------------
 
 

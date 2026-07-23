@@ -542,3 +542,54 @@ def test_a_non_integer_entity_count_fails_loudly() -> None:
     assert result.stdout == b""
     assert result.stderr.startswith(b"discovery:")
     assert b"published_posts" in result.stderr
+
+
+def test_root_subdirectories_are_summed_from_the_file_manifest() -> None:
+    # Arrange — the install-root breakdown must sum each top-level directory's
+    # files (the wider blob heuristic's input, issue #38), while a loose file
+    # sitting directly in the root is not a directory and must not appear.
+    payload = load_fixture("representative-site.json")
+    payload["files"] = [
+        {"path": "2026/big.zip", "size": 8215479066, "mtime": 1},
+        {"path": "2026/more.zip", "size": 100, "mtime": 1},
+        {"path": "wp-admin/index.php", "size": 500, "mtime": 1},
+        {"path": "wp-content/plugins/foo/foo.php", "size": 10, "mtime": 1},
+        {"path": "index.php", "size": 405, "mtime": 1},
+    ]
+
+    # Act.
+    document = json.loads(run_on(payload).stdout)
+
+    # Assert — the two 2026 files sum, wp-admin and wp-content are directories,
+    # and the loose root index.php is not counted as a directory.
+    root = {
+        entry["path"]: entry["size_bytes"]
+        for entry in document["root"]["subdirectories"]
+    }
+    assert root == {"2026": 8215479166, "wp-admin": 500, "wp-content": 10}
+    assert "index.php" not in root
+
+
+def test_content_subdirectories_are_summed_from_the_file_manifest() -> None:
+    # Arrange — the content-directory breakdown must sum each of its top-level
+    # children (the wider blob heuristic's second input), while a loose file
+    # sitting directly under the content dir is not a directory.
+    payload = load_fixture("representative-site.json")
+    payload["files"] = [
+        {"path": "wp-content/ai1wm-backups/x.wpress", "size": 2147483648, "mtime": 1},
+        {"path": "wp-content/plugins/foo/foo.php", "size": 10, "mtime": 1},
+        {"path": "wp-content/uploads/2024/a.jpg", "size": 100, "mtime": 1},
+        {"path": "wp-content/index.php", "size": 28, "mtime": 1},
+    ]
+
+    # Act.
+    document = json.loads(run_on(payload).stdout)
+
+    # Assert — each content child sums; the loose index.php under the content
+    # dir is not counted as a directory.
+    content = {
+        entry["path"]: entry["size_bytes"]
+        for entry in document["content"]["subdirectories"]
+    }
+    assert content == {"ai1wm-backups": 2147483648, "plugins": 10, "uploads": 100}
+    assert "index.php" not in content
