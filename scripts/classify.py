@@ -20,7 +20,8 @@ from as one JSON object on stdout. It computes:
   carried regardless, so this is a content-only verdict. A user-submission table
   is tagged with its own ``user_submissions`` category, distinct from the four
   operational ones, because it earns a standalone gate rather than being
-  silently emptied (ADR-0014).
+  silently emptied (ADR-0014); a recognised CRM/mass-mailer's subscriber table is
+  likewise tagged ``crm_subscribers`` for its own privacy gate (ADR-0019).
 - ``blobs`` — the heavy directories flagged for the exclusion gate by a
   deterministic size heuristic (same document in, same flags out). Uploads
   subdirectories use a median-outlier test; the install-root and content-directory
@@ -126,6 +127,35 @@ USER_SUBMISSION_TABLE_PATTERNS: tuple[str, ...] = (
     "gf_entry_meta",
     "gf_entry_notes",
     "gf_draft_submissions",
+)
+
+# The CRM/mass-mailer subscriber table family: the per-person address stores of
+# recognised on-site mail engines — FluentCRM, MailPoet, Mailster. These carry
+# real third-party names and email addresses and are uniquely dangerous with the
+# mail=live + cron-runs defaults (ADR-0009): standing funnel/automation sequences
+# over a carried subscriber list can mail those real people from the dev copy, a
+# risk the mass-send valve does not catch because it only watches for a poised
+# bulk campaign, not standing automations over the data. So they earn their own
+# standalone carry/empty gate, default empty, a sixth family alongside
+# `user_submissions` and matched the same way (after prefix-stripping, exact-or-
+# startswith) — deliberately NOT the CRM's definitions (campaigns, funnels, lists,
+# tags, terms, meta, url stores), which hold no third-party addresses, make the
+# site work locally, and carry in full like any other content table (ADR-0019).
+# The `fc_subscriber` prefix pattern covers the whole FluentCRM subscriber family
+# (`_subscribers`, `_subscriber_meta`, `_subscriber_pivot`, `_subscriber_notes`).
+# The engine list is kept aligned with `bootstrap_parse.py`'s MAILER_ENGINES so
+# recognition and gating cannot drift apart; the registry is additive like
+# USER_SUBMISSION_TABLE_PATTERNS, so an unrecognised CRM carries in full until a
+# pattern is added.
+CRM_SUBSCRIBER_TABLE_PATTERNS: tuple[str, ...] = (
+    "fc_subscriber",
+    "fc_campaign_emails",
+    "fc_campaign_url_metrics",
+    "fc_funnel_subscribers",
+    "fc_funnel_metrics",
+    "mailpoet_subscriber",
+    "mailster_subscriber",
+    "mailster_queue",
 )
 
 # Per-submission form-to-service integrations (issue #20): a form plugin's
@@ -347,19 +377,23 @@ def classify_defines(defines: list[Any]) -> dict[str, list[dict[str, Any]]]:
 
 def table_category(prefix: str, name: str) -> str | None:
     """Return the category a table belongs to — one of the four operational
-    families or ``user_submissions`` — or ``None`` when its content is carried in
-    full. The match is on the name after the prefix, so a non-default prefix
-    never hides an operational or user-submission table.
+    families, ``user_submissions``, or ``crm_subscribers`` — or ``None`` when its
+    content is carried in full. The match is on the name after the prefix, so a
+    non-default prefix never hides an operational, user-submission, or subscriber
+    table.
 
-    ``user_submissions`` is checked first: it is disjoint from the operational
-    patterns, but keeping it first documents that it is a distinct family with
-    its own gate (ADR-0014), not a fifth operational category folded into the
+    ``user_submissions`` and ``crm_subscribers`` are checked first: both are
+    disjoint from the operational patterns and from each other, but keeping them
+    first documents that each is a distinct privacy family with its own gate
+    (ADR-0014, ADR-0019), not a further operational category folded into the
     silently-emptied set.
     """
 
     stem = name[len(prefix):] if prefix and name.startswith(prefix) else name
     if any(stem == pattern or stem.startswith(pattern) for pattern in USER_SUBMISSION_TABLE_PATTERNS):
         return "user_submissions"
+    if any(stem == pattern or stem.startswith(pattern) for pattern in CRM_SUBSCRIBER_TABLE_PATTERNS):
+        return "crm_subscribers"
     for category, patterns in OPERATIONAL_TABLE_PATTERNS.items():
         if any(stem == pattern or stem.startswith(pattern) for pattern in patterns):
             return category

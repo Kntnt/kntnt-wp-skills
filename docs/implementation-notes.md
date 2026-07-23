@@ -100,7 +100,8 @@ All keys optional; a missing key falls back to the built-in default. The saved p
   "mail": "risk_adaptive",     // accepting the recommendation stores the mode, not the momentary live/capture outcome (ADR-0009)
   "cron": "run",
   "deletion_mirroring": "off",
-  "user_submissions": "empty",
+  "user_submissions": "empty",  // carry/empty privacy gate for form-entry tables (ADR-0014)
+  "crm_subscribers": "empty",   // carry/empty privacy gate for CRM/mailer subscriber tables (ADR-0019)
   "source": { "extractor_endpoint": "https://www.example.com/wp-json/kntnt-extractor/v1", "live_url": "https://www.example.com" }
 }
 ```

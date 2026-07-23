@@ -85,6 +85,7 @@ SAVED_KEYS: dict[str, str] = {
     "cron": "cron",
     "deletion_mirroring": "deletion_mirroring",
     "user_submissions": "user_submissions",
+    "crm_subscribers": "crm_subscribers",
 }
 
 # Saved-plan keys the spec's persistent config records but that no gate resolves:
@@ -103,6 +104,21 @@ MAIL_RISK_ADAPTIVE = "risk_adaptive"
 # the user_submissions gate moves into db_table_content on a resolved carry
 # (ADR-0014).
 USER_SUBMISSIONS_CATEGORY = "user_submissions"
+
+# The category classify.py tags a recognised CRM/mass-mailer subscriber table
+# with — the fold target the crm_subscribers gate moves into db_table_content on
+# a resolved carry (ADR-0019). A sibling privacy gate to user_submissions, folded
+# the same way and independent of it, so one gate's carry never drags the other's
+# tables out of the empty split.
+CRM_SUBSCRIBERS_CATEGORY = "crm_subscribers"
+
+# The two privacy gates and the classify.py category each folds into
+# db_table_content on a resolved carry — paired so the fold machinery walks both
+# without either being special-cased (ADR-0014, ADR-0019).
+PRIVACY_GATES: tuple[tuple[str, str], ...] = (
+    ("user_submissions", USER_SUBMISSIONS_CATEGORY),
+    ("crm_subscribers", CRM_SUBSCRIBERS_CATEGORY),
+)
 
 
 class ResolveError(Exception):
@@ -237,6 +253,7 @@ DECISIONS: tuple[Decision, ...] = (
     Decision("db_table_structure", BOTH, const("all_tables_with_schema")),
     Decision("db_table_content", BOTH, const(None), live_table_content),
     Decision("user_submissions", BOTH, const("empty")),
+    Decision("crm_subscribers", BOTH, const("empty")),
     Decision("table_prefix", BOTH, const(None), live_table_prefix),
     Decision("db_engine_php", BOTH, const(None), live_engine_php),
     Decision("media_originals", BOTH, const("include")),
@@ -402,20 +419,22 @@ def gate_list(
     return [decision.id for decision in decisions if decision.id not in pins]
 
 
-def fold_user_submissions(table_split: Any, carry: bool) -> Any:
-    """Fold a carry/empty choice for the ``user_submissions`` gate into a table
-    split, moving every classify.py-tagged ``user_submissions`` table from the
-    empty (schema-only) list into the full-data one when ``carry`` is true.
+def fold_privacy_gate(table_split: Any, carry: bool, category: str) -> Any:
+    """Fold a carry/empty choice for one privacy gate into a table split, moving
+    every classify.py-tagged ``category`` table from the empty (schema-only) list
+    into the full-data one when ``carry`` is true.
 
     Without this fold, ``db_table_content`` would keep serving classify.py's
-    unmodified split regardless of how the operator answers the user_submissions
-    gate: classify.py already puts every form-submission table in the empty list,
-    and the gate itself only records a value — nothing else moves those tables,
-    so a resolved carry would leave the dump exactly as empty as the privacy
-    default (ADR-0014). A false ``carry``, or a split not shaped as classify.py's
+    unmodified split regardless of how the operator answers the gate: classify.py
+    already puts every tagged table in the empty list, and the gate itself only
+    records a value — nothing else moves those tables, so a resolved carry would
+    leave the dump exactly as empty as the privacy default (ADR-0014, ADR-0019).
+    A false ``carry``, or a split not shaped as classify.py's
     ``{"full": [...], "empty": [...]}`` object (an answer that overrode
     ``db_table_content`` directly, or an upstream document a live layer never
-    reached), is returned unchanged.
+    reached), is returned unchanged. Only tables tagged with the given
+    ``category`` move, so folding one privacy gate never disturbs the other's
+    tables — the two gates are independent.
     """
 
     if not carry or not isinstance(table_split, dict):
@@ -427,7 +446,7 @@ def fold_user_submissions(table_split: Any, carry: bool) -> Any:
     full = list(table_split.get("full", []))
     remaining_empty = []
     for entry in empty:
-        if isinstance(entry, dict) and entry.get("category") == USER_SUBMISSIONS_CATEGORY:
+        if isinstance(entry, dict) and entry.get("category") == category:
             full.append(entry.get("name"))
         else:
             remaining_empty.append(entry)
@@ -435,34 +454,39 @@ def fold_user_submissions(table_split: Any, carry: bool) -> Any:
     return {**table_split, "full": full, "empty": remaining_empty}
 
 
-def apply_user_submissions_gate(resolved: list[dict[str, Any]]) -> None:
-    """Fold the resolved ``user_submissions`` decision into ``db_table_content``,
-    in place, so a carry actually changes what every downstream consumer of the
+def apply_privacy_gates(resolved: list[dict[str, Any]]) -> None:
+    """Fold every privacy gate's resolved choice into ``db_table_content``, in
+    place, so a carry actually changes what every downstream consumer of the
     table split reads — the pack script's content/empty table lists, the
-    dump-sanity empty-set — rather than only adding a value to the plan JSON
-    that nothing else consumes.
+    dump-sanity empty-set — rather than only adding a value to the plan JSON that
+    nothing else consumes.
 
-    Both fields are folded independently: the resolved ``value`` from
-    user_submissions' resolved value (so the fold reflects this run's actual
-    choice, including a this-run answer), and the ``recommendation`` from
-    user_submissions' recommendation (so a gate walked before the operator
-    answers user_submissions still shows a split consistent with what is
+    Each gate in :data:`PRIVACY_GATES` (``user_submissions``, ``crm_subscribers``)
+    is folded independently and only over its own classify.py category, so one
+    gate's carry never drags the other's tables out of the empty split. Both
+    fields are folded per gate: the resolved ``value`` from the gate's resolved
+    value (so the fold reflects this run's actual choice, including a this-run
+    answer), and the ``recommendation`` from the gate's recommendation (so a gate
+    walked before the operator answers still shows a split consistent with what is
     currently on record, mirroring the "recommendation predates the answer"
-    contract every other decision honours). Either decision missing from this
-    skill's list (neither ever is — both are in ``BOTH``) is a no-op.
+    contract every other decision honours). A gate missing from this skill's list
+    (none ever is — all are in ``BOTH``) is a no-op.
     """
 
     table_entry = next((entry for entry in resolved if entry["id"] == "db_table_content"), None)
-    submissions_entry = next((entry for entry in resolved if entry["id"] == "user_submissions"), None)
-    if table_entry is None or submissions_entry is None:
+    if table_entry is None:
         return
 
-    table_entry["value"] = fold_user_submissions(
-        table_entry["value"], submissions_entry["value"] == "carry"
-    )
-    table_entry["recommendation"] = fold_user_submissions(
-        table_entry["recommendation"], submissions_entry["recommendation"] == "carry"
-    )
+    for gate_id, category in PRIVACY_GATES:
+        gate_entry = next((entry for entry in resolved if entry["id"] == gate_id), None)
+        if gate_entry is None:
+            continue
+        table_entry["value"] = fold_privacy_gate(
+            table_entry["value"], gate_entry["value"] == "carry", category
+        )
+        table_entry["recommendation"] = fold_privacy_gate(
+            table_entry["recommendation"], gate_entry["recommendation"] == "carry", category
+        )
 
 
 def mail_valve_defeated(decisions: list[dict[str, Any]], context: Context) -> bool:
@@ -525,9 +549,9 @@ def resolve(envelope: dict[str, Any]) -> dict[str, Any]:
     decisions = active_decisions(skill)
     resolved = [resolve_decision(decision, context) for decision in decisions]
 
-    # A resolved carry for user_submissions must change what db_table_content
+    # A resolved carry for either privacy gate must change what db_table_content
     # actually carries, not just add a value to the plan JSON nothing reads.
-    apply_user_submissions_gate(resolved)
+    apply_privacy_gates(resolved)
 
     # A replay must not silently deliver live mail into a freshly-poised campaign
     # a saved concrete mode masks — re-surface the mail gate on that collision.
