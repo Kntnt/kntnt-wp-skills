@@ -361,3 +361,51 @@ def test_safety_rails_are_stated(rail: str, pattern: str) -> None:
     scheme-ful pass, so it needs its own escaped and double-escaped entries."""
 
     assert re.search(pattern, SKILL_TEXT, re.IGNORECASE), f"safety rail {rail!r} not stated"
+
+
+def test_saved_plan_is_persisted_into_the_site_directory_not_cwd() -> None:
+    """Issue #40: at the end of §3's gate walk, ``directory_name`` is already a
+    resolved plan decision, but the site directory it names does not exist until
+    §4 scaffolds it — so a save that writes the bare relative path
+    ``.kntnt-wp-skills.json`` lands one level up, in the operator's invocation
+    ``cwd``, not in the site directory ``smoke_test.py``'s
+    ``check_saved_plan_present`` anchors at. Fix option (a) (settled in the
+    issue body): §3 creates the site directory itself (``mkdir -p
+    <directory_name>/``) and writes the saved plan straight into
+    ``<directory_name>/.kntnt-wp-skills.json``, so the plan survives even a §4
+    scaffold failure."""
+
+    # The persist instruction writes the qualified, directory-scoped path — never
+    # the bare relative filename a literal top-to-bottom implementation would
+    # otherwise emit one level above the site directory.
+    assert "<directory_name>/.kntnt-wp-skills.json" in SKILL_TEXT, (
+        "the §3 save step must write into <directory_name>/.kntnt-wp-skills.json, "
+        "not a bare .kntnt-wp-skills.json that lands in cwd"
+    )
+    assert re.search(r"mkdir -p <directory_name>/", SKILL_TEXT), (
+        "the §3 save step must create the site directory itself before writing "
+        "into it, since §4 has not scaffolded it yet"
+    )
+
+    # The persist instruction itself must sit in §3, strictly before the §4
+    # heading — a deferred-to-§4 rewrite (fix option (b)) would move the write
+    # past this anchor and must fail this ordering, not just the path check
+    # above, so a future edit that quietly relocates the write is still caught.
+    persist_pos = _pos(r"persist the accepted plan")
+    section_4_pos = _pos(r"## 4\. Clone bookends")
+    assert persist_pos < section_4_pos, (
+        "the saved-plan persist instruction must remain in §3, before the §4 "
+        "clone-bookends heading — a §4 failure must never be able to lose an "
+        "already-accepted plan"
+    )
+
+
+def test_smoke_test_presence_checks_anchor_at_clone_dir() -> None:
+    """The read side of issue #40's fix stays put: ``smoke_test.py`` must keep
+    resolving both persistence-artifact presence checks against ``clone_dir``
+    (the site directory), never the caller's own ``cwd`` — this is the anchor
+    the write side above must land inside."""
+
+    smoke_test_text = (REPO_ROOT / "scripts" / "smoke_test.py").read_text(encoding="utf-8")
+    assert "clone_dir / \".kntnt-wp-skills.json\"" in smoke_test_text
+    assert "clone_dir / \".kntnt-wp-skills\" / \"last-sync.json\"" in smoke_test_text
