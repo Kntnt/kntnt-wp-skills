@@ -280,6 +280,160 @@ def test_a_non_list_unreadable_field_fails_loudly() -> None:
     assert b"unreadable" in result.stderr
 
 
+# --- Credential-bearing glob patterns (issue #36) ------------------------------
+
+
+def test_a_wp_config_backup_suffix_is_dropped() -> None:
+    # Arrange & Act — the two real filenames the live smoke test found sitting
+    # beside wp-config.php, each carrying the complete secret family.
+    result = filter_on({
+        "entries": [
+            entry("wp-config.php.bak-20260717-212309"),
+            entry("wp-config.php.bak-redis-20260718-074109"),
+        ],
+        "exclusions": ["wp-config.php.*"],
+    })
+
+    # Assert.
+    assert result["entries"] == []
+
+
+def test_a_wp_config_tilde_backup_is_dropped() -> None:
+    result = filter_on({
+        "entries": [entry("wp-config.php~")],
+        "exclusions": ["wp-config.php~"],
+    })
+    assert result["entries"] == []
+
+
+def test_a_wp_config_vim_swap_file_is_dropped() -> None:
+    result = filter_on({
+        "entries": [entry(".wp-config.php.swp")],
+        "exclusions": [".wp-config.php.sw?"],
+    })
+    assert result["entries"] == []
+
+
+def test_a_wp_config_variant_filename_is_dropped() -> None:
+    result = filter_on({
+        "entries": [entry("wp-config-backup.php")],
+        "exclusions": ["wp-config-*.php"],
+    })
+    assert result["entries"] == []
+
+
+def test_the_wp_config_sample_file_survives_the_variant_glob() -> None:
+    # Arrange — WordPress' own bundled template carries placeholder values, not
+    # a real secret, so the broad "wp-config-*.php" catcher must not swallow it.
+    result = filter_on({
+        "entries": [entry("wp-config-sample.php")],
+        "exclusions": ["wp-config-*.php"],
+    })
+
+    # Assert.
+    assert [row["path"] for row in result["entries"]] == ["wp-config-sample.php"]
+
+
+def test_a_root_env_file_is_dropped() -> None:
+    result = filter_on({
+        "entries": [entry(".env")],
+        "exclusions": ["**/.env"],
+    })
+    assert result["entries"] == []
+
+
+def test_a_nested_env_file_is_dropped_anywhere_in_the_tree() -> None:
+    # Arrange & Act — an .env is not only ever at the install root: a bundled
+    # toolchain under a plugin or theme can carry its own.
+    result = filter_on({
+        "entries": [entry("wp-content/plugins/acme/.env")],
+        "exclusions": ["**/.env"],
+    })
+
+    # Assert.
+    assert result["entries"] == []
+
+
+def test_a_suffixed_env_file_is_dropped() -> None:
+    result = filter_on({
+        "entries": [entry(".env.local")],
+        "exclusions": ["**/.env.*"],
+    })
+    assert result["entries"] == []
+
+
+def test_a_root_sql_dump_is_dropped() -> None:
+    result = filter_on({
+        "entries": [entry("dump.sql"), entry("backup.sql.gz"), entry("backup.sql.zip")],
+        "exclusions": ["*.sql", "*.sql.gz", "*.sql.zip"],
+    })
+    assert result["entries"] == []
+
+
+def test_a_nested_sql_dump_is_not_dropped() -> None:
+    # Arrange & Act — the root-level SQL glob is anchored at the install root,
+    # not "anywhere in the tree" like the .env family, so a dump living inside
+    # a plugin's own data directory is ordinary content, not a leaked secret.
+    result = filter_on({
+        "entries": [entry("wp-content/uploads/dump.sql")],
+        "exclusions": ["*.sql"],
+    })
+
+    # Assert.
+    assert [row["path"] for row in result["entries"]] == ["wp-content/uploads/dump.sql"]
+
+
+def test_root_key_material_is_dropped() -> None:
+    result = filter_on({
+        "entries": [entry("server.pem"), entry("private.key"), entry("id_rsa"), entry("id_rsa.pub")],
+        "exclusions": ["*.pem", "*.key", "id_rsa*"],
+    })
+    assert result["entries"] == []
+
+
+def test_nested_key_material_is_not_dropped() -> None:
+    # Arrange & Act — root-level key material is anchored at the install root.
+    result = filter_on({
+        "entries": [entry("wp-content/plugins/acme/vendor/some.key")],
+        "exclusions": ["*.key"],
+    })
+
+    # Assert.
+    assert [row["path"] for row in result["entries"]] == [
+        "wp-content/plugins/acme/vendor/some.key"
+    ]
+
+
+def test_glob_pattern_matching_is_case_insensitive() -> None:
+    result = filter_on({
+        "entries": [entry("WP-CONFIG-BACKUP.PHP"), entry("DUMP.SQL")],
+        "exclusions": ["wp-config-*.php", "*.sql"],
+    })
+    assert result["entries"] == []
+
+
+def test_a_literal_root_pattern_is_also_matched_case_insensitively() -> None:
+    # Arrange & Act — "wp-config.php~" carries no glob character, but the whole
+    # configuration-file family (issue #36's fix list opens with "wp-config.php
+    # plus every sibling variant") is install-root-relative and case-insensitive,
+    # not only the wildcard-bearing siblings.
+    result = filter_on({
+        "entries": [entry("WP-CONFIG.PHP~")],
+        "exclusions": ["wp-config.php~"],
+    })
+
+    # Assert.
+    assert result["entries"] == []
+
+
+def test_wp_config_php_itself_is_matched_case_insensitively() -> None:
+    result = filter_on({
+        "entries": [entry("WP-CONFIG.PHP")],
+        "exclusions": ["wp-config.php"],
+    })
+    assert result["entries"] == []
+
+
 def test_the_filtered_output_feeds_baseline_diff_unchanged() -> None:
     # Arrange — the load-bearing end-to-end proof: filter a raw, unfiltered
     # walk that mixes an excluded gallery, an excluded gallery's file, a

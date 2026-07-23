@@ -228,6 +228,98 @@ def test_a_same_named_sibling_of_an_excluded_path_is_still_diffed() -> None:
     assert result["production_deleted"] == ["wp-content/uploads/gallery-archive/keep.jpg"]
 
 
+# --- Credential-bearing glob patterns (issue #36) ------------------------------
+
+
+def test_a_vanished_wp_config_backup_is_not_production_deleted() -> None:
+    # Arrange — a wp-config backup somehow rode into a baseline before this
+    # exclusion existed; this run's scope now carries the glob, so its
+    # disappearance from production is out-of-scope, not a real deletion.
+    payload = {
+        "baseline": {
+            "scope": {"exclusions": []},
+            "entries": [entry("wp-config.php.bak-20260717-212309", 4096, 1700000000)],
+        },
+        "current": {
+            "scope": {"exclusions": ["wp-config.php.*"]},
+            "entries": [],
+        },
+    }
+
+    # Act.
+    result = run_on(payload)
+
+    # Assert.
+    assert result["production_deleted"] == []
+
+
+def test_a_vanished_env_file_is_not_production_deleted() -> None:
+    payload = {
+        "baseline": {
+            "scope": {"exclusions": []},
+            "entries": [entry("wp-content/plugins/acme/.env", 200, 1700000000)],
+        },
+        "current": {
+            "scope": {"exclusions": ["**/.env"]},
+            "entries": [],
+        },
+    }
+    result = run_on(payload)
+    assert result["production_deleted"] == []
+
+
+def test_a_vanished_root_sql_dump_is_not_production_deleted() -> None:
+    payload = {
+        "baseline": {
+            "scope": {"exclusions": []},
+            "entries": [entry("dump.sql", 5000, 1700000000)],
+        },
+        "current": {
+            "scope": {"exclusions": ["*.sql"]},
+            "entries": [],
+        },
+    }
+    result = run_on(payload)
+    assert result["production_deleted"] == []
+
+
+def test_a_vanished_root_key_file_is_not_production_deleted() -> None:
+    payload = {
+        "baseline": {
+            "scope": {"exclusions": []},
+            "entries": [entry("id_rsa", 1200, 1700000000)],
+        },
+        "current": {
+            "scope": {"exclusions": ["id_rsa*"]},
+            "entries": [],
+        },
+    }
+    result = run_on(payload)
+    assert result["production_deleted"] == []
+
+
+def test_a_vanished_wp_config_sample_file_is_still_production_deleted() -> None:
+    # Arrange — the sample file is carved back out of the broad
+    # "wp-config-*.php" variant glob, so it stays in scope and a real
+    # disappearance is a genuine deletion.
+    payload = {
+        "baseline": {
+            "scope": {"exclusions": []},
+            "entries": [entry("wp-config-sample.php", 3000, 1700000000)],
+        },
+        "current": {
+            "scope": {"exclusions": ["wp-config-*.php"]},
+            "entries": [],
+        },
+    }
+
+    # Act.
+    result = run_on(payload)
+
+    # Assert.
+    assert result["production_deleted"] == ["wp-config-sample.php"]
+
+
 def test_outputs_are_sorted_for_deterministic_reports() -> None:
     # Arrange — current entries deliberately out of lexical order.
     payload = {

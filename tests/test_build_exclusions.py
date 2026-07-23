@@ -112,14 +112,42 @@ def test_always_excluded_covers_the_documented_categories() -> None:
     assert "wp-content/upgrade" in always
     assert "wp-content/upgrade-temp-backup" in always
 
+    # Assert — the credential-bearing pattern family issue #36 adds: the
+    # wp-config backup/swap/variant globs, .env anywhere in the tree, root-level
+    # SQL dumps, and root-level key material.
+    assert "wp-config.php.*" in always
+    assert "wp-config.php~" in always
+    assert ".wp-config.php.sw?" in always
+    assert "wp-config-*.php" in always
+    assert "**/.env" in always
+    assert "**/.env.*" in always
+    assert "*.sql" in always
+    assert "*.sql.gz" in always
+    assert "*.sql.zip" in always
+    assert "*.pem" in always
+    assert "*.key" in always
+    assert "id_rsa*" in always
+
 
 def test_always_excluded_pins_its_exact_contents() -> None:
     # Assert — the exact always-excluded set, so a stray, typo'd, or dropped entry
     # reddens here rather than silently changing what every run excludes. When
-    # #36 (credential patterns) or #37 (core) extend the constant, this literal is
-    # updated in lockstep — the single place the set's contents are pinned.
+    # #37 (core) extends the constant, this literal is updated in lockstep — the
+    # single place the set's contents are pinned.
     assert set(build_exclusions.ALWAYS_EXCLUDED) == {
         "wp-config.php",
+        "wp-config.php.*",
+        "wp-config.php~",
+        ".wp-config.php.sw?",
+        "wp-config-*.php",
+        "**/.env",
+        "**/.env.*",
+        "*.sql",
+        "*.sql.gz",
+        "*.sql.zip",
+        "*.pem",
+        "*.key",
+        "id_rsa*",
         "wp-content/advanced-cache.php",
         "wp-content/object-cache.php",
         "wp-content/db.php",

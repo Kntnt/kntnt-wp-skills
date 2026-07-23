@@ -22,8 +22,10 @@ Nothing is hand-assembled at the call site; the helper does all extraction.
 The set is the union of:
 
 - :data:`ALWAYS_EXCLUDED` — the canonical, static always-excluded paths (the
-  configuration file, the WordPress drop-ins, the debug log, the cache dir, and
-  the upgrade dirs), the single source of truth every prose reference points at.
+  configuration file and its credential-bearing backup/swap/variant siblings,
+  ``.env`` files anywhere in the tree, root-level SQL dumps and key material,
+  the WordPress drop-ins, the debug log, the cache dir, and the upgrade dirs),
+  the single source of truth every prose reference points at.
 - The DB-known generated thumbnails (``classifications.thumbnails.exclude``),
   when the plan resolves ``generated_thumbnails`` to ``exclude``.
 - The flagged heavy blobs (``classifications.blobs.flagged[*].path``), when the
@@ -52,6 +54,47 @@ from typing import Any
 # The configuration file, at the install root — production's belongs to
 # production's server, and the local copy carries its own.
 _CONFIGURATION_FILE: tuple[str, ...] = ("wp-config.php",)
+
+# Every credential-bearing sibling an operator can leave beside wp-config.php:
+# a dated or suffixed backup (".bak-20260717-212309", ".save", ".orig",
+# ".old", ...), an editor's tilde backup or vim swap file, or a differently
+# named variant such as "wp-config-backup.php". Each carries the complete
+# secret family in clear text exactly like the live file, so each is excluded
+# on every run precisely as the configuration file itself is (issue #36).
+# "wp-config-sample.php" is WordPress' own bundled template — placeholder
+# values only, never a real secret — so it is the one name the broad
+# "wp-config-*.php" variant-catcher must not swallow; ``is_excluded`` in
+# ``filter_manifest.py`` and ``baseline_diff.py`` carves it back out.
+_CONFIGURATION_FILE_VARIANTS: tuple[str, ...] = (
+    "wp-config.php.*",
+    "wp-config.php~",
+    ".wp-config.php.sw?",
+    "wp-config-*.php",
+)
+
+# Environment-variable files, wherever they sit in the tree — never only at
+# the install root, since a bundled toolchain (a Composer package, a Node
+# build step under a theme) can carry its own alongside the WordPress one.
+_ENV_FILES: tuple[str, ...] = (
+    "**/.env",
+    "**/.env.*",
+)
+
+# Root-level database dumps an operator left beside the install after a manual
+# export — the whole database's secrets in clear text, sitting in the docroot.
+_ROOT_SQL_DUMPS: tuple[str, ...] = (
+    "*.sql",
+    "*.sql.gz",
+    "*.sql.zip",
+)
+
+# Root-level key material an operator dropped beside the install and forgot —
+# a private key or certificate, never content.
+_ROOT_KEY_MATERIAL: tuple[str, ...] = (
+    "*.pem",
+    "*.key",
+    "id_rsa*",
+)
 
 # The WordPress drop-ins, under wp-content/. Every core-recognised single-site
 # and multisite drop-in name (WordPress' ``_get_dropins()``): each reconfigures
@@ -86,12 +129,16 @@ _UPGRADE_DIRS: tuple[str, ...] = (
 )
 
 # The canonical always-excluded set: the single source of truth for the paths
-# excluded on every run regardless of any decision. Extended by the two child
-# issues this one unblocks — the credential-bearing pattern family (#36) and the
-# WordPress core tree (#37) — each adding its own group above, never a second
+# excluded on every run regardless of any decision. Extended by the credential-
+# bearing pattern family (#36) above; the WordPress core tree (#37), the other
+# child issue this one unblocks, adds its own group here too, never a second
 # copy of this list elsewhere.
 ALWAYS_EXCLUDED: tuple[str, ...] = (
     *_CONFIGURATION_FILE,
+    *_CONFIGURATION_FILE_VARIANTS,
+    *_ENV_FILES,
+    *_ROOT_SQL_DUMPS,
+    *_ROOT_KEY_MATERIAL,
     *_DROP_INS,
     *_LOGS,
     *_CACHES,
