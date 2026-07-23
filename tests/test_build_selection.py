@@ -185,6 +185,109 @@ def test_a_non_string_file_fails_loudly() -> None:
     assert b"files" in result.stderr
 
 
+def test_filter_manifest_output_is_accepted_directly_for_files() -> None:
+    # Arrange — filter_manifest.py's exact output shape, piped straight in
+    # without any hand-extraction of the flat path list (issue #48): an
+    # {"entries": [{path, size, mtime}, ...], "scope": {...}} object.
+    payload = {
+        "table_content": {"full": ["wp_posts"], "empty": []},
+        "files": {
+            "entries": [
+                {"path": "wp-content/uploads/2024/05/banner.jpg", "size": 1, "mtime": 1},
+                {"path": "wp-content/themes/kntnt/style.css", "size": 2, "mtime": 2},
+            ],
+            "scope": {"exclusions": ["wp-admin"]},
+        },
+    }
+
+    # Act.
+    selection = build(payload)
+
+    # Assert — the entries' paths land in files, in order, scope ignored.
+    assert selection["files"] == [
+        "wp-content/uploads/2024/05/banner.jpg",
+        "wp-content/themes/kntnt/style.css",
+    ]
+
+
+def test_filter_manifest_output_with_duplicate_paths_is_deduplicated() -> None:
+    # Arrange — the object form goes through the same de-duplication as the
+    # flat-list form.
+    payload = {
+        "table_content": {"full": ["wp_posts"], "empty": []},
+        "files": {
+            "entries": [
+                {"path": "a.jpg", "size": 1, "mtime": 1},
+                {"path": "a.jpg", "size": 1, "mtime": 1},
+                {"path": "b.jpg", "size": 2, "mtime": 2},
+            ],
+            "scope": {"exclusions": ["wp-admin"]},
+        },
+    }
+
+    # Act.
+    selection = build(payload)
+
+    # Assert.
+    assert selection["files"] == ["a.jpg", "b.jpg"]
+
+
+def test_filter_manifest_output_missing_entries_fails_loudly() -> None:
+    # Arrange — an object form of 'files' without its required 'entries' list
+    # must fail loud rather than crash on a KeyError.
+    payload = {
+        "table_content": {"full": ["wp_posts"], "empty": []},
+        "files": {"scope": {"exclusions": ["wp-admin"]}},
+    }
+
+    # Act.
+    result = run_build(payload)
+
+    # Assert.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"build_selection:")
+    assert b"entries" in result.stderr
+
+
+def test_filter_manifest_output_with_a_non_object_entry_fails_loudly() -> None:
+    # Arrange — an 'entries' element that is not an object must fail loud
+    # rather than crash on a subscript error.
+    payload = {
+        "table_content": {"full": ["wp_posts"], "empty": []},
+        "files": {"entries": ["not-an-object"], "scope": {"exclusions": []}},
+    }
+
+    # Act.
+    result = run_build(payload)
+
+    # Assert.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"build_selection:")
+    assert b"files.entries[0]" in result.stderr
+    assert b"object" in result.stderr
+
+
+def test_filter_manifest_output_with_an_entry_missing_path_fails_loudly() -> None:
+    # Arrange — an entry object lacking its string 'path' must fail loud
+    # rather than ride a pathless entry into the selection.
+    payload = {
+        "table_content": {"full": ["wp_posts"], "empty": []},
+        "files": {"entries": [{"size": 1, "mtime": 1}], "scope": {}},
+    }
+
+    # Act.
+    result = run_build(payload)
+
+    # Assert.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"build_selection:")
+    assert b"files.entries[0]" in result.stderr
+    assert b"path" in result.stderr
+
+
 def test_malformed_json_input_fails_loudly() -> None:
     # Arrange & Act.
     result = subprocess.run(
