@@ -13,7 +13,10 @@ three lists the extraction submits (ADR-0017):
 - ``tables`` — the content/config/users/CRM tables carried in full.
 - ``tables_structure_only`` — every empty-classified table, so the table exists
   locally with its schema and zero rows.
-- ``files`` — the resolved, already-scope-filtered install-root-relative paths.
+- ``files`` — the resolved, already-scope-filtered install-root-relative paths,
+  accepted either as a flat list of path strings or as ``filter_manifest.py``'s
+  own output shape (``{"entries": [{"path": ..., ...}, ...], "scope": {...}}``)
+  piped straight in, with no hand-extraction of the path list at the call site.
 
 Its whole reason to exist is to hand the plugin a selection it will accept. The
 plugin rejects a self-overlapping selection (a table in both table lists) and a
@@ -64,6 +67,34 @@ def _string_list(value: Any, context: str) -> list[str]:
     return value
 
 
+def _manifest_paths(value: dict[str, Any]) -> list[str]:
+    """Extract the path list from ``filter_manifest.py``'s own output shape
+    (``{"entries": [{"path": ..., ...}, ...], "scope": {...}}``), so that
+    shape can be piped into ``files`` directly with no hand-extraction at the
+    call site (issue #48). ``scope`` rides along unused — it is meaningful to
+    ``baseline_diff.py``, not here. Fails loud on a malformed ``entries`` list
+    or element, mirroring ``_empty_names``'s style, rather than crashing on a
+    missing key or riding a pathless entry into the selection."""
+
+    entries = value.get("entries")
+    if not isinstance(entries, list):
+        raise SelectionError(
+            f"files.entries must be a list, got {type(entries).__name__}"
+        )
+    paths: list[str] = []
+    for index, entry in enumerate(entries):
+        context = f"files.entries[{index}]"
+        if not isinstance(entry, dict):
+            raise SelectionError(
+                f"{context} must be an object, got {type(entry).__name__}"
+            )
+        path = entry.get("path")
+        if not isinstance(path, str):
+            raise SelectionError(f"{context}: missing a string 'path'")
+        paths.append(path)
+    return paths
+
+
 def _empty_names(value: Any) -> list[str]:
     """Read the empty split's table names from its ``{name, category}`` records,
     failing loud on a record that is not an object or lacks its ``name`` rather
@@ -103,7 +134,21 @@ def build_selection(payload: Any) -> dict[str, Any]:
 
     tables = _dedupe(_string_list(table_content.get("full", []), "table_content.full"))
     structure_only = _dedupe(_empty_names(table_content.get("empty", [])))
-    files = _dedupe(_string_list(payload.get("files", []), "files"))
+
+    # 'files' accepts either the flat path-string list build_selection has
+    # always taken, or filter_manifest.py's own {entries, scope} output shape
+    # piped straight in — the composable fix for issue #48, so the SKILL walk
+    # never needs a hand-written transform between the two helpers.
+    raw_files = payload.get("files", [])
+    if isinstance(raw_files, dict):
+        files = _dedupe(_manifest_paths(raw_files))
+    elif isinstance(raw_files, list):
+        files = _dedupe(_string_list(raw_files, "files"))
+    else:
+        raise SelectionError(
+            "files must be a list of path strings or a filter_manifest.py "
+            f"output object ({{'entries': [...]}}), got {type(raw_files).__name__}"
+        )
 
     # A table named both full and structure-only is the plugin's overlapping
     # selection (422); refuse it here, naming the offenders.
