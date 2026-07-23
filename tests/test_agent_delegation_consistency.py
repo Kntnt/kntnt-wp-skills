@@ -342,3 +342,60 @@ def test_spec_notes_the_delegation_architecture() -> None:
     )
     for name in ROSTER:
         assert name in spec, f"spec.md does not name the `{name}` subagent"
+
+
+# Issue #44: the three agent definitions whose task envelope carries the
+# Extractor credential — the ones the issue names as taking
+# ``application_password`` by literal value.
+CREDENTIAL_BEARING_AGENTS: tuple[str, ...] = (
+    "discovery-classify",
+    "extract-transfer",
+    "manifest-baseline-diff",
+)
+
+
+@pytest.mark.parametrize("name", CREDENTIAL_BEARING_AGENTS)
+def test_agent_input_is_a_credential_reference_not_a_password_value(
+    name: str,
+) -> None:
+    """Issue #44: the orchestrator must never read the Application Password's
+    value into its own context to build a task envelope. Each credential-
+    bearing agent's ``## Inputs`` section names a ``credential`` reference
+    (Keychain service+account, or an env-var name) — never a literal
+    ``application_password`` field carrying the secret itself."""
+
+    body = _body(AGENTS_DIR / f"{name}.md")
+    assert "`credential`" in body, (
+        f"{name}.md's Inputs section does not name a `credential` reference"
+    )
+    assert "application_password" not in body, (
+        f"{name}.md still takes `application_password` as a literal input "
+        "— the secret's value must never transit the orchestrator's context"
+    )
+
+
+@pytest.mark.parametrize("name", CREDENTIAL_BEARING_AGENTS)
+def test_agent_resolves_the_credential_itself_in_a_subshell(name: str) -> None:
+    """Issue #44: resolution discipline. Each credential-bearing agent
+    resolves its own ``credential`` reference, inside the authenticated
+    call's own subshell, and never prints or logs the resolved secret."""
+
+    body = _body(AGENTS_DIR / f"{name}.md").lower()
+    assert "subshell" in body, (
+        f"{name}.md does not state that the credential is resolved inside a subshell"
+    )
+    assert re.search(r"never print|never log", body), (
+        f"{name}.md does not state the never-print/never-log rule for the "
+        "resolved secret"
+    )
+
+
+def test_no_agent_definition_carries_a_literal_application_password_input() -> None:
+    """Belt-and-braces sweep: no shipped agent definition — rostered or not —
+    still takes the Application Password by value."""
+
+    for path in AGENTS_DIR.glob("*.md"):
+        text = path.read_text(encoding="utf-8")
+        assert "application_password" not in text, (
+            f"{path.name} still carries a literal `application_password` input"
+        )
