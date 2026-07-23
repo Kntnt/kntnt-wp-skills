@@ -711,19 +711,44 @@ def test_a_this_run_crm_carry_answer_does_not_retroactively_fold_the_recommendat
     assert "wp_fc_subscribers" in empty_recommendation_names
 
 
-def test_the_two_privacy_gates_are_independent() -> None:
-    # Arrange: a site carrying both form-submission and CRM subscriber tables would
-    # let one gate's carry leak the other's data if the folds were coupled. Here a
-    # CRM carry must not drag user-submission tables out of empty, and vice versa.
+def test_a_crm_carry_leaves_user_submission_tables_in_the_empty_split() -> None:
+    # Arrange: crm-subscribers-site.json carries BOTH families — CRM subscriber
+    # tables (wp_fc_*, wp_newsletter) and user-submission tables (wp_gf_entry*).
+    # A coupled fold, or a swapped (gate, category) pairing in PRIVACY_GATES, would
+    # let a CRM carry drag the form-submission tables out of empty too. Answer carry
+    # for crm_subscribers only.
     plan = resolve(
         envelope("crm-subscribers-site.json", answers={"crm_subscribers": "carry"})
     )
 
-    # Act.
-    submissions = decision(plan, "user_submissions")
+    # Act — the folded content split, where a coupling bug would actually surface.
+    tables = decision(plan, "db_table_content")["value"]
+    empty_names = {entry["name"] for entry in tables["empty"]}
 
-    # Assert: the user_submissions gate is untouched by a CRM carry.
-    assert submissions["value"] == "empty"
+    # Assert: the CRM subscriber tables moved to full, but the user-submission
+    # tables stayed schema-only — the fold touched only crm_subscribers' category.
+    assert "wp_fc_subscribers" in tables["full"]
+    assert {"wp_gf_entry", "wp_gf_entry_meta"} <= empty_names
+    assert "wp_gf_entry" not in tables["full"]
+
+
+def test_a_user_submission_carry_leaves_crm_subscriber_tables_in_the_empty_split() -> None:
+    # Arrange: the mirror direction — carry user_submissions only, and the CRM
+    # subscriber tables must stay in empty.
+    plan = resolve(
+        envelope("crm-subscribers-site.json", answers={"user_submissions": "carry"})
+    )
+
+    # Act.
+    tables = decision(plan, "db_table_content")["value"]
+    empty_names = {entry["name"] for entry in tables["empty"]}
+
+    # Assert: the form-submission tables moved to full, but the subscriber tables
+    # (both FluentCRM's and The Newsletter Plugin's) stayed schema-only.
+    assert "wp_gf_entry" in tables["full"]
+    assert {"wp_fc_subscribers", "wp_newsletter"} <= empty_names
+    assert "wp_fc_subscribers" not in tables["full"]
+    assert "wp_newsletter" not in tables["full"]
 
 
 # --- Live-derived and skill-specific decisions --------------------------------

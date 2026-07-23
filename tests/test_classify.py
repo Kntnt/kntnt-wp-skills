@@ -448,6 +448,85 @@ def test_crm_subscriber_classification_respects_a_non_default_prefix() -> None:
     assert "site7_posts" in tables["full"]
 
 
+def test_the_newsletter_plugin_subscriber_tables_are_gated_but_its_campaigns_are_not() -> None:
+    # Arrange — The Newsletter Plugin's subscriber store is the bare `newsletter`
+    # table (real names and addresses) plus its per-person delivery/tracking tables;
+    # `newsletter_emails` holds campaign bodies, not addresses, and must carry in
+    # full as a definitions table (ADR-0019). The bare `newsletter` gate is exact-
+    # match so it never sweeps `newsletter_emails`.
+    document = {"database": {
+        "table_prefix": "wp_",
+        "tables": [
+            "wp_posts",
+            "wp_newsletter",
+            "wp_newsletter_sent",
+            "wp_newsletter_stats",
+            "wp_newsletter_user_logs",
+            "wp_newsletter_emails",
+        ],
+    }}
+
+    # Act.
+    tables = classify_document(document)["tables"]
+
+    # Assert — every per-person table is gated; the campaign-body definitions table
+    # and posts carry in full.
+    by_name = {entry["name"]: entry["category"] for entry in tables["empty"]}
+    for name in ["wp_newsletter", "wp_newsletter_sent", "wp_newsletter_stats", "wp_newsletter_user_logs"]:
+        assert by_name.get(name) == "crm_subscribers", name
+    assert "wp_newsletter_emails" in tables["full"]
+    assert "wp_posts" in tables["full"]
+
+
+def test_every_recognised_mailer_engine_has_a_gated_subscriber_store() -> None:
+    # Arrange — the invariant the classify.py comment and ADR-0019 promise: every
+    # engine in bootstrap_parse.py's MAILER_ENGINES (the mass-send recognition
+    # registry) has a gated subscriber store, so a recognised mailer's addresses can
+    # never carry in full. The mapping names one representative subscriber table per
+    # engine; its keys must exactly cover MAILER_ENGINES, so adding an engine there
+    # without a gate here fails this test rather than silently re-opening the hole.
+    # conftest.py already puts scripts/ on sys.path for the whole suite.
+    from bootstrap_parse import MAILER_ENGINES  # type: ignore[import-not-found]
+
+    representative_subscriber_table = {
+        "fluentcrm": "wp_fc_subscribers",
+        "mailpoet": "wp_mailpoet_subscribers",
+        "newsletter": "wp_newsletter",
+    }
+    assert set(representative_subscriber_table) == set(MAILER_ENGINES), (
+        "MAILER_ENGINES changed — add the new engine's subscriber table to the gate "
+        "(classify.py) and to this mapping, or a recognised mailer carries in full."
+    )
+
+    # Act & Assert — each representative table classifies as crm_subscribers.
+    for engine, table in representative_subscriber_table.items():
+        document = {"database": {"table_prefix": "wp_", "tables": [table]}}
+        tables = classify_document(document)["tables"]
+        by_name = {entry["name"]: entry["category"] for entry in tables["empty"]}
+        assert by_name.get(table) == "crm_subscribers", engine
+
+
+def test_an_unrecognised_plugins_subscriber_table_carries_in_full() -> None:
+    # Arrange — the registry is additive: a subscriber-shaped table of an
+    # unrecognised plugin, or a name merely adjacent to a gated pattern, must carry
+    # in full, or an over-broad future pattern edit (substring instead of prefix-
+    # stripped exact-or-startswith) would silently over-empty portable content.
+    document = {"database": {
+        "table_prefix": "wp_",
+        "tables": ["wp_somecrm_subscribers", "wp_fcx_subscribers", "wp_posts"],
+    }}
+
+    # Act.
+    tables = classify_document(document)["tables"]
+
+    # Assert — neither adjacent name is gated; both carry in full.
+    empty_names = {entry["name"] for entry in tables["empty"]}
+    assert "wp_somecrm_subscribers" not in empty_names
+    assert "wp_fcx_subscribers" not in empty_names
+    assert "wp_somecrm_subscribers" in tables["full"]
+    assert "wp_fcx_subscribers" in tables["full"]
+
+
 def test_every_table_is_classified_not_only_the_report_subset() -> None:
     # Arrange — a site with more tables than the heaviest-N report subset: the full
     # enumeration 'tables' lists 25, while 'top_tables' (the report artifact the

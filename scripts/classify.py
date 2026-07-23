@@ -130,23 +130,38 @@ USER_SUBMISSION_TABLE_PATTERNS: tuple[str, ...] = (
 )
 
 # The CRM/mass-mailer subscriber table family: the per-person address stores of
-# recognised on-site mail engines — FluentCRM, MailPoet, Mailster. These carry
-# real third-party names and email addresses and are uniquely dangerous with the
-# mail=live + cron-runs defaults (ADR-0009): standing funnel/automation sequences
-# over a carried subscriber list can mail those real people from the dev copy, a
-# risk the mass-send valve does not catch because it only watches for a poised
-# bulk campaign, not standing automations over the data. So they earn their own
-# standalone carry/empty gate, default empty, a sixth family alongside
-# `user_submissions` and matched the same way (after prefix-stripping, exact-or-
-# startswith) — deliberately NOT the CRM's definitions (campaigns, funnels, lists,
-# tags, terms, meta, url stores), which hold no third-party addresses, make the
-# site work locally, and carry in full like any other content table (ADR-0019).
-# The `fc_subscriber` prefix pattern covers the whole FluentCRM subscriber family
-# (`_subscribers`, `_subscriber_meta`, `_subscriber_pivot`, `_subscriber_notes`).
-# The engine list is kept aligned with `bootstrap_parse.py`'s MAILER_ENGINES so
-# recognition and gating cannot drift apart; the registry is additive like
-# USER_SUBMISSION_TABLE_PATTERNS, so an unrecognised CRM carries in full until a
+# recognised on-site mail engines — FluentCRM, MailPoet, Mailster, and The
+# Newsletter Plugin. These carry real third-party names and email addresses and
+# are uniquely dangerous with the mail=live + cron-runs defaults (ADR-0009):
+# standing funnel/automation sequences over a carried subscriber list can mail
+# those real people from the dev copy, a risk the mass-send valve does not catch
+# because it only watches for a poised bulk campaign, not standing automations
+# over the data. So they earn their own standalone carry/empty gate, default
+# empty, a sixth family alongside `user_submissions` and matched the same way
+# (after prefix-stripping, exact-or-startswith) — deliberately NOT the CRM's
+# definitions (campaigns, funnels, lists, tags, terms, meta, url stores), which
+# hold no third-party addresses, make the site work locally, and carry in full
+# like any other content table (ADR-0019). The `fc_subscriber` prefix pattern
+# covers the whole FluentCRM subscriber family (`_subscribers`, `_subscriber_meta`,
+# `_subscriber_pivot`, `_subscriber_notes`).
+#
+# Coverage relative to `bootstrap_parse.py`'s MAILER_ENGINES: every recognised
+# mass-send engine (fluentcrm / mailpoet / newsletter) has subscriber patterns
+# here, so a recognised engine's address store can never carry in full — the
+# invariant `test_every_mailer_engine_has_a_gated_subscriber_store` pins. Mailster
+# is gated in addition, a known on-site mailer that has no poised-scan entry in
+# MAILER_ENGINES (it needs no bulk-campaign scan), so the gated set is a superset
+# of the recognised engines, never a subset. The registry is additive like
+# USER_SUBMISSION_TABLE_PATTERNS, so an *unrecognised* CRM carries in full until a
 # pattern is added.
+#
+# The Newsletter Plugin's subscriber table is the bare `{prefix}newsletter`, so it
+# is matched exact-only (CRM_SUBSCRIBER_TABLE_EXACT below) — a `newsletter` prefix
+# match would wrongly sweep `newsletter_emails`, which holds campaign bodies, not
+# addresses, and must carry in full as a definitions table. Its per-person
+# delivery/tracking tables (`newsletter_sent`, `newsletter_stats`,
+# `newsletter_user_logs`) are prefix-matched below and never collide with
+# `newsletter_emails`.
 CRM_SUBSCRIBER_TABLE_PATTERNS: tuple[str, ...] = (
     "fc_subscriber",
     "fc_campaign_emails",
@@ -156,7 +171,16 @@ CRM_SUBSCRIBER_TABLE_PATTERNS: tuple[str, ...] = (
     "mailpoet_subscriber",
     "mailster_subscriber",
     "mailster_queue",
+    "newsletter_sent",
+    "newsletter_stats",
+    "newsletter_user",
 )
+
+# Subscriber tables matched by exact stem only, never as a prefix: The Newsletter
+# Plugin's per-person store is the bare `{prefix}newsletter`. An exact match gates
+# it without a `newsletter` prefix also swallowing the `newsletter_emails`
+# definitions table (campaign bodies, no addresses — carried in full, ADR-0019).
+CRM_SUBSCRIBER_TABLE_EXACT: frozenset[str] = frozenset({"newsletter"})
 
 # Per-submission form-to-service integrations (issue #20): a form plugin's
 # active service add-on writes each submission straight to a live third-party
@@ -392,7 +416,9 @@ def table_category(prefix: str, name: str) -> str | None:
     stem = name[len(prefix):] if prefix and name.startswith(prefix) else name
     if any(stem == pattern or stem.startswith(pattern) for pattern in USER_SUBMISSION_TABLE_PATTERNS):
         return "user_submissions"
-    if any(stem == pattern or stem.startswith(pattern) for pattern in CRM_SUBSCRIBER_TABLE_PATTERNS):
+    if stem in CRM_SUBSCRIBER_TABLE_EXACT or any(
+        stem == pattern or stem.startswith(pattern) for pattern in CRM_SUBSCRIBER_TABLE_PATTERNS
+    ):
         return "crm_subscribers"
     for category, patterns in OPERATIONAL_TABLE_PATTERNS.items():
         if any(stem == pattern or stem.startswith(pattern) for pattern in patterns):

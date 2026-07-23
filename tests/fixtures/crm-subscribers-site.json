@@ -16,7 +16,9 @@
       "collation": "utf8mb4_0900_ai_ci"
     },
     "active_plugins": [
-      "fluent-crm/fluent-crm.php"
+      "fluent-crm/fluent-crm.php",
+      "newsletter/plugin.php",
+      "gravityforms/gravityforms.php"
     ],
     "dropins": [],
     "defines": []
@@ -32,7 +34,12 @@
       {"name": "wp_fc_funnel_subscribers", "rows": 210, "bytes": 1048576},
       {"name": "wp_fc_campaigns", "rows": 12, "bytes": 262144},
       {"name": "wp_fc_lists", "rows": 4, "bytes": 65536},
-      {"name": "wp_fc_tags", "rows": 8, "bytes": 65536}
+      {"name": "wp_fc_tags", "rows": 8, "bytes": 65536},
+      {"name": "wp_newsletter", "rows": 720, "bytes": 3145728},
+      {"name": "wp_newsletter_sent", "rows": 2100, "bytes": 2097152},
+      {"name": "wp_newsletter_emails", "rows": 15, "bytes": 524288},
+      {"name": "wp_gf_entry", "rows": 300, "bytes": 2097152},
+      {"name": "wp_gf_entry_meta", "rows": 1800, "bytes": 2097152}
     ]
   },
   "files": [
