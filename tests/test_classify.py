@@ -348,6 +348,106 @@ def test_user_submission_classification_respects_a_non_default_prefix() -> None:
     assert "site7_posts" in tables["full"]
 
 
+def test_a_fluentcrm_subscriber_table_is_classified_under_crm_subscribers() -> None:
+    # Arrange — a discovery document naming a FluentCRM subscriber store alongside
+    # a FluentCRM definitions table. A recognised mass-mailer's subscriber list is
+    # uniquely dangerous with the mail=live + cron-runs defaults (ADR-0009): the
+    # subscriber rows are what standing automations mail from a dev copy, so they
+    # earn their own privacy gate distinct from the definitions that make the site
+    # work locally (ADR-0019).
+    document = {"database": {
+        "table_prefix": "wp_",
+        "tables": ["wp_posts", "wp_fc_subscribers", "wp_fc_lists"],
+    }}
+
+    # Act.
+    tables = classify_document(document)["tables"]
+
+    # Assert — the subscriber store is gated under crm_subscribers; the list
+    # definition carries in full as site config, like ordinary content.
+    by_name = {entry["name"]: entry["category"] for entry in tables["empty"]}
+    assert by_name.get("wp_fc_subscribers") == "crm_subscribers"
+    assert "wp_fc_lists" in tables["full"]
+    assert "wp_posts" in tables["full"]
+
+
+def test_every_documented_crm_subscriber_table_is_classified_under_crm_subscribers() -> None:
+    # Arrange — one table per recognised mailer engine's subscriber/address store:
+    # FluentCRM's subscriber family and its per-person campaign/funnel rows,
+    # MailPoet's subscribers, Mailster's subscribers and send queue. Every one
+    # stores addresses of real third parties.
+    names = [
+        "wp_fc_subscribers",
+        "wp_fc_subscriber_meta",
+        "wp_fc_subscriber_pivot",
+        "wp_fc_subscriber_notes",
+        "wp_fc_campaign_emails",
+        "wp_fc_campaign_url_metrics",
+        "wp_fc_funnel_subscribers",
+        "wp_fc_funnel_metrics",
+        "wp_mailpoet_subscribers",
+        "wp_mailpoet_subscriber_custom_field",
+        "wp_mailster_subscribers",
+        "wp_mailster_subscriber_meta",
+        "wp_mailster_queue",
+    ]
+    document = {"database": {"table_prefix": "wp_", "tables": names}}
+
+    # Act.
+    tables = classify_document(document)["tables"]
+
+    # Assert — every subscriber-family table lands in crm_subscribers, none in full.
+    by_name = {entry["name"]: entry["category"] for entry in tables["empty"]}
+    for name in names:
+        assert by_name.get(name) == "crm_subscribers", name
+    assert tables["full"] == []
+
+
+def test_crm_definitions_tables_carry_in_full_not_gated() -> None:
+    # Arrange — the FluentCRM tables that hold definitions, not persons: campaigns,
+    # funnels/sequences, lists, tags, terms, meta, url stores. These make the site
+    # work locally and hold no third-party addresses, so they carry in full exactly
+    # like ordinary content — deliberately not gated (ADR-0019).
+    definitions = [
+        "wp_fc_campaigns",
+        "wp_fc_funnels",
+        "wp_fc_funnel_sequences",
+        "wp_fc_lists",
+        "wp_fc_tags",
+        "wp_fc_terms",
+        "wp_fc_term_relations",
+        "wp_fc_meta",
+        "wp_fc_url_stores",
+    ]
+    document = {"database": {"table_prefix": "wp_", "tables": definitions}}
+
+    # Act.
+    tables = classify_document(document)["tables"]
+
+    # Assert — none is gated; every one carries in full.
+    empty_names = {entry["name"] for entry in tables["empty"]}
+    assert empty_names == set()
+    for name in definitions:
+        assert name in tables["full"], name
+
+
+def test_crm_subscriber_classification_respects_a_non_default_prefix() -> None:
+    # Arrange — the match is on the name after the prefix, so a non-default prefix
+    # must not hide a subscriber store.
+    document = {"database": {
+        "table_prefix": "site7_",
+        "tables": ["site7_fc_subscribers", "site7_fc_lists", "site7_posts"],
+    }}
+
+    # Act.
+    tables = classify_document(document)["tables"]
+
+    # Assert.
+    assert {"name": "site7_fc_subscribers", "category": "crm_subscribers"} in tables["empty"]
+    assert "site7_fc_lists" in tables["full"]
+    assert "site7_posts" in tables["full"]
+
+
 def test_every_table_is_classified_not_only_the_report_subset() -> None:
     # Arrange — a site with more tables than the heaviest-N report subset: the full
     # enumeration 'tables' lists 25, while 'top_tables' (the report artifact the

@@ -39,6 +39,7 @@ PULL_DECISIONS = [
     "db_table_structure",
     "db_table_content",
     "user_submissions",
+    "crm_subscribers",
     "table_prefix",
     "db_engine_php",
     "media_originals",
@@ -59,6 +60,7 @@ CLONE_DECISIONS = [
     "db_table_structure",
     "db_table_content",
     "user_submissions",
+    "crm_subscribers",
     "table_prefix",
     "db_engine_php",
     "media_originals",
@@ -561,6 +563,169 @@ def test_a_this_run_carry_answer_does_not_retroactively_fold_the_recommendation(
     assert "wp_gf_entry" in empty_recommendation_names
 
 
+# --- CRM subscriber tables: their own carry/empty gate, default empty ---------
+#
+# A recognised mass-mailer's / CRM's subscriber store is at least as sensitive as
+# a form-submission table and uniquely dangerous with the mail=live + cron-runs
+# defaults: standing automations over a carried subscriber list can mail real
+# people from the dev copy, a risk the mass-send valve does not catch. So the
+# subscriber tables get their own carry/empty gate, default empty, sibling to
+# user_submissions — while the CRM's definitions (campaigns, lists, tags) carry
+# in full as site config (ADR-0019).
+
+
+def test_crm_subscribers_defaults_to_empty_for_privacy_minimisation() -> None:
+    # Arrange & Act: a plain run, no saved plan, no answer, no flag.
+    plan = resolve(envelope())
+
+    # Act.
+    crm = decision(plan, "crm_subscribers")
+
+    # Assert: the built-in default is empty, sourced from the built-in layer.
+    assert crm["value"] == "empty"
+    assert crm["source"] == "built_in"
+
+
+def test_a_saved_carry_choice_for_crm_subscribers_is_honoured_on_replay() -> None:
+    # Arrange: a prior run's saved plan settled on carrying the real subscriber
+    # list (e.g. to debug a funnel locally) — the gate's way back from empty.
+    plan = resolve(envelope(saved_plan={"crm_subscribers": "carry"}))
+
+    # Act.
+    crm = decision(plan, "crm_subscribers")
+
+    # Assert: the saved choice overrides the built-in empty default.
+    assert crm["value"] == "carry"
+    assert crm["source"] == "saved"
+
+
+def test_a_this_run_answer_overrides_the_crm_subscribers_default() -> None:
+    # Arrange & Act: no saved plan, this run answers carry.
+    plan = resolve(envelope(answers={"crm_subscribers": "carry"}))
+
+    # Act.
+    crm = decision(plan, "crm_subscribers")
+
+    # Assert.
+    assert crm["value"] == "carry"
+    assert crm["source"] == "answer"
+
+
+def test_crm_subscribers_is_walked_in_the_fresh_interactive_gate_list() -> None:
+    # Arrange & Act: a fresh interactive run with no saved plan.
+    plan = resolve(envelope())
+
+    # Assert: the gate is surfaced like any other decision, not silently skipped.
+    assert "crm_subscribers" in plan["gates"]
+
+
+def test_the_saved_plan_persists_and_replays_a_carry_choice_for_crm_subscribers() -> None:
+    # Arrange: an operator overrides the privacy default to carry for this site.
+    fresh = resolve(envelope(answers={"crm_subscribers": "carry"}))
+    written = save(fresh)
+
+    # Act: the choice is persisted, then a later run replays the saved plan.
+    assert written["crm_subscribers"] == "carry"
+    replayed = resolve(envelope(saved_plan=written))
+
+    # Assert: the replay honours the persisted carry choice from the saved layer.
+    crm = decision(replayed, "crm_subscribers")
+    assert crm["value"] == "carry"
+    assert crm["source"] == "saved"
+
+
+def test_the_saved_plan_persists_the_empty_crm_default_when_never_overridden() -> None:
+    # Arrange & Act: an accepted fresh plan with no override.
+    written = save(resolve(envelope()))
+
+    # Assert: the privacy default is explicitly persisted, not merely implied by
+    # absence — so a later run replays "empty" from the saved layer.
+    assert written["crm_subscribers"] == "empty"
+
+
+def test_a_carry_answer_moves_crm_subscriber_tables_from_empty_into_the_content_split() -> None:
+    # Arrange: a site with FluentCRM subscriber tables, this run answers carry.
+    plan = resolve(
+        envelope("crm-subscribers-site.json", answers={"crm_subscribers": "carry"})
+    )
+
+    # Act.
+    tables = decision(plan, "db_table_content")["value"]
+
+    # Assert: the subscriber tables moved into the full-data list and no longer
+    # appear in the empty one, while the definitions carried in full all along.
+    assert "wp_fc_subscribers" in tables["full"]
+    assert "wp_fc_campaign_emails" in tables["full"]
+    empty_names = {entry["name"] for entry in tables["empty"]}
+    assert "wp_fc_subscribers" not in empty_names
+    assert "wp_fc_campaign_emails" not in empty_names
+    assert "wp_fc_campaigns" in tables["full"]
+    assert "wp_fc_lists" in tables["full"]
+
+
+def test_the_empty_default_leaves_crm_subscriber_tables_in_the_empty_split() -> None:
+    # Arrange & Act: no override, so crm_subscribers keeps its privacy default.
+    plan = resolve(envelope("crm-subscribers-site.json"))
+
+    # Assert: the subscriber tables stay schema-only; the definitions carry full.
+    tables = decision(plan, "db_table_content")["value"]
+    empty_names = {entry["name"] for entry in tables["empty"]}
+    assert {"wp_fc_subscribers", "wp_fc_campaign_emails"} <= empty_names
+    assert "wp_fc_subscribers" not in tables["full"]
+    assert "wp_fc_campaigns" in tables["full"]
+
+
+def test_a_saved_carry_choice_for_crm_folds_into_the_db_table_content_recommendation_too() -> None:
+    # Arrange: a prior run's saved plan already settled on carry — the fold must
+    # reach the gate's recommendation, not only the resolved value.
+    plan = resolve(
+        envelope("crm-subscribers-site.json", saved_plan={"crm_subscribers": "carry"})
+    )
+
+    # Act.
+    tables = decision(plan, "db_table_content")
+
+    # Assert: both fields show the folded split.
+    assert "wp_fc_subscribers" in tables["value"]["full"]
+    assert "wp_fc_subscribers" in tables["recommendation"]["full"]
+
+
+def test_a_this_run_crm_carry_answer_does_not_retroactively_fold_the_recommendation() -> None:
+    # Arrange: the saved plan settled on empty; this run answers carry. The
+    # db_table_content recommendation mirrors the recommendation layer, never the
+    # this-run answer — the "recommendation predates the answer" contract.
+    plan = resolve(
+        envelope(
+            "crm-subscribers-site.json",
+            saved_plan={"crm_subscribers": "empty"},
+            answers={"crm_subscribers": "carry"},
+        )
+    )
+
+    # Act.
+    tables = decision(plan, "db_table_content")
+
+    # Assert: the resolved value is folded, the recommendation is not.
+    assert "wp_fc_subscribers" in tables["value"]["full"]
+    empty_recommendation_names = {entry["name"] for entry in tables["recommendation"]["empty"]}
+    assert "wp_fc_subscribers" in empty_recommendation_names
+
+
+def test_the_two_privacy_gates_are_independent() -> None:
+    # Arrange: a site carrying both form-submission and CRM subscriber tables would
+    # let one gate's carry leak the other's data if the folds were coupled. Here a
+    # CRM carry must not drag user-submission tables out of empty, and vice versa.
+    plan = resolve(
+        envelope("crm-subscribers-site.json", answers={"crm_subscribers": "carry"})
+    )
+
+    # Act.
+    submissions = decision(plan, "user_submissions")
+
+    # Assert: the user_submissions gate is untouched by a CRM carry.
+    assert submissions["value"] == "empty"
+
+
 # --- Live-derived and skill-specific decisions --------------------------------
 
 
@@ -936,6 +1101,23 @@ def test_spec_persistent_config_enumerates_the_user_submissions_answer() -> None
     )
     assert "user-submissions" in sentence or "user_submissions" in sentence, (
         f"spec.md's Persistent config sentence omits the user-submissions "
+        f"answer: {sentence!r}"
+    )
+
+
+def test_spec_persistent_config_enumerates_the_crm_subscribers_answer() -> None:
+    """AC: docs/spec.md's "Persistent config" section enumerates the saved
+    plan's persisted decisions; the CRM-subscribers carry/empty answer is one of
+    them (SAVED_KEYS["crm_subscribers"], ADR-0019) and must not be missing from
+    the prose alongside its user-submissions sibling."""
+
+    spec_path = Path(__file__).resolve().parent.parent / "docs" / "spec.md"
+    text = spec_path.read_text(encoding="utf-8")
+    sentence = next(
+        line for line in text.splitlines() if line.startswith("- `.kntnt-wp-skills.json`")
+    )
+    assert "crm-subscribers" in sentence or "crm_subscribers" in sentence, (
+        f"spec.md's Persistent config sentence omits the crm-subscribers "
         f"answer: {sentence!r}"
     )
 

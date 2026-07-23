@@ -1,0 +1,48 @@
+{
+  "environment": {
+    "php_version": "8.2.18",
+    "server_software": "nginx/1.24.0",
+    "wordpress": {
+      "core_version": "6.5.2",
+      "home_url": "https://crm.example.net",
+      "site_url": "https://crm.example.net",
+      "table_prefix": "wp_",
+      "content_dir": "wp-content",
+      "uploads_dir": "wp-content/uploads"
+    },
+    "database": {
+      "server": "mysql",
+      "version": "8.0.36",
+      "collation": "utf8mb4_0900_ai_ci"
+    },
+    "active_plugins": [
+      "fluent-crm/fluent-crm.php"
+    ],
+    "dropins": [],
+    "defines": []
+  },
+  "tables": {
+    "tables": [
+      {"name": "wp_posts", "rows": 640, "bytes": 20971520},
+      {"name": "wp_options", "rows": 500, "bytes": 8388608},
+      {"name": "wp_fc_subscribers", "rows": 584, "bytes": 4194304},
+      {"name": "wp_fc_subscriber_meta", "rows": 1319, "bytes": 2097152},
+      {"name": "wp_fc_subscriber_notes", "rows": 93, "bytes": 1048576},
+      {"name": "wp_fc_campaign_emails", "rows": 1118, "bytes": 3145728},
+      {"name": "wp_fc_funnel_subscribers", "rows": 210, "bytes": 1048576},
+      {"name": "wp_fc_campaigns", "rows": 12, "bytes": 262144},
+      {"name": "wp_fc_lists", "rows": 4, "bytes": 65536},
+      {"name": "wp_fc_tags", "rows": 8, "bytes": 65536}
+    ]
+  },
+  "files": [
+    {"path": "wp-content/themes/twentytwentyfour/style.css", "size": 18432, "mtime": 1699000000}
+  ],
+  "bootstrap": {
+    "mass_send": {
+      "engines": [],
+      "unrecognised": {"sending_cron_scheduled": false, "pending_queue_size": 0}
+    },
+    "attachments": []
+  }
+}
