@@ -239,6 +239,34 @@ def test_path_traversal_segment_rejected(tmp_path: Path) -> None:
     assert not (tmp_path / "escape.txt").exists()
 
 
+def test_unseal_missing_required_key_reports_clear_diagnostic(tmp_path: Path) -> None:
+    """A config missing a required key (e.g. ``sql_path``) exits non-zero with a
+    clear diagnostic naming the missing key — not the raw quoted ``KeyError`` —
+    and writes no ``.sql`` file."""
+
+    public_key, private_key_path = _keygen(tmp_path)
+    container = tmp_path / "artifact.kntntext"
+    _seal(container, public_key, [{"name": "wp_posts", "data": _b64("INSERT INTO wp_posts VALUES (1);\n")}])
+
+    sql_path = tmp_path / "dump.sql"
+    result = _run(
+        "unseal",
+        {
+            "container_path": str(container),
+            "private_key_path": str(private_key_path),
+            # "sql_path" deliberately omitted — the required key under test.
+            "files_root": str(tmp_path / "files"),
+            "tables": ["wp_posts"],
+            "structure_only": [],
+            "files": [],
+        },
+    )
+
+    assert result.returncode != 0
+    assert "missing required config key: 'sql_path'" in result.stderr.decode()
+    assert not sql_path.exists()
+
+
 def test_selection_mismatch_fails_closed(tmp_path: Path) -> None:
     """When the container's sealed index does not match the expected selection,
     the helper refuses rather than silently reassemble the wrong thing."""
