@@ -110,7 +110,7 @@ The single-use URL the plugin exposes for a finished extraction; fetched once, t
 _Avoid_: download dir
 
 **Exposure window**:
-The interval a finished extraction is fetchable on production — closed immediately by consuming the job (`DELETE /extractions/{id}`) once the download unseals, backstopped by the plugin's own TTL cleanup and the next health check's stranded-job sweep.
+The interval a finished extraction is fetchable on production — closed immediately by consuming the job (`POST /extractions/{id}/consume`) once the download unseals, backstopped by the plugin's own TTL cleanup and the next health check's stranded-job sweep.
 
 ### Mail and side effects
 
