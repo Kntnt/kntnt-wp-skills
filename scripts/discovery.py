@@ -259,27 +259,38 @@ def build_tables(tables_source: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _relative_children(files: list[Any], prefix: str) -> list[tuple[str, int]]:
-    """Yield the ``(top-level-child, size)`` pairs of every manifest entry whose
-    path sits under ``prefix``, skipping anything that does not. A malformed entry
-    — a non-object, a non-string path, a non-integer size — is skipped rather than
-    aborting the whole document over one stray record in a manifest that can hold
-    hundreds of thousands of files.
+def _relative_children(
+    files: list[Any], prefix: str
+) -> list[tuple[str, int, bool]]:
+    """Yield the ``(top-level-child, size, is_directory)`` triples of every
+    manifest entry whose path sits under ``prefix``, skipping anything that does
+    not. A malformed entry — a non-object, a non-string path, a non-integer size
+    — is skipped rather than aborting the whole document over one stray record in
+    a manifest that can hold hundreds of thousands of files.
+
+    The manifest holds files only, never directory entries, so directory-ness of
+    a child is inferred rather than read off the entry: a segment is a directory
+    exactly when the path continues past it — the remainder after ``prefix``
+    contains a further ``/`` — and a bare file (e.g. an empty-directory guard
+    ``index.php`` sitting directly under the prefix) is not.
     """
 
     normalised = prefix.rstrip("/") + "/"
-    children: list[tuple[str, int]] = []
+    children: list[tuple[str, int, bool]] = []
     for entry in files:
         if not isinstance(entry, dict):
             continue
         path = entry.get("path")
         if not isinstance(path, str) or not path.startswith(normalised):
             continue
-        segment = path[len(normalised) :].split("/", 1)[0]
-        if not segment:
+        remainder = path[len(normalised) :]
+        if not remainder:
             continue
+        segment = remainder.split("/", 1)[0]
         size = entry.get("size")
-        children.append((segment, size if isinstance(size, int) else 0))
+        children.append(
+            (segment, size if isinstance(size, int) else 0, "/" in remainder)
+        )
     return children
 
 
@@ -290,12 +301,17 @@ def derive_uploads_subdirectories(
     files, so a heavy gallery stands out for the blob heuristic. Paths are
     install-root-relative and the uploads dir is too, so a subdirectory is the
     first path segment under the uploads dir; the result is ordered by name for a
-    deterministic document."""
+    deterministic document.
+
+    Unlike ``derive_themes``, a bare file sitting directly in the uploads root
+    still contributes its own entry — deliberate: the blob heuristic needs to see
+    a giant loose file too, not just files grouped under real subdirectories.
+    """
 
     if not uploads_dir:
         return []
     sizes: dict[str, int] = {}
-    for segment, size in _relative_children(files, uploads_dir):
+    for segment, size, _is_directory in _relative_children(files, uploads_dir):
         sizes[segment] = sizes.get(segment, 0) + size
     return [
         {"path": segment, "size_bytes": total}
@@ -305,13 +321,20 @@ def derive_uploads_subdirectories(
 
 def derive_themes(files: list[Any], content_dir: str) -> list[str]:
     """Enumerate the installed theme directories — the first path segment under
-    ``<content_dir>/themes`` — for drift detection, ordered for determinism."""
+    ``<content_dir>/themes`` — for drift detection, ordered for determinism.
+
+    Only directory segments count: a bare file directly under the themes prefix
+    (an empty-directory guard ``index.php``, for instance) is not a theme.
+    """
 
     if not content_dir:
         return []
     themes = {
         segment
-        for segment, _ in _relative_children(files, f"{content_dir.rstrip('/')}/themes")
+        for segment, _size, is_directory in _relative_children(
+            files, f"{content_dir.rstrip('/')}/themes"
+        )
+        if is_directory
     }
     return sorted(themes)
 
