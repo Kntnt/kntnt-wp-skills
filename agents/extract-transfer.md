@@ -23,7 +23,7 @@ You perform the extract-download-unseal phase of a `kntnt-wp-skills` `clone` or 
 - `extractor_endpoint`, `plugin_root`, `scratchpad_dir` — as for every phase.
 - `application_password` — the HTTP-basic credentials the `POST /extractions`, `GET /extractions/{id}`, and `POST /extractions/{id}/consume` calls authenticate with; the user holds both `kntnt_extractor_operate` and `manage_options`, already proven in the health check.
 - `selection` — the `{ tables, tables_structure_only, files }` object `scripts/build_selection.py` produced (never assembled by hand). It already refuses a self-overlapping or empty selection, so what you receive is submittable.
-- `public_key` and `private_key_path` — the run's ephemeral X25519 pair from `uv run "${plugin_root}/scripts/unseal.py" keygen`. Only `public_key` (base64) is submitted; the private key never leaves this machine and is never transmitted.
+- `public_key` and `private_key_path` — the run's ephemeral X25519 pair from `echo '{"private_key_path": "<scratchpad_dir>/run.key"}' | uv run "${plugin_root}/scripts/unseal.py" keygen`. Only `public_key` (base64) is submitted; the private key never leaves this machine and is never transmitted.
 - `poll_max_wait_seconds` — the explicit maximum wait for the poll loop; defaults to 3600 s when the orchestrator does not say otherwise.
 
 ## What to do
