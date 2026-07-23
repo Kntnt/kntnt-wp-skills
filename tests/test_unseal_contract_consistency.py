@@ -13,11 +13,11 @@ the primary, authoritative home for the contract (the health-check preflight
 runs ``unseal`` in the orchestrator itself, outside any subagent definition),
 and requires this consistency test as the anti-drift binding: the documented
 contract text must always name every config key the helper actually reads via
-``config[...]`` / ``config.get(...)``.
+``_required(config, ...)`` / ``config.get(...)``.
 
-This suite does not assert the post-#47 diagnostic wording (a missing key
-currently raises a raw ``KeyError`` that exits 1, not the documented
-``missing required config key: '<key>'`` message) — that lands with #47.
+This suite does not assert the diagnostic wording for a missing key (``missing
+required config key: '<key>'``, raised by ``_required`` since #47) — that is
+covered by ``tests/test_unseal.py``.
 """
 
 from __future__ import annotations
@@ -44,14 +44,16 @@ REQUIRED_UNSEAL_KEYS: tuple[str, ...] = (
 
 def test_required_unseal_keys_are_read_by_the_script() -> None:
     """Sanity check on the ground truth itself: every key this suite binds
-    the docs to is one `run_unseal` actually reads via `config[...]`, so the
-    list above cannot silently go stale against the source."""
+    the docs to is one `run_unseal` actually reads via `_required(config,
+    ...)` (issue #47's replacement for a bare `config[...]`), so the list
+    above cannot silently go stale against the source."""
 
     text = UNSEAL_SCRIPT.read_text(encoding="utf-8")
     for key in REQUIRED_UNSEAL_KEYS:
-        assert f'config["{key}"]' in text, (
-            f"scripts/unseal.py no longer reads config[{key!r}] — "
-            "REQUIRED_UNSEAL_KEYS is stale against the source (issue #43)"
+        assert f'_required(config, "{key}")' in text, (
+            f"scripts/unseal.py no longer reads config[{key!r}] via "
+            "_required() — REQUIRED_UNSEAL_KEYS is stale against the "
+            "source (issue #43, #47)"
         )
 
 
