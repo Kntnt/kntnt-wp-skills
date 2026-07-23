@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.5.0] – 2026-07-23
+
 ### Added
 
 - A single deterministic assembler, `scripts/build_exclusions.py`, now builds the resolved exclusion set — the union of a canonical always-excluded constant (`ALWAYS_EXCLUDED`: the configuration file, the WordPress drop-ins, the debug log, the cache dir, and the upgrade dirs) with the decision-gated DB-known thumbnails, flagged heavy blobs, and — under `--exclude-media` — the whole uploads tree. Both consumers that previously hand-assembled the set from the same ingredients now obtain it from this one helper: the extraction file selection (clone §5) and the baseline manifest (clone §9.12, pull's diff), so the two are byte-identical and a scope change can never poison the pull deletion diff. The always-excluded paths exist exactly once, in the constant — every prose reference points at it rather than re-enumerating — and `scripts/classify.py` now emits `uploads_prefix` so a media exclusion can be anchored at the WordPress root. Structured so the two blocked child issues can extend the constant: credential-bearing backup patterns ([#36](https://github.com/Kntnt/kntnt-wp-skills/issues/36)) and the WordPress core tree ([#37](https://github.com/Kntnt/kntnt-wp-skills/issues/37)) ([#35](https://github.com/Kntnt/kntnt-wp-skills/issues/35)).
@@ -80,7 +82,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - Initial release.
 
-[Unreleased]: https://github.com/Kntnt/kntnt-wp-skills/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/Kntnt/kntnt-wp-skills/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.5.0
 [0.4.1]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.4.1
 [0.4.0]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.4.0
 [0.3.2]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.3.2
