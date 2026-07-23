@@ -267,6 +267,32 @@ def test_unseal_missing_required_key_reports_clear_diagnostic(tmp_path: Path) ->
     assert not sql_path.exists()
 
 
+def test_seal_malformed_segment_reports_clear_diagnostic(tmp_path: Path) -> None:
+    """A seal segment missing a required per-segment key (``name`` / ``data``)
+    exits non-zero with the same clear ``missing required config key`` diagnostic
+    the config-level checks give — not an uncaught ``KeyError`` traceback — so the
+    fail-loud convention is uniform across every dict access in the helper."""
+
+    public_key, _ = _keygen(tmp_path)
+    container = tmp_path / "artifact.kntntext"
+
+    result = _run(
+        "seal",
+        {
+            "container_path": str(container),
+            "public_key": public_key,
+            # The segment omits "name" — the required per-segment key under test.
+            "segments": [{"data": _b64("INSERT INTO wp_posts VALUES (1);\n")}],
+        },
+    )
+
+    assert result.returncode != 0
+    stderr = result.stderr.decode()
+    assert "missing required config key: 'name'" in stderr
+    assert "Traceback" not in stderr
+    assert not container.exists()
+
+
 def test_selection_mismatch_fails_closed(tmp_path: Path) -> None:
     """When the container's sealed index does not match the expected selection,
     the helper refuses rather than silently reassemble the wrong thing."""

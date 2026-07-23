@@ -360,8 +360,8 @@ def run_seal(config: dict[str, Any]) -> dict[str, Any]:
     body = bytearray(HEADER)
     names: list[str] = []
     for segment in segments:
-        name = segment["name"]
-        plaintext = base64.b64decode(segment["data"])
+        name = _required(segment, "name")
+        plaintext = base64.b64decode(_required(segment, "data"))
         key = randombytes(crypto_secretbox_KEYBYTES)
         nonce = randombytes(crypto_secretbox_NONCEBYTES)
         ciphertext = crypto_secretbox(plaintext, nonce, key)
