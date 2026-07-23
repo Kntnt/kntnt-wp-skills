@@ -481,6 +481,111 @@ def test_a_document_without_root_or_content_sections_flags_only_uploads() -> Non
     assert paths == {"wp-content/uploads/galleries"}
 
 
+def test_a_below_floor_non_standard_directory_is_not_flagged() -> None:
+    # Arrange — non-standard root directories below the 1 GiB floor sit alongside a
+    # heavy one above it. The floor guard is load-bearing: without it every small
+    # stray root entry (a 2 KB cgi-bin, an off-year dir) would spam the heavy_blobs
+    # gate — the floor-only rule is "non-standard AND at or above the floor".
+    document = {
+        "site": {"content_path": "wp-content"},
+        "root": {"subdirectories": [
+            {"path": "2026", "size_bytes": 8215479066},
+            {"path": "2025", "size_bytes": 524288000},
+            {"path": "cgi-bin", "size_bytes": 2048},
+        ]},
+    }
+
+    # Act.
+    flagged = classify_document(document)["blobs"]["flagged"]
+
+    # Assert — only the above-floor stray is flagged; the sub-floor strays are not.
+    paths = {entry["path"] for entry in flagged}
+    assert paths == {"2026"}
+
+
+def test_wp_content_is_not_flagged_when_the_content_path_is_absent() -> None:
+    # Arrange — a document with a heavy `wp-content` at the install root but no
+    # `site.content_path` (an anticipated document shape: discovery sources the
+    # content dir via an optional field). The standard `wp-content` must be assumed
+    # so the payload tree is never flagged and default-excluded whole — the inverse
+    # data-loss bug of the one #38 fixes.
+    document = {
+        "root": {"subdirectories": [
+            {"path": "wp-content", "size_bytes": 5368709120},
+            {"path": "2026", "size_bytes": 8215479066},
+        ]},
+    }
+
+    # Act.
+    flagged = classify_document(document)["blobs"]["flagged"]
+
+    # Assert — the content tree is not flagged; the genuine stray still is.
+    paths = {entry["path"] for entry in flagged}
+    assert "wp-content" not in paths
+    assert "2026" in paths
+
+
+def test_a_non_default_uploads_dir_under_content_is_not_flagged() -> None:
+    # Arrange — UPLOADS points at `wp-content/files` (a supported non-default media
+    # location, honoured by uploads_root_relative). Its whole media library clears
+    # the floor on any real site and must not be flagged and default-excluded — its
+    # segment is standard at the content level because the document says so.
+    document = {
+        "site": {"content_path": "wp-content", "uploads_base": "wp-content/files"},
+        "content": {"subdirectories": [
+            {"path": "files", "size_bytes": 5368709120},
+            {"path": "ai1wm-backups", "size_bytes": 2147483648},
+        ]},
+    }
+
+    # Act.
+    flagged = classify_document(document)["blobs"]["flagged"]
+
+    # Assert — the media library is kept; the genuine backup store is still flagged.
+    paths = {entry["path"] for entry in flagged}
+    assert "wp-content/files" not in paths
+    assert "wp-content/ai1wm-backups" in paths
+
+
+def test_a_root_level_uploads_dir_is_not_flagged() -> None:
+    # Arrange — UPLOADS points at a root-level `media/` (outside wp-content). Its
+    # media library sits at the install root and must not be flagged there — its
+    # segment is standard at the root level because the document says so.
+    document = {
+        "site": {"content_path": "wp-content", "uploads_base": "media"},
+        "root": {"subdirectories": [
+            {"path": "media", "size_bytes": 5368709120},
+            {"path": "2026", "size_bytes": 8215479066},
+        ]},
+    }
+
+    # Act.
+    flagged = classify_document(document)["blobs"]["flagged"]
+
+    # Assert — the root-level media library is kept; the genuine stray is flagged.
+    paths = {entry["path"] for entry in flagged}
+    assert "media" not in paths
+    assert "2026" in paths
+
+
+def test_a_malformed_root_subdirectory_record_fails_loudly() -> None:
+    # Arrange — a non-object element in `root.subdirectories`; the raw discovery
+    # seam passes these list elements through unvalidated, so the wider rule must
+    # fail loud with a branded `classify:` diagnostic rather than crash.
+    document = {
+        "site": {"content_path": "wp-content"},
+        "root": {"subdirectories": ["not-an-object"]},
+    }
+
+    # Act.
+    result = run_classify(json.dumps(document).encode())
+
+    # Assert — a non-zero exit and a `classify:` diagnostic, never a half-built doc.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"classify:")
+
+
 # --- Thumbnail exclude-set ---------------------------------------------------
 
 

@@ -158,16 +158,17 @@ BLOB_ABSOLUTE_FLOOR_BYTES = 1 << 30  # 1 GiB.
 BLOB_OUTLIER_MEDIAN_FACTOR = 3
 
 # The install-root directories that are never a stray blob: the two WordPress core
-# trees (already in ALWAYS_EXCLUDED) and the content tree, whose payload is weighed
-# by the deeper content and uploads breakdowns instead. The content tree's segment
-# is added dynamically from the document's own content path (usually "wp-content").
+# trees (already in ALWAYS_EXCLUDED). The content tree's segment and — for a
+# root-level uploads layout — the uploads dir's segment are added dynamically from
+# the document's own paths, so a non-default layout is honoured rather than flagged.
 ROOT_LEVEL_STANDARD_DIRECTORIES = frozenset({"wp-admin", "wp-includes"})
 
-# The content-directory children that are never a stray blob: uploads is the
-# existing median heuristic's territory; plugins/themes/mu-plugins/languages are
-# the transfer's payload; upgrade/cache are already in ALWAYS_EXCLUDED.
+# The content-directory children that are never a stray blob: plugins, themes,
+# mu-plugins, and languages are the transfer's payload; upgrade/cache are already
+# in ALWAYS_EXCLUDED. The uploads child is added dynamically from the document's own
+# uploads location, so a non-default UPLOADS dir is honoured, not flagged.
 CONTENT_LEVEL_STANDARD_DIRECTORIES = frozenset(
-    {"plugins", "themes", "mu-plugins", "uploads", "languages", "upgrade", "cache"}
+    {"plugins", "themes", "mu-plugins", "languages", "upgrade", "cache"}
 )
 
 # WordPress's big-image handling (the "big image size threshold" feature)
@@ -188,6 +189,12 @@ SCALED_BIG_IMAGE_SUFFIX = "-scaled"
 # fallback when a document omits the absolute paths to derive it from. It is the
 # same layout templates/manifest.php assumes.
 DEFAULT_UPLOADS_ROOT_RELATIVE = "wp-content/uploads"
+
+# The standard content directory, assumed when a document omits its content path so
+# the root-level blob rule never mistakes the payload tree ("wp-content") for a
+# stray directory and default-excludes the whole content subtree. Mirrors
+# DEFAULT_UPLOADS_ROOT_RELATIVE's fail-safe fallback.
+DEFAULT_CONTENT_ROOT_RELATIVE = "wp-content"
 
 # The DDEV hostname a derived project name is reachable at, appended to the name.
 DDEV_TLD = "ddev.site"
@@ -540,29 +547,58 @@ def flag_all_blobs(
     directory is both kept out of the transfer by default and reachable by the
     operator's lever without any change to either.
 
-    The root standard set is the two core trees plus the first segment of the
-    document's own content path — the content tree, whose payload the content and
-    uploads breakdowns weigh instead.
+    The standard sets are derived from the document's own content and uploads
+    locations, never a fixed literal, so a non-default layout is honoured rather
+    than having its payload silently dropped from the transfer: the content tree's
+    segment is standard at the root; the uploads dir's segment is standard at
+    whichever level holds it (a ``wp-content/files`` uploads dir under content, a
+    root-level ``media/`` at the root). When the document omits its content path
+    the standard ``wp-content`` is assumed, so the payload tree is never itself
+    flaggable as a stray root directory.
+
+    Residual blind spot (issue #38): with a *nested* content path (Bedrock-style
+    ``app/content``) only the first segment (``app``) is standard at the root and
+    only the content dir's own children are weighed, so a heavy sibling one level
+    down (``app/backups``) is scanned by neither breakdown. Discovery emits only
+    the root and content breakdowns, so closing this would need a new intermediate
+    breakdown; it is a recorded acceptance, not an oversight.
     """
 
-    content_path = site.get("content_path", "")
-    content_segment = content_path.split("/", 1)[0] if content_path else ""
-    root_standard = ROOT_LEVEL_STANDARD_DIRECTORIES | (
-        {content_segment} if content_segment else set()
-    )
+    # Resolve the content directory, falling back to the standard location when the
+    # document omits it — so the payload tree ("wp-content") is never left flaggable
+    # as a stray root blob and default-excluded whole.
+    content_path = site.get("content_path", "") or DEFAULT_CONTENT_ROOT_RELATIVE
+    content_prefix = content_path.rstrip("/")
+    content_segment = content_prefix.split("/", 1)[0]
 
+    # Build the standard sets from the document's own paths: the content tree's
+    # segment is standard at the root, and the uploads dir's segment is standard at
+    # whichever level actually holds it, so a non-default uploads location is not
+    # flagged and silently dropped.
+    root_standard = set(ROOT_LEVEL_STANDARD_DIRECTORIES) | {content_segment}
+    content_standard = set(CONTENT_LEVEL_STANDARD_DIRECTORIES)
+    uploads_str = str(uploads_prefix)
+    if uploads_str == content_prefix or uploads_str.startswith(f"{content_prefix}/"):
+        uploads_child = uploads_str[len(content_prefix) :].strip("/").split("/", 1)[0]
+        if uploads_child:
+            content_standard.add(uploads_child)
+    elif uploads_prefix.parts:
+        root_standard.add(uploads_prefix.parts[0])
+
+    # Merge the three levels: the uploads median heuristic (unchanged), then the
+    # floor-only rule over the install-root and content breakdowns.
     flagged = flag_blobs(uploads_prefix, _list(uploads, "subdirectories", "uploads"))["flagged"]
     flagged += flag_directory_blobs(
         _list(root, "subdirectories", "root"),
-        root_standard,
+        frozenset(root_standard),
         "",
         "install-root",
         "root",
     )
     flagged += flag_directory_blobs(
         _list(content, "subdirectories", "content"),
-        CONTENT_LEVEL_STANDARD_DIRECTORIES,
-        content_path.rstrip("/"),
+        frozenset(content_standard),
+        content_prefix,
         "content",
         "content",
     )

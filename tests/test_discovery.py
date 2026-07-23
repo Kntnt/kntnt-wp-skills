@@ -593,3 +593,23 @@ def test_content_subdirectories_are_summed_from_the_file_manifest() -> None:
     }
     assert content == {"ai1wm-backups": 2147483648, "plugins": 10, "uploads": 100}
     assert "index.php" not in content
+
+
+def test_root_subdirectories_are_an_ordered_list() -> None:
+    # Arrange — manifest directories deliberately out of alphabetical order. The
+    # breakdown must be an ordered list (never a dict), sorted by name, so the
+    # document is deterministic and the blob heuristic reads a stable sequence.
+    payload = load_fixture("representative-site.json")
+    payload["files"] = [
+        {"path": "zeta/a.bin", "size": 1, "mtime": 1},
+        {"path": "alpha/a.bin", "size": 1, "mtime": 1},
+        {"path": "mu/a.bin", "size": 1, "mtime": 1},
+    ]
+
+    # Act.
+    document = json.loads(run_on(payload).stdout)
+
+    # Assert — a list of records, ordered by name.
+    subdirectories = document["root"]["subdirectories"]
+    assert isinstance(subdirectories, list)
+    assert [entry["path"] for entry in subdirectories] == ["alpha", "mu", "zeta"]
