@@ -31,7 +31,9 @@ IMPLEMENTATION_NOTES: Path = REPO_ROOT / "docs" / "implementation-notes.md"
 # decisions plus the persisted per-site metadata — the single source of truth
 # this test holds the doc example to (never a hand-copied list, so a resolver
 # rename is caught here automatically).
-KNOWN_KEYS: frozenset[str] = frozenset(resolve_plan.SAVED_KEYS.values()) | resolve_plan.PERSISTED_METADATA_KEYS
+KNOWN_KEYS: frozenset[str] = (
+    frozenset(resolve_plan.SAVED_KEYS.values()) | resolve_plan.PERSISTED_METADATA_KEYS
+)
 
 
 def _saved_plan_example() -> dict[str, Any]:
@@ -46,9 +48,10 @@ def _saved_plan_example() -> dict[str, Any]:
     fence_end = text.index("```", fence_start)
     raw = text[fence_start:fence_end]
 
-    # Strip trailing `//` comments line by line — a minimal jsonc-to-json pass,
-    # sufficient for the single-line-comment style this example uses.
-    stripped_lines = [re.sub(r"//.*$", "", line) for line in raw.splitlines()]
+    # Strip trailing `//` comments line by line — a minimal jsonc-to-json pass.
+    # Only a `//` preceded by whitespace counts as a comment marker, so a `//`
+    # inside a URL value (e.g. `https://...`) is left untouched.
+    stripped_lines = [re.sub(r"(?<=\s)//.*$", "", line) for line in raw.splitlines()]
     return json.loads("\n".join(stripped_lines))
 
 
@@ -69,7 +72,9 @@ def test_example_keys_are_all_known_to_the_resolver() -> None:
 
     example = _saved_plan_example()
     unknown = set(example) - KNOWN_KEYS
-    assert not unknown, f"example carries keys resolve_plan.py never persists: {sorted(unknown)}"
+    assert not unknown, (
+        f"example carries keys resolve_plan.py never persists: {sorted(unknown)}"
+    )
 
 
 def test_example_round_trips_through_build_saved_plan_unchanged() -> None:
@@ -79,5 +84,7 @@ def test_example_round_trips_through_build_saved_plan_unchanged() -> None:
     ``resolve_plan.build_saved_plan``)."""
 
     example = _saved_plan_example()
-    round_tripped = resolve_plan.build_saved_plan(resolved={"decisions": []}, prior=example)
+    round_tripped = resolve_plan.build_saved_plan(
+        resolved={"decisions": []}, prior=example
+    )
     assert round_tripped == example

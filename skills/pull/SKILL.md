@@ -15,7 +15,7 @@ description: >
 
 Refresh an existing local DDEV copy of a production WordPress site. `pull` and its sibling `clone` run **one shared transfer engine** — discovery, extraction on production, download, verification, remote cleanup, import, and localisation — and differ only at the bookends. A clone is a pull with no baseline; a pull always has one, so only the delta moves: it takes a rollback backup of the local database first, diffs production against the stored baseline so only new and changed files are extracted, and re-applies the local state — the inactive plugin set, the object-cache drop-in — afterwards. Every run begins with a **health check** that fails early and cheaply, then walks the operator through a series of **gates** whose recommendations come from the deterministic helpers; `--yes` runs the whole thing unattended and prints a full record. A **risk warning** is always emitted before the destructive local steps.
 
-Read `docs/spec.md` (the specification), `CONTEXT.md` (the glossary — its terms are used verbatim below), and `docs/implementation-notes.md` (the invocation-level literals) alongside this file. Where a literal here and the spec diverge, the spec wins.
+Read `../../docs/spec.md` (the specification), `../../CONTEXT.md` (the glossary — its terms are used verbatim below), and `../../docs/implementation-notes.md` (the invocation-level literals) — these live at the repo root, not alongside this file. Where a literal here and the spec diverge, the spec wins.
 
 ## 0. Help gate
 

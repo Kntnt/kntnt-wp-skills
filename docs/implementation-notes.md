@@ -85,20 +85,22 @@ The whole client-side pack machinery this section once pinned — the outside-do
 
 ## Saved plan — illustrative shape
 
-All keys optional; a missing key falls back to the built-in default. From the superseded design document:
+All keys optional; a missing key falls back to the built-in default. The saved plan stores **decisions, never computed lists** (ADR-0005) — this is the real flat snake_case shape `resolve_plan.py save` emits (`scripts/resolve_plan.py`'s `SAVED_KEYS` and `PERSISTED_METADATA_KEYS`), from a run against `https://www.example.com`:
 
 ```jsonc
 {
-  "source": { "extractorUrl": "https://www.example.com/wp-json/kntnt-extractor/v2", "liveUrl": "https://www.example.com" },
-  "target": { "ddevProject": "<name>" },
-  "db": { "emptyTables": ["wp_independent_analytics%", "wp_rcb_consent%", "wp_fsmpt_email_logs", "wp_relevanssi%"] },
-  "scope": { "includeMedia": true, "excludeBlobs": ["wp-content/uploads/<gallery>", "wp-content/uploads/<maxmind-db-dir>"] },
-  "wpConfigDefines": ["WP_MEMORY_LIMIT"],
-  "plugins": { "preserveLocalInactive": true },
-  "objectCache": "derive",
-  "mail": "auto",              // auto = risk-adaptive default; "live" / "capture" pin it
-  "cron": "leave",
-  "deletions": { "mirror": false }
+  "target": "example",
+  "directory": "www.example.com",
+  "media": "include",
+  "blobs": "exclude",
+  "ported_defines": ["WP_MEMORY_LIMIT"],
+  "plugin_preservation": "preserve",
+  "object_cache": "derive",
+  "mail": "risk_adaptive",     // accepting the recommendation stores the mode, not the momentary live/capture outcome (ADR-0009)
+  "cron": "run",
+  "deletion_mirroring": "off",
+  "user_submissions": "empty",
+  "source": { "extractor_endpoint": "https://www.example.com/wp-json/kntnt-extractor/v1", "live_url": "https://www.example.com" }
 }
 ```
 
