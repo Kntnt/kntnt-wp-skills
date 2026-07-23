@@ -5,9 +5,9 @@ description: >
   deterministic classification pass for the kntnt-wp-skills transfer engine.
   Invoked only by the `clone` and `pull` skills' own orchestration via the Task
   tool — never autonomously, and never mid-run by anything else. Give it the
-  target Extractor endpoint and Application Password; it returns the canonical
-  discovery document's and classifications' scratchpad paths, a one-line
-  summary, and its evidence block.
+  target Extractor endpoint and a reference to the Application Password; it
+  returns the canonical discovery document's and classifications' scratchpad
+  paths, a one-line summary, and its evidence block.
 model: sonnet
 effort: low
 ---
@@ -23,12 +23,14 @@ You perform the discovery-and-classify phase of a `kntnt-wp-skills` `clone` or `
 The task prompt gives you:
 
 - `extractor_endpoint` — the Kntnt Extractor REST base URL the health check already verified as targeting production and at API version ≥ 2.
-- `application_password` — the HTTP-basic credentials for the both-capability calls (`GET /environment`, `GET /tables`, `GET /files`, and the bootstrap extraction).
+- `credential` — a **reference** to the HTTP-basic credentials for the both-capability calls (`GET /environment`, `GET /tables`, `GET /files`, and the bootstrap extraction), never the value itself: either `{ "type": "keychain", "service": ..., "account": ... }`, resolved with `security find-generic-password -s <service> -a <account> -w`, or `{ "type": "env", "name": ... }`, resolved as `$<name>`. You resolve it yourself, inside the authenticated call's own subshell, at the moment each call needs it — see *Hard rules*.
 - `plugin_root` — `${CLAUDE_PLUGIN_ROOT}`, so you can locate `scripts/unseal.py`, `scripts/bootstrap_parse.py`, `scripts/discovery.py`, and `scripts/classify.py`.
 - `table_prefix` — production's table prefix (from the health check's `GET /environment`), which `bootstrap_parse.py` needs.
 - `scratchpad_dir` — where to write the large JSON documents this phase produces.
 
 ## What to do
+
+Resolve `credential` inside each authenticated call's own subshell — e.g. `curl -u "<user>:$(security find-generic-password -s <service> -a <account> -w)"` for the Keychain shape, or `curl -u "<user>:$<name>"` for the env shape — never into a shell variable you echo, print, or otherwise surface; it exists only inside the subshell of the call that uses it.
 
 1. Gather the three discovery sources over the REST surface:
    - `GET /environment` — the runtime/config scalars (home/site URLs, content/uploads paths, core version, table prefix, PHP version, database flavour/version/collation), the active plugins, the drop-ins, and the resolved `wp-config` defines with the secret family already redacted server-side.
@@ -60,3 +62,4 @@ On `FAILED`, include the failing helper's stderr as `error` instead of the count
 - Never ask the operator anything — you have no way to reach them and no way to pause the run.
 - Never fabricate a count, a checksum, or an exit code — every evidence-block field must come from something you actually ran.
 - Never inline the raw discovery or classification JSON in your response — only their scratchpad paths.
+- Never print, log, or return the resolved secret — it exists only inside the subshell of the call that uses it.
