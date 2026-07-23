@@ -375,15 +375,31 @@ def main() -> int:
         sys.stderr.write(f"usage: unseal.py {{{'|'.join(MODES)}}} < config.json\n")
         return 2
 
+    # keygen's only required key is easy to forget on the command line, so a
+    # missing envelope gets a diagnostic naming the fix instead of a generic
+    # JSON-parse error or a bare KeyError.
+    keygen_envelope_hint = (
+        'unseal.py: keygen requires JSON on stdin: {"private_key_path": "..."}\n'
+    )
+
     try:
         config = json.loads(sys.stdin.read())
     except json.JSONDecodeError as error:
+        if sys.argv[1] == "keygen":
+            sys.stderr.write(keygen_envelope_hint)
+            return 2
         sys.stderr.write(f"unseal.py: invalid JSON on stdin: {error}\n")
         return 2
 
     try:
         result = MODES[sys.argv[1]](config)
-    except (UnsealError, KeyError, OSError, ValueError) as error:
+    except KeyError as error:
+        if sys.argv[1] == "keygen" and error.args == ("private_key_path",):
+            sys.stderr.write(keygen_envelope_hint)
+            return 1
+        sys.stderr.write(f"unseal.py: {error}\n")
+        return 1
+    except (UnsealError, OSError, ValueError) as error:
         sys.stderr.write(f"unseal.py: {error}\n")
         return 1
 
