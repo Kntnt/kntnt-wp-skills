@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.4.1] – 2026-07-23
+
 ### Fixed
 
 - `CONTEXT.md`'s *Exposure window* glossary entry named the wrong endpoint for the happy-path close: consuming a finished job is `POST /extractions/{id}/consume`, not `DELETE /extractions/{id}` — the latter is only for cancelling a stranded or aborted job. A leftover from the 0.4.0 cutover, where the same mix-up was fixed in the spec and the implementation notes but the glossary was missed.
@@ -69,7 +71,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - Initial release.
 
-[Unreleased]: https://github.com/Kntnt/kntnt-wp-skills/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Kntnt/kntnt-wp-skills/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.4.1
 [0.4.0]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.4.0
 [0.3.2]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.3.2
 [0.3.1]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.3.1
