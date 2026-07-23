@@ -128,6 +128,13 @@ def test_run2_scaffold_removes_all_five_collisions_and_block_values_win() -> Non
     assert "define('DB_NAME', 'db');" in text
     assert "define('DB_USER', 'user');" in text
 
+    # Assert — the single-block, exactly-once invariant (acceptance criterion 1):
+    # one marked block and each portable define present exactly once.
+    assert text.count(BEGIN) == 1
+    assert text.count(END) == 1
+    assert text.count("define('WP_DEBUG',") == 1
+    assert text.count("define('EMPTY_TRASH_DAYS',") == 1
+
 
 def test_block_is_inserted_above_the_stop_editing_line() -> None:
     # Arrange.
@@ -141,6 +148,12 @@ def test_block_is_inserted_above_the_stop_editing_line() -> None:
     assert BEGIN in lines
     assert END in lines
     assert lines.index(END) < lines.index(STOP_EDITING)
+
+    # Assert — inserted exactly once, not once per stop-editing anchor, and no
+    # portable define duplicated on the insertion path.
+    assert text.count(BEGIN) == 1
+    assert text.count(END) == 1
+    assert text.count("define('WP_DEBUG',") == 1
 
 
 def test_block_content_order_defines_then_prefix_last() -> None:
@@ -167,6 +180,7 @@ def test_cron_disabled_appends_disable_wp_cron_define() -> None:
     # Act.
     result = write(payload)
     block_lines = result["block"].split("\n")
+    text = result["wp_config"]
 
     # Assert — DISABLE_WP_CRON appended after the portable defines, before the
     # prefix, set true.
@@ -174,6 +188,17 @@ def test_cron_disabled_appends_disable_wp_cron_define() -> None:
     assert block_lines.index("define('DISABLE_WP_CRON', true);") < block_lines.index(
         "$table_prefix = 'wp_';"
     )
+
+    # Assert — the value-equal collision (scaffold's define('DISABLE_WP_CRON',
+    # true); and the block's are byte-identical) is still removed: exactly one
+    # occurrence survives, and it is the block's — the scaffold's copy outside the
+    # block is gone. Removal is name-based and value-blind (issue #42 Fix item 3).
+    lines = text.split("\n")
+    begin, end = lines.index(BEGIN), lines.index(END)
+    outside_block = lines[:begin] + lines[end + 1 :]
+    assert text.count("define('DISABLE_WP_CRON'") == 1
+    assert not any("define('DISABLE_WP_CRON'" in line for line in outside_block)
+    assert "DISABLE_WP_CRON" in result["removed"]
 
 
 def test_cron_run_omits_disable_wp_cron_define() -> None:
@@ -377,6 +402,86 @@ def test_non_json_input_fails_loud() -> None:
     # Act.
     result = subprocess.run(
         [sys.executable, str(SCRIPT)], input=b"not json", capture_output=True
+    )
+
+    # Assert.
+    assert result.returncode != 0
+    assert b"wpconfig_block:" in result.stderr
+
+
+def test_duplicate_define_name_fails_loud() -> None:
+    # Arrange — two records for one constant would emit two define()s on it, a PHP
+    # runtime fatal php -l cannot catch (issue #42).
+    payload = {
+        "wp_config": scaffold_without_markers(),
+        "defines": [
+            {"name": "WP_DEBUG", "value": True},
+            {"name": "WP_DEBUG", "value": False},
+        ],
+        "table_prefix": "wp_",
+        "cron": "run",
+    }
+
+    # Act.
+    result = run_block(payload)
+
+    # Assert.
+    assert result.returncode != 0
+    assert b"wpconfig_block:" in result.stderr
+
+
+def test_disable_wp_cron_in_defines_fails_loud() -> None:
+    # Arrange — DISABLE_WP_CRON is written solely from the cron field; folding it
+    # into defines as well would emit a second define() on it under cron=disabled.
+    payload = {
+        "wp_config": scaffold_without_markers(),
+        "defines": [{"name": "DISABLE_WP_CRON", "value": True}],
+        "table_prefix": "wp_",
+        "cron": "disabled",
+    }
+
+    # Act.
+    result = run_block(payload)
+
+    # Assert.
+    assert result.returncode != 0
+    assert b"wpconfig_block:" in result.stderr
+
+
+def test_quote_bearing_define_name_fails_loud() -> None:
+    # Arrange — a name carrying a single quote would inject syntactically valid
+    # PHP into wp-config.php that php -l passes (issue #42).
+    payload = {
+        "wp_config": scaffold_without_markers(),
+        "defines": [{"name": "X', 1); system('id'); //", "value": 1}],
+        "table_prefix": "wp_",
+        "cron": "run",
+    }
+
+    # Act.
+    result = run_block(payload)
+
+    # Assert.
+    assert result.returncode != 0
+    assert b"wpconfig_block:" in result.stderr
+
+
+def test_infinity_float_value_fails_loud() -> None:
+    # Arrange — json.loads accepts Infinity; rendered bare it is a valid but
+    # undefined-constant fetch that php -l passes and PHP 8 fatals on at runtime.
+    raw = json.dumps(
+        {
+            "wp_config": scaffold_without_markers(),
+            "defines": [{"name": "WP_MEMORY_LIMIT"}],
+            "table_prefix": "wp_",
+            "cron": "run",
+        }
+    )
+    raw = raw.replace('"WP_MEMORY_LIMIT"}', '"WP_MEMORY_LIMIT", "value": Infinity}')
+
+    # Act.
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT)], input=raw.encode(), capture_output=True
     )
 
     # Assert.
