@@ -264,9 +264,11 @@ def _relative_children(
 ) -> list[tuple[str, int, bool]]:
     """Yield the ``(top-level-child, size, is_directory)`` triples of every
     manifest entry whose path sits under ``prefix``, skipping anything that does
-    not. A malformed entry — a non-object, a non-string path, a non-integer size
-    — is skipped rather than aborting the whole document over one stray record in
-    a manifest that can hold hundreds of thousands of files.
+    not. An empty ``prefix`` means the install root itself, so every entry's
+    first path segment is a top-level child. A malformed entry — a non-object, a
+    non-string path, a non-integer size — is skipped rather than aborting the
+    whole document over one stray record in a manifest that can hold hundreds of
+    thousands of files.
 
     The manifest holds files only, never directory entries, so directory-ness of
     a child is inferred rather than read off the entry: a segment is a directory
@@ -275,7 +277,7 @@ def _relative_children(
     ``index.php`` sitting directly under the prefix) is not.
     """
 
-    normalised = prefix.rstrip("/") + "/"
+    normalised = prefix.rstrip("/") + "/" if prefix else ""
     children: list[tuple[str, int, bool]] = []
     for entry in files:
         if not isinstance(entry, dict):
@@ -317,6 +319,46 @@ def derive_uploads_subdirectories(
         {"path": segment, "size_bytes": total}
         for segment, total in sorted(sizes.items())
     ]
+
+
+def _summed_subdirectories(files: list[Any], prefix: str) -> list[dict[str, Any]]:
+    """Sum the directory children under ``prefix`` into ``{path, size_bytes}``
+    records ordered by name — the shared shape the install-root and content
+    breakdowns give the blob heuristic, counting only genuine subdirectories: a
+    loose top-level file (an ``index.php`` guard) is not a directory the heuristic
+    should weigh, so it is excluded via the ``is_directory`` flag."""
+
+    sizes: dict[str, int] = {}
+    for segment, size, is_directory in _relative_children(files, prefix):
+        if not is_directory:
+            continue
+        sizes[segment] = sizes.get(segment, 0) + size
+    return [
+        {"path": segment, "size_bytes": total}
+        for segment, total in sorted(sizes.items())
+    ]
+
+
+def derive_root_subdirectories(files: list[Any]) -> list[dict[str, Any]]:
+    """Break the install root down by top-level directory, summing each one's
+    files, so a heavy stray directory outside uploads — the 7.6 GB ``2026/`` that
+    transferred silently (issue #38) — becomes visible to the blob heuristic. Only
+    directories count; a loose root file (``index.php``) is not a subdirectory."""
+
+    return _summed_subdirectories(files, "")
+
+
+def derive_content_subdirectories(
+    files: list[Any], content_dir: str
+) -> list[dict[str, Any]]:
+    """Break the content directory down by top-level child, summing each one's
+    files, so a heavy non-standard content child (a migration-plugin backup store)
+    becomes visible to the blob heuristic alongside the install-root breakdown.
+    An absent content dir yields nothing, mirroring the uploads breakdown."""
+
+    if not content_dir:
+        return []
+    return _summed_subdirectories(files, content_dir)
 
 
 def derive_themes(files: list[Any], content_dir: str) -> list[str]:
@@ -513,6 +555,12 @@ def build_document(raw: Any) -> dict[str, Any]:
         },
         "uploads": {
             "subdirectories": derive_uploads_subdirectories(files, uploads_dir),
+        },
+        "root": {
+            "subdirectories": derive_root_subdirectories(files),
+        },
+        "content": {
+            "subdirectories": derive_content_subdirectories(files, content_dir),
         },
         "plugins": {
             "active": active_plugins,

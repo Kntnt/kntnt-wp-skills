@@ -21,8 +21,12 @@ from as one JSON object on stdout. It computes:
   is tagged with its own ``user_submissions`` category, distinct from the four
   operational ones, because it earns a standalone gate rather than being
   silently emptied (ADR-0014).
-- ``blobs`` — the heavy-outlier upload subdirectories flagged for the exclusion
-  gate by a deterministic size heuristic (same document in, same flags out).
+- ``blobs`` — the heavy directories flagged for the exclusion gate by a
+  deterministic size heuristic (same document in, same flags out). Uploads
+  subdirectories use a median-outlier test; the install-root and content-directory
+  breakdowns use a simpler floor-only rule over their non-standard directories, so
+  a heavy stray directory outside uploads can no longer transfer silently and is
+  reachable by the operator's ``heavy_blobs`` lever (issue #38).
 - ``thumbnails`` — the exclude-set of DB-known generated sizes, with a registered
   original always kept even when its name collides with a derivative and
   side-loaded files never excluded (ADR-0011).
@@ -152,6 +156,19 @@ SERVICE_CONNECTOR_SUFFIXES: dict[str, str] = {
 # flagged and a merely-ratio outlier below the floor is not worth a gate.
 BLOB_ABSOLUTE_FLOOR_BYTES = 1 << 30  # 1 GiB.
 BLOB_OUTLIER_MEDIAN_FACTOR = 3
+
+# The install-root directories that are never a stray blob: the two WordPress core
+# trees (already in ALWAYS_EXCLUDED) and the content tree, whose payload is weighed
+# by the deeper content and uploads breakdowns instead. The content tree's segment
+# is added dynamically from the document's own content path (usually "wp-content").
+ROOT_LEVEL_STANDARD_DIRECTORIES = frozenset({"wp-admin", "wp-includes"})
+
+# The content-directory children that are never a stray blob: uploads is the
+# existing median heuristic's territory; plugins/themes/mu-plugins/languages are
+# the transfer's payload; upgrade/cache are already in ALWAYS_EXCLUDED.
+CONTENT_LEVEL_STANDARD_DIRECTORIES = frozenset(
+    {"plugins", "themes", "mu-plugins", "uploads", "languages", "upgrade", "cache"}
+)
 
 # WordPress's big-image handling (the "big image size threshold" feature)
 # scales an over-sized upload down and writes the scaled file as
@@ -464,6 +481,94 @@ def flag_blobs(
     return {"flagged": flagged}
 
 
+def flag_directory_blobs(
+    subdirectories: list[Any],
+    standard_directories: frozenset[str],
+    anchor: str,
+    level: str,
+    context_key: str,
+) -> list[dict[str, Any]]:
+    """Flag every non-standard directory at or above the absolute floor.
+
+    This is the wider, deliberately simpler companion to :func:`flag_blobs`,
+    applied to the install-root and content-directory breakdowns (issue #38).
+    There is no median-outlier test here: at these levels the peer population is
+    small and dominated by standard directories (core trees, plugins, themes), so
+    a median is meaningless — the standard set carries the "expected" directories
+    and anything else heavy enough to clear the floor is a stray blob worth a gate.
+
+    Each flagged path is anchored root-relative — a root child as its bare
+    ``<segment>``, a content child as ``<anchor>/<segment>`` — the one spelling the
+    pack tar and the baseline manifest match against. A malformed record earns the
+    branded ``classify:`` diagnostic, since the raw discovery seam passes these
+    list elements through without validating each one.
+    """
+
+    flagged: list[dict[str, Any]] = []
+    for index, subdir in enumerate(subdirectories):
+        record = _record(subdir, f"{context_key}.subdirectories[{index}]")
+        path = _field(record, "path", str, f"{context_key}.subdirectories[{index}]")
+        size = _field(record, "size_bytes", int, f"{context_key}.subdirectories[{index}]")
+        if path in standard_directories or size < BLOB_ABSOLUTE_FLOOR_BYTES:
+            continue
+        flagged.append({
+            "path": f"{anchor}/{path}" if anchor else path,
+            "size_bytes": size,
+            "reason": (
+                f"{size} bytes: non-standard {level} directory at or above the "
+                f"{BLOB_ABSOLUTE_FLOOR_BYTES}-byte floor"
+            ),
+        })
+    return flagged
+
+
+def flag_all_blobs(
+    uploads_prefix: PurePosixPath,
+    site: dict[str, Any],
+    uploads: dict[str, Any],
+    root: dict[str, Any],
+    content: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Merge every heavy-blob flag into the single ``blobs.flagged`` list.
+
+    Three levels feed it: the uploads median-outlier heuristic (unchanged), and
+    the wider floor-only rule over the install-root and content-directory
+    breakdowns (issue #38). An absent ``root`` or ``content`` section contributes
+    nothing, so a pre-#38 document yields exactly today's uploads flags. Widening
+    what lands here is the whole fix: the ``heavy_blobs`` gate and
+    ``build_exclusions.py`` already act on this list, so a newly flagged stray
+    directory is both kept out of the transfer by default and reachable by the
+    operator's lever without any change to either.
+
+    The root standard set is the two core trees plus the first segment of the
+    document's own content path — the content tree, whose payload the content and
+    uploads breakdowns weigh instead.
+    """
+
+    content_path = site.get("content_path", "")
+    content_segment = content_path.split("/", 1)[0] if content_path else ""
+    root_standard = ROOT_LEVEL_STANDARD_DIRECTORIES | (
+        {content_segment} if content_segment else set()
+    )
+
+    flagged = flag_blobs(uploads_prefix, _list(uploads, "subdirectories", "uploads"))["flagged"]
+    flagged += flag_directory_blobs(
+        _list(root, "subdirectories", "root"),
+        root_standard,
+        "",
+        "install-root",
+        "root",
+    )
+    flagged += flag_directory_blobs(
+        _list(content, "subdirectories", "content"),
+        CONTENT_LEVEL_STANDARD_DIRECTORIES,
+        content_path.rstrip("/"),
+        "content",
+        "content",
+    )
+    return flagged
+
+
 def thumbnail_exclude_set(
     uploads_prefix: PurePosixPath, attachments: list[Any]
 ) -> list[str]:
@@ -679,6 +784,8 @@ def classify(document: Any) -> dict[str, Any]:
     site = _object(document.get("site", {}), "site")
     database = _object(document.get("database", {}), "database")
     uploads = _object(document.get("uploads", {}), "uploads")
+    root = _object(document.get("root", {}), "root")
+    content = _object(document.get("content", {}), "content")
     plugins = _object(document.get("plugins", {}), "plugins")
 
     # Anchor the exclusion set at the WordPress root once, so the flagged blobs and
@@ -691,9 +798,7 @@ def classify(document: Any) -> dict[str, Any]:
         "tables": classify_tables(
             database.get("table_prefix", ""), _list(database, "tables", "database")
         ),
-        "blobs": flag_blobs(
-            uploads_prefix, _list(uploads, "subdirectories", "uploads")
-        ),
+        "blobs": {"flagged": flag_all_blobs(uploads_prefix, site, uploads, root, content)},
         "thumbnails": {
             "exclude": thumbnail_exclude_set(
                 uploads_prefix, _list(document, "attachments", "input")
