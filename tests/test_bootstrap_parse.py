@@ -426,3 +426,102 @@ def test_a_bootstrap_missing_the_posts_table_fails_loudly(tmp_path: Path) -> Non
     assert result.stdout == b""
     assert result.stderr.startswith(b"bootstrap_parse:")
     assert b"posts" in result.stderr
+
+
+# --- bootstrap artifact cleanup (issue #49) ----------------------------------
+#
+# The bootstrap dump holds real user and subscriber rows in cleartext. Once
+# this helper has parsed it, nothing should keep the unsealed .sql, the sealed
+# container it was unsealed from, or the run's ephemeral private key alive on
+# disk — the local analogue of Extractor's own POST /consume. These tests bind
+# that discipline in code rather than trusting a subagent's prose to remember it.
+
+
+def test_the_unsealed_sql_dump_is_deleted_after_a_successful_parse(
+    tmp_path: Path,
+) -> None:
+    # Arrange — a well-formed bootstrap dump.
+    sql = posts_and_meta([], published_posts=1)
+    sql_path = tmp_path / "bootstrap.sql"
+    sql_path.write_text(sql, encoding="utf-8")
+
+    # Act.
+    result = run_parse({"sql_path": str(sql_path), "table_prefix": "wp_"})
+
+    # Assert — the parse still succeeds, and the cleartext dump is gone.
+    assert result.returncode == 0, result.stderr.decode()
+    assert not sql_path.exists()
+
+
+def test_the_sealed_container_and_private_key_are_deleted_when_named(
+    tmp_path: Path,
+) -> None:
+    # Arrange — the caller names the sealed container and the ephemeral
+    # private key alongside the unsealed dump, exactly as
+    # agents/discovery-classify.md's task envelope will.
+    sql = posts_and_meta([], published_posts=1)
+    sql_path = tmp_path / "bootstrap.sql"
+    sql_path.write_text(sql, encoding="utf-8")
+    container_path = tmp_path / "bootstrap.kntntext"
+    container_path.write_bytes(b"sealed-container-bytes")
+    private_key_path = tmp_path / "bootstrap.key"
+    private_key_path.write_bytes(b"private-key-bytes")
+
+    # Act.
+    result = run_parse(
+        {
+            "sql_path": str(sql_path),
+            "table_prefix": "wp_",
+            "container_path": str(container_path),
+            "private_key_path": str(private_key_path),
+        }
+    )
+
+    # Assert — all three cleartext/key artifacts are gone; the parent no
+    # longer holds any of them.
+    assert result.returncode == 0, result.stderr.decode()
+    assert not sql_path.exists()
+    assert not container_path.exists()
+    assert not private_key_path.exists()
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_an_already_missing_container_or_key_path_does_not_fail_the_parse(
+    tmp_path: Path,
+) -> None:
+    # Arrange — a caller names cleanup paths that never existed (already swept
+    # by a retry, or simply not produced this run): the cleanup must be
+    # idempotent, never a crash.
+    sql = posts_and_meta([], published_posts=1)
+    sql_path = tmp_path / "bootstrap.sql"
+    sql_path.write_text(sql, encoding="utf-8")
+
+    # Act.
+    result = run_parse(
+        {
+            "sql_path": str(sql_path),
+            "table_prefix": "wp_",
+            "container_path": str(tmp_path / "nonexistent.kntntext"),
+            "private_key_path": str(tmp_path / "nonexistent.key"),
+        }
+    )
+
+    # Assert.
+    assert result.returncode == 0, result.stderr.decode()
+    assert not sql_path.exists()
+
+
+def test_a_failed_parse_leaves_the_dump_on_disk_for_diagnosis(tmp_path: Path) -> None:
+    # Arrange — a malformed bootstrap (missing wp_posts): the parse fails, so
+    # the dump must survive on disk rather than vanish along with the
+    # diagnostic an operator would need to investigate it.
+    sql = users(3)
+    sql_path = tmp_path / "bootstrap.sql"
+    sql_path.write_text(sql, encoding="utf-8")
+
+    # Act.
+    result = run_parse({"sql_path": str(sql_path), "table_prefix": "wp_"})
+
+    # Assert.
+    assert result.returncode != 0
+    assert sql_path.exists()
