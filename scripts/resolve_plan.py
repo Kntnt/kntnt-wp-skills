@@ -105,6 +105,16 @@ MAIL_RISK_ADAPTIVE = "risk_adaptive"
 # (ADR-0014).
 USER_SUBMISSIONS_CATEGORY = "user_submissions"
 
+# The decision whose saved selection must be pruned to the live portable set: a
+# saved list of ported define names that production has since narrowed. The
+# writer (wpconfig_block.py) treats a selected name absent from its offered
+# records as a corrupt join and aborts — correct for a genuine mismatch, but the
+# SKILLs pipe this resolved value straight into that writer at §9.4, after the
+# destructive dump import. Pruning here keeps ordinary drift (production dropped a
+# define, or it moved to an auto-excluded class) a silent resolve-time deselection
+# rather than a mid-localise abort (issue #42).
+DEFINES_DECISION = "wp_config_defines"
+
 # The category classify.py tags a recognised CRM/mass-mailer subscriber table
 # with — the fold target the crm_subscribers gate moves into db_table_content on
 # a resolved carry (ADR-0019). A sibling privacy gate to user_submissions, folded
@@ -291,9 +301,12 @@ def _section(envelope: dict[str, Any], key: str) -> dict[str, Any]:
 
 def saved_layer(decision: Decision, context: Context) -> Any:
     """The saved-config value for a decision, or :data:`MISSING` when the saved
-    plan has nothing for it. Mail is special: a saved ``risk_adaptive`` mode is
-    the absence of a pin, so it defers to the live valve rather than fixing a
-    value that would go stale."""
+    plan has nothing for it. Two decisions are special: a saved ``risk_adaptive``
+    mail mode is the absence of a pin, so it defers to the live valve rather than
+    fixing a value that would go stale; and a saved ``wp_config_defines`` selection
+    is pruned to the names still portable this run, so a define production dropped
+    since the plan was saved cannot ride through as a superset the writer rejects
+    (issue #42)."""
 
     key = SAVED_KEYS.get(decision.id)
     if key is None or context.saved_plan is None:
@@ -303,6 +316,14 @@ def saved_layer(decision: Decision, context: Context) -> Any:
     raw = context.saved_plan.get(key, MISSING)
     if decision.id == "mail" and raw == MAIL_RISK_ADAPTIVE:
         return MISSING
+
+    # Prune a saved define selection to what production still offers, so ordinary
+    # drift is a silent deselection here rather than a mid-localise abort in the
+    # writer the SKILLs pipe this value into. The live layer already derived the
+    # portable names for this decision, so its shape is known-good by now.
+    if decision.id == DEFINES_DECISION and isinstance(raw, list):
+        portable = set(live_portable_defines(context))
+        return [name for name in raw if name in portable]
 
     return raw
 

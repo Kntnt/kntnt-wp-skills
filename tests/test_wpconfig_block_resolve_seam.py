@@ -78,6 +78,18 @@ def discovery_document() -> dict[str, Any]:
     }
 
 
+def drifted_discovery_document() -> dict[str, Any]:
+    """The same production, one drift later: ``WP_POST_REVISIONS`` has been removed
+    from wp-config since the plan was saved, so the classifier no longer offers it
+    in the portable set. Everything else is identical to ``discovery_document``."""
+
+    document = discovery_document()
+    document["defines"] = [
+        entry for entry in document["defines"] if entry["name"] != "WP_POST_REVISIONS"
+    ]
+    return document
+
+
 def scaffold() -> str:
     """A minimal mkwp scaffold with a stop-editing anchor and no marked block."""
 
@@ -172,6 +184,59 @@ def test_deselected_define_at_the_gate_is_never_written() -> None:
     assert "define('EMPTY_TRASH_DAYS', 30);" in defines
     assert "define('WP_POST_REVISIONS', 5);" in defines
     assert not any("WP_DEBUG" in line for line in defines)
+
+
+def test_replayed_saved_plan_prunes_a_vanished_ported_define() -> None:
+    # Arrange — a saved plan carries two ported defines from an earlier run, but
+    # production has since dropped WP_POST_REVISIONS, so this run's classifier only
+    # offers EMPTY_TRASH_DAYS. This is the --yes replay path the clone/pull SKILLs
+    # walk at §9.4, where the writer runs after the destructive dump import.
+    classifications = run_helper(CLASSIFY, drifted_discovery_document())
+    portable_names = [entry["name"] for entry in classifications["defines"]["portable"]]
+    assert "WP_POST_REVISIONS" not in portable_names
+
+    # Act — resolve the replay with the stale saved selection. The saved layer
+    # outranks live, but a saved name production no longer offers must be pruned so
+    # the resolved value can never be a superset of what the writer is handed.
+    resolved = run_helper(
+        RESOLVE,
+        {
+            "operation": "resolve",
+            "skill": "pull",
+            "flags": ["--yes"],
+            "discovery": drifted_discovery_document(),
+            "classifications": classifications,
+            "saved_plan": {"ported_defines": ["EMPTY_TRASH_DAYS", "WP_POST_REVISIONS"]},
+        },
+    )
+    wp_config_defines = next(
+        entry for entry in resolved["decisions"] if entry["id"] == "wp_config_defines"
+    )
+
+    # Assert the resolver pruned the vanished define while still honouring the saved
+    # layer for the one that survived — the selection stays a subset of the offered
+    # records, sourced from the saved plan.
+    assert wp_config_defines["value"] == ["EMPTY_TRASH_DAYS"]
+    assert wp_config_defines["source"] == "saved"
+
+    # Act — pipe the resolved selection into the writer exactly as the SKILLs do,
+    # with the classifier's current portable records as the value source.
+    result = run_helper(
+        WPCONFIG_BLOCK,
+        {
+            "wp_config": scaffold(),
+            "defines": classifications["defines"]["portable"],
+            "select": wp_config_defines["value"],
+            "table_prefix": "wp_",
+            "cron": "run",
+        },
+    )
+
+    # Assert — the writer succeeds and writes only the surviving define, rather than
+    # aborting mid-localise on the vanished one.
+    defines = block_defines(result["block"])
+    assert "define('EMPTY_TRASH_DAYS', 30);" in defines
+    assert not any("WP_POST_REVISIONS" in line for line in defines)
 
 
 def test_selecting_a_name_absent_from_the_records_fails_loud() -> None:
