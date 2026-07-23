@@ -369,34 +369,42 @@ def test_saved_plan_is_persisted_into_the_site_directory_not_cwd() -> None:
     §4 scaffolds it — so a save that writes the bare relative path
     ``.kntnt-wp-skills.json`` lands one level up, in the operator's invocation
     ``cwd``, not in the site directory ``smoke_test.py``'s
-    ``check_saved_plan_present`` anchors at. Fix option (a) (settled in the
-    issue body): §3 creates the site directory itself (``mkdir -p
-    <directory_name>/``) and writes the saved plan straight into
-    ``<directory_name>/.kntnt-wp-skills.json``, so the plan survives even a §4
-    scaffold failure."""
+    ``check_saved_plan_present`` anchors at. The settled fix (option (b)): §3
+    defers the write, and §4's final bullet — after the restart onto the
+    corrected engine — writes the saved plan straight into
+    ``<directory_name>/.kntnt-wp-skills.json``, the directory §4's own scaffold
+    has by then created. Pre-creating the directory in §3 (option (a)) was
+    rejected: `mkwp` (≥ 1.8.1) refuses to scaffold into a path that already
+    exists, so that approach makes every clone die at the §4 scaffold."""
 
     # The persist instruction writes the qualified, directory-scoped path — never
     # the bare relative filename a literal top-to-bottom implementation would
     # otherwise emit one level above the site directory.
     assert "<directory_name>/.kntnt-wp-skills.json" in SKILL_TEXT, (
-        "the §3 save step must write into <directory_name>/.kntnt-wp-skills.json, "
+        "the persist step must write into <directory_name>/.kntnt-wp-skills.json, "
         "not a bare .kntnt-wp-skills.json that lands in cwd"
     )
-    assert re.search(r"mkdir -p <directory_name>/", SKILL_TEXT), (
-        "the §3 save step must create the site directory itself before writing "
-        "into it, since §4 has not scaffolded it yet"
+
+    # §3 must not pre-create the site directory — mkwp requires the path to not
+    # exist and creates it itself; a §3 `mkdir -p <directory_name>/` would make
+    # mkwp's own preflight guard die at the §4 scaffold on every clone.
+    assert not re.search(r"mkdir -p <directory_name>/", SKILL_TEXT), (
+        "clone SKILL.md must not pre-create <directory_name>/ before mkwp "
+        "scaffolds it — mkwp refuses to scaffold into a path that already exists"
     )
 
-    # The persist instruction itself must sit in §3, strictly before the §4
-    # heading — a deferred-to-§4 rewrite (fix option (b)) would move the write
-    # past this anchor and must fail this ordering, not just the path check
-    # above, so a future edit that quietly relocates the write is still caught.
-    persist_pos = _pos(r"persist the accepted plan")
+    # The persist instruction must sit in §4, after the restart-on-the-corrected-
+    # engine bullet — never in §3 before the site directory exists, and never
+    # squeezed in before §4 has finished bringing the scaffold up on the pinned
+    # engine.
     section_4_pos = _pos(r"## 4\. Clone bookends")
-    assert persist_pos < section_4_pos, (
-        "the saved-plan persist instruction must remain in §3, before the §4 "
-        "clone-bookends heading — a §4 failure must never be able to lose an "
-        "already-accepted plan"
+    restart_pos = _pos(r"\*\*Restart on the corrected engine\.\*\*")
+    persist_pos = _pos_after(r"\*\*Persist the accepted plan\.\*\*", restart_pos)
+    assert section_4_pos < restart_pos < persist_pos, (
+        "the saved-plan persist instruction must sit in §4, after the "
+        "restart-on-the-corrected-engine bullet — the site directory must exist "
+        "and be scaffolded on the corrected engine before the plan is written "
+        "into it"
     )
 
 
