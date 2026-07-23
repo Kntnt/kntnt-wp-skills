@@ -148,7 +148,7 @@ USER_SUBMISSION_TABLE_PATTERNS: tuple[str, ...] = (
 # Coverage relative to `bootstrap_parse.py`'s MAILER_ENGINES: every recognised
 # mass-send engine (fluentcrm / mailpoet / newsletter) has subscriber patterns
 # here, so a recognised engine's address store can never carry in full — the
-# invariant `test_every_mailer_engine_has_a_gated_subscriber_store` pins. Mailster
+# invariant `test_every_recognised_mailer_engine_has_a_gated_subscriber_store` pins. Mailster
 # is gated in addition, a known on-site mailer that has no poised-scan entry in
 # MAILER_ENGINES (it needs no bulk-campaign scan), so the gated set is a superset
 # of the recognised engines, never a subset. The registry is additive like
