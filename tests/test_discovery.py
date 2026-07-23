@@ -161,6 +161,66 @@ def test_uploads_subdirectories_are_summed_from_the_file_manifest() -> None:
     assert document["themes"] == ["ollie"]
 
 
+def test_a_bare_file_directly_under_the_themes_prefix_is_not_reported_as_a_theme() -> None:
+    # Arrange — an empty-directory guard file (index.php) sits directly under
+    # wp-content/themes/ alongside a real theme directory. The manifest holds
+    # files only, so the guard file's path segment ("index.php") looks exactly
+    # like a theme's directory name unless directory-ness is judged by whether
+    # the path continues past that segment.
+    payload = load_fixture("representative-site.json")
+    payload["files"] = [
+        {"path": "wp-content/themes/index.php", "size": 0, "mtime": 1},
+        {"path": "wp-content/themes/ollie/style.css", "size": 10, "mtime": 1},
+    ]
+
+    # Act.
+    document = json.loads(run_on(payload).stdout)
+
+    # Assert — only the real theme directory is reported; the guard file is not
+    # mistaken for a theme.
+    assert document["themes"] == ["ollie"]
+
+
+def test_a_theme_directory_containing_a_single_file_still_counts_as_a_theme() -> None:
+    # Arrange — a theme with exactly one file must still be recognised as a
+    # directory (its path continues past the theme-name segment), not confused
+    # with a bare file sitting directly at the themes prefix.
+    payload = load_fixture("representative-site.json")
+    payload["files"] = [
+        {"path": "wp-content/themes/index.php", "size": 0, "mtime": 1},
+        {"path": "wp-content/themes/minimal/style.css", "size": 5, "mtime": 1},
+    ]
+
+    # Act.
+    document = json.loads(run_on(payload).stdout)
+
+    # Assert.
+    assert document["themes"] == ["minimal"]
+
+
+def test_uploads_subdirectories_still_reports_a_loose_file_directly_in_uploads_root() -> None:
+    # Arrange — a loose file sitting directly in uploads/ (not a subdirectory)
+    # is deliberately still reported as its own entry, unlike derive_themes: the
+    # blob heuristic needs to see a giant loose file too. This pins the existing
+    # behaviour so the _relative_children fix for derive_themes does not
+    # accidentally change derive_uploads_subdirectories.
+    payload = load_fixture("representative-site.json")
+    payload["files"] = [
+        {"path": "wp-content/uploads/loose-huge-export.zip", "size": 999, "mtime": 1},
+        {"path": "wp-content/uploads/2024/a.jpg", "size": 100, "mtime": 1},
+    ]
+
+    # Act.
+    document = json.loads(run_on(payload).stdout)
+
+    # Assert.
+    subdirectories = {
+        entry["path"]: entry["size_bytes"]
+        for entry in document["uploads"]["subdirectories"]
+    }
+    assert subdirectories == {"loose-huge-export.zip": 999, "2024": 100}
+
+
 def test_database_password_never_appears_in_the_canonical_document() -> None:
     # Arrange — the fixture's DB_PASSWORD carries a unique sentinel, standing in
     # for a hypothetically unredacted upstream value; the assembler must redact it
