@@ -320,6 +320,42 @@ def test_a_vanished_wp_config_sample_file_is_still_production_deleted() -> None:
     assert result["production_deleted"] == ["wp-config-sample.php"]
 
 
+# --- WordPress core tree (issue #37) --------------------------------------------
+
+
+def test_a_vanished_core_directory_file_is_not_production_deleted() -> None:
+    # Arrange — a core file that was in a stale baseline (taken before this
+    # exclusion existed) but is out of scope this run: its absence from the
+    # current, in-scope manifest is not a real deletion.
+    payload = {
+        "baseline": {
+            "scope": {"exclusions": []},
+            "entries": [entry("wp-admin/index.php", 4096, 1700000000)],
+        },
+        "current": {
+            "scope": {"exclusions": ["wp-admin"]},
+            "entries": [],
+        },
+    }
+    result = run_on(payload)
+    assert result["production_deleted"] == []
+
+
+def test_a_vanished_root_core_php_file_is_not_production_deleted() -> None:
+    payload = {
+        "baseline": {
+            "scope": {"exclusions": []},
+            "entries": [entry("wp-login.php", 2000, 1700000000)],
+        },
+        "current": {
+            "scope": {"exclusions": ["wp-login.php"]},
+            "entries": [],
+        },
+    }
+    result = run_on(payload)
+    assert result["production_deleted"] == []
+
+
 def test_outputs_are_sorted_for_deterministic_reports() -> None:
     # Arrange — current entries deliberately out of lexical order.
     payload = {

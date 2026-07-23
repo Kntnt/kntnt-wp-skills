@@ -215,25 +215,26 @@ def _matches_at_root(path: str, pattern: str) -> bool:
     """Match a root-anchored pattern — literal or glob alike — against
     ``path``, case-insensitively, matching only a path with no ``/`` of its
     own. Covers the whole configuration-file family (``wp-config.php`` and its
-    backup/swap/variant siblings), root-level SQL dumps, and root-level key
+    backup/swap/variant siblings), root-level SQL dumps, root-level key
     material (issue #36's "install-root-relative and case-insensitive"
-    credential-bearing pattern family) — a same-named file nested deeper in
-    the tree is ordinary content, not the configuration file or a leaked
-    secret. Mirrors ``scripts/filter_manifest.py``'s ``_matches_at_root``
-    exactly."""
+    credential-bearing pattern family), and the root-level core PHP files
+    (issue #37) — a same-named file nested deeper in the tree is ordinary
+    content, not the configuration file, a leaked secret, or core. Mirrors
+    ``scripts/filter_manifest.py``'s ``_matches_at_root`` exactly."""
 
     return "/" not in path and fnmatch.fnmatchcase(path.lower(), pattern.lower())
 
 
 def is_excluded(path: str, exclusions: tuple[str, ...]) -> bool:
     """Report whether a path falls under any anchored exclusion prefix: an exact
-    match or descendant of an excluded directory, a root-anchored credential-
-    bearing pattern, or a ``.env``-style pattern matched anywhere in the tree
-    (issue #36) — except ``wp-config-sample.php``, which the broad
-    ``wp-config-*.php`` variant pattern must not swallow. Matching is path-
-    segment aware, so excluding ``uploads/gallery`` never swallows a sibling
-    ``uploads/gallery-archive``. Mirrors ``scripts/filter_manifest.py``'s
-    ``is_excluded`` exactly."""
+    match or descendant of an excluded directory (including a top-level core
+    directory such as ``wp-admin`` or ``wp-includes``, issue #37), a root-
+    anchored credential-bearing or core-file pattern, or a ``.env``-style
+    pattern matched anywhere in the tree (issue #36) — except
+    ``wp-config-sample.php``, which the broad ``wp-config-*.php`` variant
+    pattern must not swallow. Matching is path-segment aware, so excluding
+    ``uploads/gallery`` never swallows a sibling ``uploads/gallery-archive``.
+    Mirrors ``scripts/filter_manifest.py``'s ``is_excluded`` exactly."""
 
     if path.lower() in _ALWAYS_ALLOWED:
         return False
@@ -241,10 +242,9 @@ def is_excluded(path: str, exclusions: tuple[str, ...]) -> bool:
         if prefix.startswith(_ANYWHERE_PREFIX):
             if _matches_anywhere(path, prefix):
                 return True
-        elif "/" not in prefix:
-            if _matches_at_root(path, prefix):
-                return True
         elif path == prefix or path.startswith(f"{prefix}/"):
+            return True
+        elif "/" not in prefix and _matches_at_root(path, prefix):
             return True
     return False
 

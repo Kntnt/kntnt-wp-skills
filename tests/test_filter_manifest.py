@@ -434,6 +434,72 @@ def test_wp_config_php_itself_is_matched_case_insensitively() -> None:
     assert result["entries"] == []
 
 
+# --- WordPress core tree (issue #37) -------------------------------------------
+
+
+def test_wp_admin_and_its_descendants_are_dropped() -> None:
+    # Arrange & Act — a bare top-level directory prefix (no "/" of its own)
+    # must still match itself and every descendant, not only a literal
+    # top-level file, the gap this issue's fix closes.
+    result = filter_on({
+        "entries": [
+            entry("wp-admin/index.php"),
+            entry("wp-admin/includes/upgrade.php"),
+        ],
+        "exclusions": ["wp-admin"],
+    })
+    assert result["entries"] == []
+
+
+def test_wp_includes_and_its_descendants_are_dropped() -> None:
+    result = filter_on({
+        "entries": [entry("wp-includes/version.php")],
+        "exclusions": ["wp-includes"],
+    })
+    assert result["entries"] == []
+
+
+def test_a_same_named_sibling_of_a_core_directory_is_kept() -> None:
+    # Arrange — a plugin or theme literally named "wp-admin-theme" merely
+    # starts with "wp-admin"; matching must be path-segment aware here too.
+    result = filter_on({
+        "entries": [entry("wp-admin-theme/style.css")],
+        "exclusions": ["wp-admin"],
+    })
+    assert [row["path"] for row in result["entries"]] == ["wp-admin-theme/style.css"]
+
+
+def test_root_core_php_files_are_dropped() -> None:
+    result = filter_on({
+        "entries": [entry("index.php"), entry("wp-login.php"), entry("xmlrpc.php")],
+        "exclusions": ["index.php", "wp-login.php", "xmlrpc.php"],
+    })
+    assert result["entries"] == []
+
+
+def test_a_nested_index_php_is_not_dropped() -> None:
+    # Arrange & Act — the root-level core file glob is anchored at the install
+    # root, so a plugin's own directory-listing-prevention index.php is
+    # ordinary content, not core.
+    result = filter_on({
+        "entries": [entry("wp-content/plugins/acme/index.php")],
+        "exclusions": ["index.php"],
+    })
+    assert [row["path"] for row in result["entries"]] == [
+        "wp-content/plugins/acme/index.php"
+    ]
+
+
+def test_the_wp_config_sample_file_is_unaffected_by_core_exclusions() -> None:
+    # Arrange — the configuration family's carve-out is untouched by this
+    # issue: the sample template is not part of the core exclusion group.
+    result = filter_on({
+        "entries": [entry("wp-config-sample.php")],
+        "exclusions": ["index.php", "wp-admin"],
+    })
+    assert [row["path"] for row in result["entries"]] == ["wp-config-sample.php"]
+
+
 def test_the_filtered_output_feeds_baseline_diff_unchanged() -> None:
     # Arrange — the load-bearing end-to-end proof: filter a raw, unfiltered
     # walk that mixes an excluded gallery, an excluded gallery's file, a

@@ -128,12 +128,20 @@ def test_always_excluded_covers_the_documented_categories() -> None:
     assert "*.key" in always
     assert "id_rsa*" in always
 
+    # Assert — the WordPress core tree issue #37 adds: the admin and includes
+    # directories, and the root-level core PHP files.
+    assert "wp-admin" in always
+    assert "wp-includes" in always
+    assert "index.php" in always
+    assert "wp-login.php" in always
+    assert "wp-settings.php" in always
+    assert "xmlrpc.php" in always
+    assert "wp-config-sample.php" not in always
+
 
 def test_always_excluded_pins_its_exact_contents() -> None:
     # Assert — the exact always-excluded set, so a stray, typo'd, or dropped entry
-    # reddens here rather than silently changing what every run excludes. When
-    # #37 (core) extends the constant, this literal is updated in lockstep — the
-    # single place the set's contents are pinned.
+    # reddens here rather than silently changing what every run excludes.
     assert set(build_exclusions.ALWAYS_EXCLUDED) == {
         "wp-config.php",
         "wp-config.php.*",
@@ -164,6 +172,23 @@ def test_always_excluded_pins_its_exact_contents() -> None:
         "wp-content/cache",
         "wp-content/upgrade",
         "wp-content/upgrade-temp-backup",
+        "wp-admin",
+        "wp-includes",
+        "index.php",
+        "license.txt",
+        "readme.html",
+        "wp-activate.php",
+        "wp-blog-header.php",
+        "wp-comments-post.php",
+        "wp-cron.php",
+        "wp-links-opml.php",
+        "wp-load.php",
+        "wp-login.php",
+        "wp-mail.php",
+        "wp-settings.php",
+        "wp-signup.php",
+        "wp-trackback.php",
+        "xmlrpc.php",
     }
     # No duplicate entries hide behind the set comparison above.
     assert len(build_exclusions.ALWAYS_EXCLUDED) == len(set(build_exclusions.ALWAYS_EXCLUDED))

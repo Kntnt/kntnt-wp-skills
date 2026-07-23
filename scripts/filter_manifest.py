@@ -21,15 +21,19 @@ descendant, matching is path-segment aware (excluding
 ``wp-content/uploads/gallery`` never swallows a sibling
 ``wp-content/uploads/gallery-archive``), and every path is anchored at the
 WordPress root (the recent anchoring fix, commit de908bd) — the one spelling
-every consumer of the exclusion set shares. The credential-bearing pattern
-family (issue #36) is install-root-relative and matched case-insensitively
+every consumer of the exclusion set shares. A top-level directory prefix with
+no ``/`` of its own, such as the core directories ``wp-admin`` and
+``wp-includes`` (issue #37), still matches this way — itself or any
+descendant — rather than through the root-anchored file-pattern path below.
+The credential-bearing pattern family (issue #36) and the root-level core PHP
+files (issue #37) are install-root-relative and matched case-insensitively
 instead: a ``**/``-prefixed entry matches the path's final segment at any
-depth (``.env`` anywhere in the tree), any other entry with no ``/`` of its
-own — literal or glob alike — matches only a path that also sits at the
+depth (``.env`` anywhere in the tree), any other *file* entry with no ``/`` of
+its own — literal or glob alike — matches only a path that also sits at the
 install root (the whole ``wp-config.php`` family, root SQL dumps, root key
-material) — with ``wp-config-sample.php`` carved back out of the broad
-``wp-config-*.php`` variant glob, since it is WordPress' own bundled template
-and never carries a real secret.
+material, root core PHP files) — with ``wp-config-sample.php`` carved back out
+of the broad ``wp-config-*.php`` variant glob, since it is WordPress' own
+bundled template and never carries a real secret.
 
 Malformed input fails loudly: a non-zero exit and a diagnostic on stderr,
 never a half-built document on stdout. The same holds for two shapes that are
@@ -88,23 +92,25 @@ def _matches_at_root(path: str, pattern: str) -> bool:
     """Match a root-anchored pattern — literal or glob alike — against
     ``path``, case-insensitively, matching only a path with no ``/`` of its
     own. Covers the whole configuration-file family (``wp-config.php`` and its
-    backup/swap/variant siblings), root-level SQL dumps, and root-level key
+    backup/swap/variant siblings), root-level SQL dumps, root-level key
     material (issue #36's "install-root-relative and case-insensitive"
-    credential-bearing pattern family) — a same-named file nested deeper in
-    the tree is ordinary content, not the configuration file or a leaked
-    secret."""
+    credential-bearing pattern family), and the root-level core PHP files
+    (issue #37) — a same-named file nested deeper in the tree is ordinary
+    content, not the configuration file, a leaked secret, or core."""
 
     return "/" not in path and fnmatch.fnmatchcase(path.lower(), pattern.lower())
 
 
 def is_excluded(path: str, exclusions: tuple[str, ...]) -> bool:
     """Report whether a path falls under any anchored exclusion prefix: an
-    exact match or descendant of an excluded directory, a root-anchored
-    credential-bearing pattern, or a ``.env``-style pattern matched anywhere in
-    the tree (issue #36) — except ``wp-config-sample.php``, which the broad
-    ``wp-config-*.php`` variant pattern must not swallow. Mirrors
-    ``scripts/baseline_diff.py``'s ``is_excluded`` exactly, so a path this
-    helper drops here is a path the diff would have dropped too."""
+    exact match or descendant of an excluded directory (including a top-level
+    core directory such as ``wp-admin`` or ``wp-includes``, issue #37), a
+    root-anchored credential-bearing or core-file pattern, or a ``.env``-style
+    pattern matched anywhere in the tree (issue #36) — except
+    ``wp-config-sample.php``, which the broad ``wp-config-*.php`` variant
+    pattern must not swallow. Mirrors ``scripts/baseline_diff.py``'s
+    ``is_excluded`` exactly, so a path this helper drops here is a path the
+    diff would have dropped too."""
 
     if path.lower() in _ALWAYS_ALLOWED:
         return False
@@ -112,10 +118,9 @@ def is_excluded(path: str, exclusions: tuple[str, ...]) -> bool:
         if prefix.startswith(_ANYWHERE_PREFIX):
             if _matches_anywhere(path, prefix):
                 return True
-        elif "/" not in prefix:
-            if _matches_at_root(path, prefix):
-                return True
         elif path == prefix or path.startswith(f"{prefix}/"):
+            return True
+        elif "/" not in prefix and _matches_at_root(path, prefix):
             return True
     return False
 

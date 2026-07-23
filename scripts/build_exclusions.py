@@ -24,8 +24,10 @@ The set is the union of:
 - :data:`ALWAYS_EXCLUDED` — the canonical, static always-excluded paths (the
   configuration file and its credential-bearing backup/swap/variant siblings,
   ``.env`` files anywhere in the tree, root-level SQL dumps and key material,
-  the WordPress drop-ins, the debug log, the cache dir, and the upgrade dirs),
-  the single source of truth every prose reference points at.
+  the WordPress drop-ins, the debug log, the cache dir, the upgrade dirs, and
+  the whole WordPress core tree — ``wp-admin/``, ``wp-includes/``, and the
+  root-level core PHP files), the single source of truth every prose reference
+  points at.
 - The DB-known generated thumbnails (``classifications.thumbnails.exclude``),
   when the plan resolves ``generated_thumbnails`` to ``exclude``.
 - The flagged heavy blobs (``classifications.blobs.flagged[*].path``), when the
@@ -128,11 +130,45 @@ _UPGRADE_DIRS: tuple[str, ...] = (
     "wp-content/upgrade-temp-backup",
 )
 
+# The whole WordPress core admin and includes trees, at the install root. Clone
+# §4 scaffolds the exact core version with ``mkwp`` before extraction ever
+# runs, so production's copy is always byte-identical to the scaffold's — never
+# content, and never worth the network, disk, and merge cost of transferring
+# (issue #37). ``GET /files``' manifest is install-root-wide, not scoped to
+# content, so nothing on the server keeps these out; this exclusion is the only
+# thing that does.
+_CORE_DIRECTORIES: tuple[str, ...] = (
+    "wp-admin",
+    "wp-includes",
+)
+
+# The root-level core PHP files WordPress ships with every release — the same
+# rationale as the core directories above. "wp-config-sample.php" is deliberately
+# absent: it belongs to the configuration family's carve-out (issue #36's
+# ``_ALWAYS_ALLOWED`` in ``filter_manifest.py``/``baseline_diff.py``), which this
+# issue leaves untouched.
+_CORE_ROOT_FILES: tuple[str, ...] = (
+    "index.php",
+    "license.txt",
+    "readme.html",
+    "wp-activate.php",
+    "wp-blog-header.php",
+    "wp-comments-post.php",
+    "wp-cron.php",
+    "wp-links-opml.php",
+    "wp-load.php",
+    "wp-login.php",
+    "wp-mail.php",
+    "wp-settings.php",
+    "wp-signup.php",
+    "wp-trackback.php",
+    "xmlrpc.php",
+)
+
 # The canonical always-excluded set: the single source of truth for the paths
 # excluded on every run regardless of any decision. Extended by the credential-
-# bearing pattern family (#36) above; the WordPress core tree (#37), the other
-# child issue this one unblocks, adds its own group here too, never a second
-# copy of this list elsewhere.
+# bearing pattern family (#36) and the WordPress core tree (#37) above, never a
+# second copy of this list elsewhere.
 ALWAYS_EXCLUDED: tuple[str, ...] = (
     *_CONFIGURATION_FILE,
     *_CONFIGURATION_FILE_VARIANTS,
@@ -143,6 +179,8 @@ ALWAYS_EXCLUDED: tuple[str, ...] = (
     *_LOGS,
     *_CACHES,
     *_UPGRADE_DIRS,
+    *_CORE_DIRECTORIES,
+    *_CORE_ROOT_FILES,
 )
 
 # The decisions whose resolved value gates a category into or out of the set, and
