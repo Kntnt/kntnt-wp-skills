@@ -109,6 +109,19 @@ class UnsealError(Exception):
     expected selection — anything that must abort the reassembly loudly."""
 
 
+def _required(config: dict[str, Any], key: str) -> Any:
+    """Fetch ``key`` from ``config``, raising a clear diagnostic when absent.
+
+    Replaces the raw ``KeyError`` a bare ``config[key]`` would raise — cryptic on
+    stderr and indistinguishable from a genuine bug in a helper further down the
+    call chain.
+    """
+
+    if key not in config:
+        raise UnsealError(f"missing required config key: {key!r}")
+    return config[key]
+
+
 def _pack_length(value: int) -> bytes:
     """Frame a length as the plugin's 8-byte little-endian prefix."""
 
@@ -146,7 +159,7 @@ def run_keygen(config: dict[str, Any]) -> dict[str, Any]:
     cannot enter model context.
     """
 
-    private_key_path = Path(config["private_key_path"])
+    private_key_path = Path(_required(config, "private_key_path"))
     public_key, private_key = crypto_box_keypair()
 
     private_key_path.parent.mkdir(parents=True, exist_ok=True)
@@ -262,10 +275,10 @@ def run_unseal(config: dict[str, Any]) -> dict[str, Any]:
     validated, so a container that fails anywhere leaves no partial dump behind.
     """
 
-    container_path = Path(config["container_path"])
-    private_key_path = Path(config["private_key_path"])
-    sql_path = Path(config["sql_path"])
-    files_root = Path(config["files_root"])
+    container_path = Path(_required(config, "container_path"))
+    private_key_path = Path(_required(config, "private_key_path"))
+    sql_path = Path(_required(config, "sql_path"))
+    files_root = Path(_required(config, "files_root"))
     tables: list[str] = config.get("tables", [])
     structure_only: list[str] = config.get("structure_only", [])
     files: list[str] = config.get("files", [])
@@ -340,9 +353,9 @@ def run_seal(config: dict[str, Any]) -> dict[str, Any]:
     can be round-trip tested against the exact documented wire format.
     """
 
-    container_path = Path(config["container_path"])
-    public_key = base64.b64decode(config["public_key"])
-    segments: list[dict[str, str]] = config["segments"]
+    container_path = Path(_required(config, "container_path"))
+    public_key = base64.b64decode(_required(config, "public_key"))
+    segments: list[dict[str, str]] = _required(config, "segments")
 
     body = bytearray(HEADER)
     names: list[str] = []
@@ -393,13 +406,13 @@ def main() -> int:
 
     try:
         result = MODES[sys.argv[1]](config)
-    except KeyError as error:
-        if sys.argv[1] == "keygen" and error.args == ("private_key_path",):
+    except UnsealError as error:
+        if sys.argv[1] == "keygen" and str(error) == "missing required config key: 'private_key_path'":
             sys.stderr.write(keygen_envelope_hint)
             return 1
         sys.stderr.write(f"unseal.py: {error}\n")
         return 1
-    except (UnsealError, OSError, ValueError) as error:
+    except (OSError, ValueError) as error:
         sys.stderr.write(f"unseal.py: {error}\n")
         return 1
 
