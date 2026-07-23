@@ -503,16 +503,26 @@ def _delete_bootstrap_artifacts(sql_path: Path, config: dict[str, Any]) -> None:
     """Delete the unsealed dump plus any sealed container / private key paths
     the caller names in ``config``. Idempotent — a path that is already gone
     is silently skipped, so a retried or partial cleanup never trips this up.
-    A genuine OS-level failure surfaces as a ``BootstrapError`` rather than
-    silently leaving cleartext behind."""
+
+    Deletion is best-effort per path: one path's ``OSError`` never stops the
+    remaining paths from being attempted, since the whole point of this
+    routine is to leave as little cleartext PII and key material at rest as
+    possible. A genuine OS-level failure on any path still surfaces as a
+    ``BootstrapError`` after every path has been tried."""
 
     paths = (sql_path, config.get("container_path"), config.get("private_key_path"))
-    try:
-        for path in paths:
-            if path:
-                Path(path).unlink(missing_ok=True)
-    except OSError as error:
-        raise BootstrapError(f"cannot delete a bootstrap artifact: {error}") from error
+    errors: list[str] = []
+    for path in paths:
+        if not path:
+            continue
+        try:
+            Path(path).unlink(missing_ok=True)
+        except OSError as error:
+            errors.append(f"{path}: {error}")
+
+    if errors:
+        joined = "; ".join(errors)
+        raise BootstrapError(f"cannot delete bootstrap artifact(s): {joined}")
 
 
 def main() -> int:

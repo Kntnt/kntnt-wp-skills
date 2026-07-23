@@ -511,6 +511,40 @@ def test_an_already_missing_container_or_key_path_does_not_fail_the_parse(
     assert not sql_path.exists()
 
 
+def test_a_failed_unlink_does_not_prevent_deleting_the_other_artifacts(
+    tmp_path: Path,
+) -> None:
+    # Arrange — the container path is a directory rather than a file, so
+    # unlinking it raises IsADirectoryError (an OSError). The dump and the
+    # private key are ordinary files that must still be deleted even though
+    # the container's unlink fails: a single failure must never abort cleanup
+    # of the remaining cleartext/key material.
+    sql = posts_and_meta([], published_posts=1)
+    sql_path = tmp_path / "bootstrap.sql"
+    sql_path.write_text(sql, encoding="utf-8")
+    container_path = tmp_path / "bootstrap.kntntext"
+    container_path.mkdir()
+    private_key_path = tmp_path / "bootstrap.key"
+    private_key_path.write_bytes(b"private-key-bytes")
+
+    # Act.
+    result = run_parse(
+        {
+            "sql_path": str(sql_path),
+            "table_prefix": "wp_",
+            "container_path": str(container_path),
+            "private_key_path": str(private_key_path),
+        }
+    )
+
+    # Assert — the run still fails loudly (the container survives), but the
+    # dump and the private key are gone regardless.
+    assert result.returncode != 0
+    assert not sql_path.exists()
+    assert not private_key_path.exists()
+    assert container_path.exists()
+
+
 def test_a_failed_parse_leaves_the_dump_on_disk_for_diagnosis(tmp_path: Path) -> None:
     # Arrange — a malformed bootstrap (missing wp_posts): the parse fails, so
     # the dump must survive on disk rather than vanish along with the
