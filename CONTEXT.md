@@ -43,7 +43,7 @@ _Avoid_: prompt, dialog, wizard step
 The skill's proposed answer at a gate, computed from layered defaults (built-in < live derivation < saved config < this run's answer).
 
 **Saved plan**:
-The remembered per-site answers in `.kntnt-wp-skills.json`. Stores decisions, never computed lists.
+The remembered per-site answers in `.kntnt-wp-skills.json`, at the local project root. Stores decisions, never computed lists.
 _Avoid_: profile, preset
 
 **Replay**:
@@ -52,7 +52,7 @@ The run mode engaged when a saved plan exists: interactive collapses to one "Rep
 ### Files and sync
 
 **Baseline**:
-The stored manifest of the in-scope production tree (path + size + mtime) from the last sync, kept in `.kntnt-wp-skills/last-sync.json` together with the scope it was taken under. Diffs are always production-now against the baseline, never against local files.
+The stored manifest of the in-scope production tree (path + size + mtime) from the last sync, kept in `.kntnt-wp-skills/last-sync.json` at the local project root, together with the scope it was taken under. Diffs are always production-now against the baseline, never against local files.
 _Avoid_: snapshot, cache
 
 **Scope**:
@@ -127,6 +127,10 @@ Routing all mail to DDEV's Mailpit via the mu-plugin that short-circuits `wp_mai
 The always-emitted notice itemising the copy's outward-reaching behaviours (real mail, webhooks, payments, social posts, licence pings, real PII).
 
 ### Local site
+
+**Local project root**:
+The site directory `<directory_name>/` — the one `mkwp` scaffolds and `clone`/`pull` operate against. The saved plan `.kntnt-wp-skills.json` and the derived `.kntnt-wp-skills/` both live here, never in the operator's invocation `cwd` one level up. Defined once, here; every other reference to "the local project root" or "the site directory" points back at this entry (issue #40).
+_Avoid_: project root, working directory, cwd (as a synonym — the root is a specific directory, not wherever the shell happens to be)
 
 **Marked block**:
 The clearly delimited section the skills own in the local `wp-config.php` — ported production defines and the table prefix — separate from mkwp's DDEV block.

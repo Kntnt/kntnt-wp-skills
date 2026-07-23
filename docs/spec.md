@@ -289,7 +289,7 @@ Interactive is the default; `--yes` is autonomous; replay engages automatically 
 
 ### Persistent config
 
-Two small per-project files at the local project root:
+Two small per-project files at **the local project root** — the site directory `<directory_name>/` `mkwp` scaffolds and `clone`/`pull` operate against, defined once in [CONTEXT.md](../CONTEXT.md), never the operator's invocation `cwd` one level up:
 
 - `.kntnt-wp-skills.json` — the saved plan: the settled per-site answers, committed so the copy is reproducible. All keys optional; a missing key falls back to the built-in default. It records the source (the production Extractor endpoint's base URL), the target DDEV project, the clone's directory name, the user-submissions carry/empty answer ([ADR-0014](./adr/0014-user-submissions-own-gate-default-empty.md)), the scope decisions (media, excluded blobs), the ported defines, the plugin-preservation choice, the object-cache mode, the mail mode (risk-adaptive by default, or pinned live/capture), the cron choice, and the deletion-mirroring answer. There is deliberately no production-mutation key — mutating production is always a separate, explicit instruction.
 - `.kntnt-wp-skills/` — derived, gitignored state: the baseline manifest with its scope, the pull rollback backups, and the trash.

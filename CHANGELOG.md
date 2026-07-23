@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed
+
+- Clone §3 now creates the site directory (`mkdir -p <directory_name>/`) and persists the accepted plan into `<directory_name>/.kntnt-wp-skills.json` the moment the walk finishes — before §4 scaffolds anything — instead of the bare `.kntnt-wp-skills.json` a literal top-to-bottom implementation wrote one level up, in the operator's invocation `cwd`. That mismatch guaranteed two false smoke FAILs (`check_saved_plan_present`, `check_baseline_present`, both anchored at the site directory) and left a future `pull` unable to find its plan or baseline. "The local project root" — the site directory `<directory_name>/` both persistence artifacts live in — is now defined once, in `CONTEXT.md`, and referenced consistently from `docs/spec.md` and both skills ([#40](https://github.com/Kntnt/kntnt-wp-skills/issues/40)).
+
 ## [0.5.0] – 2026-07-23
 
 ### Added
