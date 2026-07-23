@@ -30,9 +30,16 @@ well-formed JSON but not trustworthy input: a manifest reporting any
 it, so the tree it echoes is silently incomplete and would misclassify that
 subtree's files as production-deleted) and an explicitly empty
 ``exclusions`` list (a real resolved exclusion set is never empty — the
-configuration file and drop-ins are always excluded — so an empty list
+canonical always-excluded set, ``scripts/build_exclusions.py``'s
+``ALWAYS_EXCLUDED`` constant, is present on every run — so an empty list
 signals an unresolved plan, not a legitimate everything-in-scope run). Both
 abort here, this helper's single surviving scope-enforcement point.
+
+The resolved ``exclusions`` list is not assembled at the call site: it is the
+output of ``scripts/build_exclusions.py``, the single deterministic assembler
+that unions the ``ALWAYS_EXCLUDED`` constant with the decision-gated thumbnail,
+blob, and media exclusions (issue #35), so both this baseline consumer and the
+extraction-selection consumer are fed a byte-identical set.
 """
 
 from __future__ import annotations
@@ -68,9 +75,9 @@ def _exclusions(raw: dict[str, Any]) -> tuple[str, ...]:
     without first merging in the resolved exclusion set must fail loudly rather
     than have the omission silently read as "nothing excluded". An *explicit*
     empty list is likewise rejected: per the specification, a real resolved
-    exclusion set is never empty (the configuration file, drop-ins, and the
-    other always-excluded paths are always in it), so `[]` here signals a plan
-    resolved without its exclusions merged in, not a legitimate
+    exclusion set is never empty (``scripts/build_exclusions.py``'s
+    ``ALWAYS_EXCLUDED`` constant is present on every run), so `[]` here signals a
+    plan resolved without its exclusions merged in, not a legitimate
     everything-in-scope run. A trailing slash is normalised away so a prefix
     matches the same paths however the caller spelled it, and a non-string
     entry fails loudly rather than crashing the later prefix check."""
@@ -91,9 +98,9 @@ def _exclusions(raw: dict[str, Any]) -> tuple[str, ...]:
     if not value:
         raise FilterError(
             "input: field 'exclusions' is empty — a real resolved exclusion "
-            "set is never empty (the configuration file and drop-ins are "
-            "always excluded); an empty list signals an unresolved plan, not "
-            "an everything-in-scope run"
+            "set is never empty (build_exclusions.py's ALWAYS_EXCLUDED constant "
+            "is present on every run); an empty list signals an unresolved plan, "
+            "not an everything-in-scope run"
         )
     return tuple(prefix.rstrip("/") for prefix in value)
 

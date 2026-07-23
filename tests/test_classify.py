@@ -768,13 +768,15 @@ def test_the_exclusion_anchor_is_derived_from_a_custom_content_directory() -> No
     # Act.
     classifications = classify_document(document)
 
-    # Assert — both producers anchor at "content/uploads" (uploads relative to the
-    # site root), the exact prefix the derivation yields from the two paths.
+    # Assert — both producers, and the emitted uploads_prefix, anchor at
+    # "content/uploads" (uploads relative to the site root), the exact prefix the
+    # derivation yields from the two paths.
     blob_paths = {entry["path"] for entry in classifications["blobs"]["flagged"]}
     assert blob_paths == {"content/uploads/galleries"}
     assert classifications["thumbnails"]["exclude"] == [
         "content/uploads/2024/05/banner-150x150.jpg"
     ]
+    assert classifications["uploads_prefix"] == "content/uploads"
 
 
 def test_the_exclusion_anchor_defaults_to_the_standard_layout_when_paths_absent() -> None:
@@ -802,6 +804,27 @@ def test_the_exclusion_anchor_defaults_to_the_standard_layout_when_paths_absent(
     assert classifications["thumbnails"]["exclude"] == [
         "wp-content/uploads/2024/05/banner-150x150.jpg"
     ]
+    assert classifications["uploads_prefix"] == "wp-content/uploads"
+
+
+def test_the_uploads_prefix_is_emitted_for_the_exclusion_assembler() -> None:
+    # Arrange — the exclusion-set assembler (scripts/build_exclusions.py) anchors a
+    # media-originals exclusion on the uploads prefix, so the classifier must emit
+    # it as its own field rather than leaving it implicit in the thumbnail and blob
+    # paths (issue #35).
+    document = {
+        "site": {
+            "home_url": "https://example.test",
+            "root_path": "/srv/app/",
+            "uploads_base": "/srv/app/wp-content/uploads",
+        },
+    }
+
+    # Act.
+    classifications = classify_document(document)
+
+    # Assert — the root-relative uploads prefix, the one anchor the assembler needs.
+    assert classifications["uploads_prefix"] == "wp-content/uploads"
 
 
 def test_an_uploads_directory_outside_the_root_fails_loudly() -> None:

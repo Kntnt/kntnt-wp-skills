@@ -45,6 +45,7 @@ REQUIRED_HELPERS: tuple[str, ...] = (
     "scripts/bootstrap_parse.py",
     "scripts/classify.py",
     "scripts/resolve_plan.py",
+    "scripts/build_exclusions.py",
     "scripts/filter_manifest.py",
     "scripts/build_selection.py",
     "scripts/unseal.py",

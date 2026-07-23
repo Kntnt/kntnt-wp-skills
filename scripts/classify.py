@@ -33,6 +33,11 @@ from as one JSON object on stdout. It computes:
 - ``project_name`` — the name-derivation recommendation: the local DDEV project
   name (a sanitised, hostname-safe slug) and the clone's directory name (the
   production host verbatim), both derived from the production URL.
+- ``uploads_prefix`` — the uploads directory as a WordPress-root-relative prefix,
+  the single anchor the exclusion set is spelled against. The flagged blobs and
+  thumbnail exclude-set are already anchored on it; it is emitted on its own so
+  the exclusion-set assembler (``scripts/build_exclusions.py``) can anchor a
+  media-originals exclusion (``--exclude-media``) on the whole uploads tree.
 
 The classifier never decides: it produces the recommendation inputs the model
 puts behind accept-or-override gates. Malformed input fails loudly — a non-zero
@@ -681,6 +686,7 @@ def classify(document: Any) -> dict[str, Any]:
     uploads_prefix = uploads_root_relative(site)
 
     return {
+        "uploads_prefix": str(uploads_prefix),
         "defines": classify_defines(_list(document, "defines", "input")),
         "tables": classify_tables(
             database.get("table_prefix", ""), _list(database, "tables", "database")

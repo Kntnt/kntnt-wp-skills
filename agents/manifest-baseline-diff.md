@@ -21,7 +21,7 @@ You perform the manifest-and-baseline-diff phase of a `kntnt-wp-skills` `pull` r
 ## Inputs
 
 - `extractor_endpoint`, `application_password`, `plugin_root`, `scratchpad_dir` — as for every phase.
-- `scope` — the resolved exclusion scope to filter the manifest against locally.
+- `scope` — the resolved exclusion set to filter the manifest against locally: the orchestrator's `scripts/build_exclusions.py` output (`{ "exclusions": [...] }`'s list), the single assembled set the extraction selection was also built from (issue #35) — never a list assembled here or by hand.
 - `baseline` — the stored `.kntnt-wp-skills/last-sync.json` document, or `null` at clone (no baseline exists yet).
 - `write_path` — where the emitted manifest is ultimately stored once this phase succeeds (`.kntnt-wp-skills/last-sync.json`).
 
