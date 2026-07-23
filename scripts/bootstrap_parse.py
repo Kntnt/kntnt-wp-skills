@@ -482,11 +482,37 @@ def build_signals(config: dict[str, Any]) -> dict[str, Any]:
         raise BootstrapError(f"cannot read the bootstrap dump: {error}") from error
 
     tables = parse_dump(sql)
-    return {
+    signals = {
         "attachments": extract_attachments(tables, prefix),
         "entity_counts": extract_entity_counts(tables, prefix),
         "mass_send": extract_mass_send(tables, prefix),
     }
+
+    # The dump holds real user and subscriber rows in cleartext; delete it —
+    # and, when named, the sealed container it came from and the run's
+    # ephemeral private key — now that the signals above have consumed it,
+    # the local analogue of Extractor's own POST /consume (issue #49). Only
+    # reached once parsing has actually succeeded, so a malformed dump
+    # survives on disk for diagnosis.
+    _delete_bootstrap_artifacts(sql_path, config)
+
+    return signals
+
+
+def _delete_bootstrap_artifacts(sql_path: Path, config: dict[str, Any]) -> None:
+    """Delete the unsealed dump plus any sealed container / private key paths
+    the caller names in ``config``. Idempotent — a path that is already gone
+    is silently skipped, so a retried or partial cleanup never trips this up.
+    A genuine OS-level failure surfaces as a ``BootstrapError`` rather than
+    silently leaving cleartext behind."""
+
+    paths = (sql_path, config.get("container_path"), config.get("private_key_path"))
+    try:
+        for path in paths:
+            if path:
+                Path(path).unlink(missing_ok=True)
+    except OSError as error:
+        raise BootstrapError(f"cannot delete a bootstrap artifact: {error}") from error
 
 
 def main() -> int:

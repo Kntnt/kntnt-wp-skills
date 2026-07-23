@@ -332,6 +332,34 @@ def test_manifest_baseline_diff_agent_forwards_the_unreadable_field() -> None:
     )
 
 
+def test_discovery_classify_deletes_the_unsealed_bootstrap_dump_after_consume() -> None:
+    """Issue #49: the bootstrap dump holds real user and subscriber rows in
+    cleartext, so ``discovery-classify``'s own contract must state — not just
+    imply via the generic ``consume`` sentence — that the unsealed dump, its
+    sealed container, and the bootstrap's ephemeral private key are deleted
+    from the scratchpad immediately once ``bootstrap_parse.py`` has consumed
+    them, and that the evidence block proves it via
+    ``bootstrap_artifacts_deleted`` rather than trusting prose alone."""
+
+    body = _body(AGENTS_DIR / "discovery-classify.md")
+
+    assert re.search(r"bootstrap_parse\.py.{0,400}delete", body, re.DOTALL) or re.search(
+        r"delete.{0,400}bootstrap_parse\.py", body, re.DOTALL
+    ), "discovery-classify.md never ties bootstrap_parse.py to deleting its artifacts"
+    assert "sealed container" in body, (
+        "discovery-classify.md's cleanup step omits the sealed container"
+    )
+    assert "private key" in body, (
+        "discovery-classify.md's cleanup step omits the ephemeral private key"
+    )
+    assert "bootstrap_artifacts_deleted" in body, (
+        "discovery-classify.md's evidence block omits bootstrap_artifacts_deleted"
+    )
+    assert re.search(r"never leave.{0,200}bootstrap", body, re.IGNORECASE | re.DOTALL), (
+        "discovery-classify.md's hard rules never state the bootstrap-cleanup rule"
+    )
+
+
 def test_spec_notes_the_delegation_architecture() -> None:
     """AC #3: docs/spec.md notes the delegation architecture briefly, naming
     every subagent in the roster."""
