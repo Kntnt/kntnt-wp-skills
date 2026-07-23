@@ -79,9 +79,11 @@ LIVE_SURFACES: tuple[Path, ...] = (
 # surface that spells the main-extraction poll discipline out in full. A `404`
 # alone is a transport-class blip, never terminal on its own.
 CONFIRMED_VANISHED_FULL: str = (
-    "a confirmed-vanished job (a `404` that, after a ~5 s backoff, is "
-    "re-polled and also `404`s and the id is absent from `GET /extractions` "
-    "— a single `404` is logged and polling continues within budget)"
+    "a confirmed-vanished job (a `404`, treated as a transport-class fault "
+    "and retried under the existing 30 s / 60 s backoff, that also `404`s "
+    "on re-poll with the id absent from `GET /extractions` — a single "
+    "`404` is logged and retried, never terminal on its own, and polling "
+    "continues within budget)"
 )
 
 # The compact form of the same rule, carried by the bootstrap loop's
@@ -167,6 +169,28 @@ def test_no_unqualified_vanished_job_sentence_survives(path: Path) -> None:
         "'a vanished job (`404`)' sentence — replaced by the "
         "confirmed-vanished rule (issue #41, ADR-0018)"
     )
+
+
+@pytest.mark.parametrize(
+    "path", LIVE_SURFACES, ids=lambda p: str(p.relative_to(REPO_ROOT))
+)
+def test_no_unqualified_vanished_job_phrase_survives(path: Path) -> None:
+    """No live surface still carries the phrase "vanished job" unqualified
+    by the "confirmed-" prefix — including phrasing that drops the `404`
+    token entirely (e.g. spec's bare "a vanished job"). Every occurrence of
+    "vanished job" on a live surface must read "confirmed-vanished job",
+    so the coarse pre-#41 semantics cannot silently survive under a
+    differently worded sentence."""
+
+    text = path.read_text(encoding="utf-8")
+    for match in re.finditer(r"vanished job", text):
+        prefix = text[max(0, match.start() - len("confirmed-")):match.start()]
+        assert prefix.endswith("confirmed-"), (
+            f"{path.relative_to(REPO_ROOT)} carries an unqualified "
+            "'vanished job' phrase not preceded by 'confirmed-' — the "
+            "confirmed-vanished rule must replace every unqualified mention "
+            "(issue #41, ADR-0018)"
+        )
 
 
 @pytest.mark.parametrize(
