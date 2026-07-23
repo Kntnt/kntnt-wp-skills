@@ -398,6 +398,127 @@ def test_invalid_cron_value_fails_loud() -> None:
     assert b"wpconfig_block:" in result.stderr
 
 
+def test_select_writes_only_the_selected_defines_valued_from_records() -> None:
+    # Arrange — the portable records carry three defines; the gate selection keeps
+    # two, in an order different from the records, so the join must honour both.
+    payload = {
+        "wp_config": scaffold_without_markers(),
+        "defines": [
+            {"name": "EMPTY_TRASH_DAYS", "value": 30},
+            {"name": "WP_DEBUG", "value": True},
+            {"name": "WP_POST_REVISIONS", "value": 5},
+        ],
+        "select": ["WP_POST_REVISIONS", "EMPTY_TRASH_DAYS"],
+        "table_prefix": "wp_",
+        "cron": "run",
+    }
+
+    # Act.
+    result = write(payload)
+    block_lines = result["block"].split("\n")
+    defines = [line for line in block_lines if line.startswith("define(")]
+
+    # Assert — only the two selected defines are written, valued from their
+    # records and ordered by the selection; the deselected one never appears.
+    assert defines == [
+        "define('WP_POST_REVISIONS', 5);",
+        "define('EMPTY_TRASH_DAYS', 30);",
+    ]
+
+
+def test_select_none_writes_every_record_unchanged() -> None:
+    # Arrange — an absent select is the identity: every record is written.
+    payload = {
+        "wp_config": scaffold_without_markers(),
+        "defines": [
+            {"name": "EMPTY_TRASH_DAYS", "value": 30},
+            {"name": "WP_DEBUG", "value": True},
+        ],
+        "table_prefix": "wp_",
+        "cron": "run",
+    }
+
+    # Act.
+    block_lines = write(payload)["block"].split("\n")
+
+    # Assert — both records survive.
+    assert "define('EMPTY_TRASH_DAYS', 30);" in block_lines
+    assert "define('WP_DEBUG', true);" in block_lines
+
+
+def test_empty_select_writes_no_defines() -> None:
+    # Arrange — the operator deselected every portable define at the gate.
+    payload = {
+        "wp_config": scaffold_without_markers(),
+        "defines": [{"name": "WP_DEBUG", "value": True}],
+        "select": [],
+        "table_prefix": "wp_",
+        "cron": "run",
+    }
+
+    # Act.
+    block_lines = write(payload)["block"].split("\n")
+
+    # Assert — no portable define is written; only the prefix line remains.
+    assert not any(line.startswith("define(") for line in block_lines)
+    assert "$table_prefix = 'wp_';" in block_lines
+
+
+def test_select_naming_an_unoffered_define_fails_loud() -> None:
+    # Arrange — a selection naming a define the records never offered is a corrupt
+    # join between the resolver and the classifier.
+    payload = {
+        "wp_config": scaffold_without_markers(),
+        "defines": [{"name": "WP_DEBUG", "value": True}],
+        "select": ["WP_DEBUG", "NOT_OFFERED"],
+        "table_prefix": "wp_",
+        "cron": "run",
+    }
+
+    # Act.
+    result = run_block(payload)
+
+    # Assert.
+    assert result.returncode != 0
+    assert b"wpconfig_block:" in result.stderr
+
+
+def test_select_with_a_duplicate_name_fails_loud() -> None:
+    # Arrange — a repeated selected name would emit two define()s on one constant.
+    payload = {
+        "wp_config": scaffold_without_markers(),
+        "defines": [{"name": "WP_DEBUG", "value": True}],
+        "select": ["WP_DEBUG", "WP_DEBUG"],
+        "table_prefix": "wp_",
+        "cron": "run",
+    }
+
+    # Act.
+    result = run_block(payload)
+
+    # Assert.
+    assert result.returncode != 0
+    assert b"wpconfig_block:" in result.stderr
+
+
+def test_select_that_is_not_a_list_fails_loud() -> None:
+    # Arrange — select must be a list of names.
+    payload = {
+        "wp_config": scaffold_without_markers(),
+        "defines": [{"name": "WP_DEBUG", "value": True}],
+        "select": "WP_DEBUG",
+        "table_prefix": "wp_",
+        "cron": "run",
+    }
+
+    # Act.
+    result = run_block(payload)
+
+    # Assert.
+    assert result.returncode != 0
+    assert b"wpconfig_block:" in result.stderr
+
+
 def test_non_json_input_fails_loud() -> None:
     # Act.
     result = subprocess.run(

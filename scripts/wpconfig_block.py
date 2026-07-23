@@ -10,6 +10,17 @@ defines, production's table prefix, and the cron decision, and returns the new
 full text with a single marked block written and every scaffold collision it
 supersedes removed.
 
+The ``defines`` input is the classifier's portable ``[{name, value}]`` records
+verbatim — the value source, since ``resolve_plan.py`` deliberately resolves the
+``wp_config_defines`` decision to *names only* (their values are re-fetched from
+live state every run). The optional ``select`` input is that resolved name list:
+the gate selection the writer joins against the records, writing only the names
+the operator kept and taking each one's value from its record. That join lives
+here, in the helper, precisely so no agent hand-improvises it on a fatal-sensitive
+file — piping the portable records wholesale would silently port defines the
+operator deselected at the gate (issue #42). When ``select`` is absent every
+record is written, so a caller that already filtered its list is unaffected.
+
 The block is delimited by the exact lines ``// BEGIN kntnt-wp-skills`` /
 ``// END kntnt-wp-skills``. When both markers are present the content between
 them is replaced (idempotent re-run); when neither is present the whole block is
@@ -153,6 +164,51 @@ def _defines(value: Any) -> list[tuple[str, Any]]:
     return records
 
 
+def _select_defines(
+    records: list[tuple[str, Any]], select: Any
+) -> list[tuple[str, Any]]:
+    """Join the resolved gate selection against the portable define records.
+
+    ``select`` is the ``wp_config_defines`` decision's resolved value — the names
+    the operator kept at the gate — while ``records`` carries every portable
+    ``{name, value}`` the classifier offered. The join keeps only the selected
+    names, in the selection's own order, taking each one's value from its record.
+    A ``None`` selection (the field absent) is the identity: every record is
+    written, so a caller that already filtered its list is unaffected.
+
+    Every selected name must name a record; a name the classifier never offered is
+    a corrupt join (the resolver and classifier disagree on the portable set) and
+    fails loud rather than silently dropping the define. Duplicate and malformed
+    ``select`` shapes fail loud at the boundary too.
+    """
+
+    if select is None:
+        return records
+    if not isinstance(select, list):
+        raise WpConfigBlockError(
+            f"select must be a list of names, got {type(select).__name__}"
+        )
+
+    by_name = dict(records)
+    selected: list[tuple[str, Any]] = []
+    seen: set[str] = set()
+    for index, name in enumerate(select):
+        context = f"select[{index}]"
+        if not isinstance(name, str):
+            raise WpConfigBlockError(
+                f"{context} must be a string, got {type(name).__name__}"
+            )
+        if name in seen:
+            raise WpConfigBlockError(f"{context}: duplicate selected name '{name}'")
+        if name not in by_name:
+            raise WpConfigBlockError(
+                f"{context}: '{name}' is not among the portable defines offered"
+            )
+        seen.add(name)
+        selected.append((name, by_name[name]))
+    return selected
+
+
 def _build_block(
     defines: list[tuple[str, Any]], table_prefix: str, cron: str
 ) -> list[str]:
@@ -221,6 +277,11 @@ def write_block(payload: Any) -> dict[str, Any]:
     if cron not in ("run", "disabled"):
         raise WpConfigBlockError("cron must be 'run' or 'disabled'")
     defines = _defines(payload.get("defines", []))
+
+    # Join the resolved gate selection against the portable records: write only the
+    # names the operator kept, valued from their records. Validating the full record
+    # set before the join keeps a malformed record loud even when it is deselected.
+    defines = _select_defines(defines, payload.get("select"))
 
     # Assemble the block up front so a bad literal fails before any line is touched.
     block_lines = _build_block(defines, table_prefix, cron)
