@@ -95,14 +95,15 @@ The plugin's per-segment sealed output for one extraction, opened only client-si
 _Avoid_: artifacts, `db.enc`/`files.enc`
 
 **Segment**:
-One unit inside the sealed container — a single table's dump or a single file — encrypted under its own `crypto_secretbox` key, itself sealed (`crypto_box_seal`) to the run's ephemeral public key.
+One unit inside the sealed container — a bounded slice of a table's dump or a bounded part of a file — encrypted under its own `crypto_secretbox` key, itself sealed (`crypto_box_seal`) to the run's ephemeral public key. A table or a file contributes one *or more* consecutive segments sharing its name, so an entity is reassembled by concatenating every segment carrying that name, in index order; a structure-only table is DDL alone and is always exactly one segment.
+_Avoid_: treating a segment as a whole table
 
 **Ephemeral key pair**:
 The per-run X25519 pair the client generates; only the public half is sent to production (in `POST /extractions`), and the private half never leaves the operator's machine and is never transmitted.
 _Avoid_: passphrase
 
 **Unseal**:
-The client-side reassembly of a sealed container: open each segment key, decrypt each segment, concatenate table segments into one importable `.sql` with a connection-safe preamble, and write file segments to disk by install-root-relative path.
+The client-side reassembly of a sealed container: open each segment key, decrypt each segment, concatenate each table's segments — in index order — into one importable `.sql` with a connection-safe preamble, and write each file's segments to disk by install-root-relative path.
 _Avoid_: decrypt (as the whole operation)
 
 **One-time download link** (`download_url`):

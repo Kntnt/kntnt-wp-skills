@@ -21,7 +21,7 @@ You perform the manifest-and-baseline-diff phase of a `kntnt-wp-skills` `pull` r
 ## Inputs
 
 - `extractor_endpoint`, `plugin_root`, `scratchpad_dir` — as for every phase.
-- `credential` — a **reference** to the HTTP-basic credentials the `GET /files` call authenticates with, never the value itself: either `{ "type": "keychain", "service": ..., "account": ... }`, resolved with `security find-generic-password -s <service> -a <account> -w`, or `{ "type": "env", "name": ... }`, resolved as `$<name>`. You resolve it yourself, inside the call's own subshell — see *Hard rules*.
+- `credential` — a **reference** to the HTTP-basic credentials the `GET /files` call authenticates with, never the value itself: either `{ "type": "keychain", "service": ..., "account": ... }`, resolved with `security find-generic-password -s <service> -a <account> -w`, or `{ "type": "env", "name": ... }`, resolved as `$<name>`. The Keychain account is `<wp-user>@<host>` and **splits on the LAST `@`** — the WordPress `user_login` is frequently itself an email address (`thomas@kntnt.com@safeteam.se` is a real account name), so the host is everything after the final `@` and the `-u` user is everything before it. Splitting on the first `@` produces a user that does not exist, which authenticates as nobody without reporting any error. You resolve it yourself, inside the call's own subshell — see *Hard rules*.
 - `scope` — the resolved exclusion set to filter the manifest against locally: the orchestrator's `scripts/build_exclusions.py` output (`{ "exclusions": [...] }`'s list), the single assembled set the extraction selection was also built from (issue #35) — never a list assembled here or by hand.
 - `baseline` — the stored `.kntnt-wp-skills/last-sync.json` document, or `null` at clone (no baseline exists yet).
 - `write_path` — where the emitted manifest is ultimately stored once this phase succeeds (`.kntnt-wp-skills/last-sync.json`).
@@ -29,6 +29,10 @@ You perform the manifest-and-baseline-diff phase of a `kntnt-wp-skills` `pull` r
 ## What to do
 
 Resolve `credential` inside the `GET /files` call's own subshell — e.g. `curl -u "<user>:$(security find-generic-password -s <service> -a <account> -w)"` for the Keychain shape, or `curl -u "<user>:$<name>"` for the env shape — never into a shell variable you echo, print, or otherwise surface; it exists only inside the subshell of the call that uses it.
+
+Give every Extractor request URL a **unique** `_cb=<value>` query parameter (`_cb=$(date +%s)-$RANDOM` is enough) — `?_cb=...` when the URL has no query string, `&_cb=...` when it already has one, which the paged `GET /files` loop (`?cursor=<opaque>`) does. A page cache or CDN in front of production can otherwise replay a stored response — including a stored refusal — to a call whose credentials are perfectly correct.
+
+Capture the response headers of every Extractor call (`curl -sS -D "<scratchpad_dir>/headers.txt"`) and check them for `x-litespeed-cache: hit`, `cf-cache-status: HIT`, `x-cache: HIT`, `x-proxy-cache: HIT`, or a non-zero `age:`. A cache hit on an authenticated call is **not** an answer: stop immediately and return `FAILED` naming the header and the endpoint — *"production served a CACHED response to an authenticated Extractor call"* — and never retry past it (the retry hits the same cache key) and never fold the cached body into anything you emit.
 
 1. Fetch production's whole install-root tree over `GET /files` — not scoped to content, and including WordPress core — unfiltered, no exclusion payload (issue #18: the exclusion set never travels to production). `GET /files` is **paged via the opaque `cursor`**: loop, following the cursor until it is null, and flatten the pages' `files` arrays (each `{ path, size, mtime }`) into one manifest. Write that flattened JSON to `<scratchpad_dir>/manifest-raw.json`.
 2. Filter it locally: pipe `{ "entries": <the flattened manifest's entries>, "unreadable": <any subtree the walk could not read, else an empty list>, "exclusions": scope }` to `uv run "${plugin_root}/scripts/filter_manifest.py"`, which restricts it to the in-scope entries and attaches `scope` as its own — or aborts loudly instead if the manifest reports any unreadable directory, since a silently-incomplete tree cannot be trusted for the deletion gate; if it aborts, stop and return `FAILED` with its diagnostic, per the Role section above. Write the result to `<scratchpad_dir>/manifest-current.json`.
@@ -53,6 +57,8 @@ Resolve `credential` inside the `GET /files` call's own subshell — e.g. `curl 
 
 ## Hard rules
 
+- Never trust a response carrying a cache-hit header on an authenticated call — return `FAILED` naming the header and the endpoint instead of using its body.
+- Never issue an Extractor request without its unique `_cb` cache-buster, and never reuse one across calls.
 - Never ask the operator anything.
 - Never send the exclusion scope to production — filtering happens locally, after the unfiltered fetch, per issue #18.
 - Never diff against local file mtimes — only production-now against the stored baseline.

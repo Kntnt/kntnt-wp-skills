@@ -23,7 +23,7 @@ You perform the discovery-and-classify phase of a `kntnt-wp-skills` `clone` or `
 The task prompt gives you:
 
 - `extractor_endpoint` — the Kntnt Extractor REST base URL the health check already verified as targeting production and at API version ≥ 2.
-- `credential` — a **reference** to the HTTP-basic credentials for the both-capability calls (`GET /environment`, `GET /tables`, `GET /files`, and the bootstrap extraction), never the value itself: either `{ "type": "keychain", "service": ..., "account": ... }`, resolved with `security find-generic-password -s <service> -a <account> -w`, or `{ "type": "env", "name": ... }`, resolved as `$<name>`. You resolve it yourself, inside the authenticated call's own subshell, at the moment each call needs it — see *Hard rules*.
+- `credential` — a **reference** to the HTTP-basic credentials for the both-capability calls (`GET /environment`, `GET /tables`, `GET /files`, and the bootstrap extraction), never the value itself: either `{ "type": "keychain", "service": ..., "account": ... }`, resolved with `security find-generic-password -s <service> -a <account> -w`, or `{ "type": "env", "name": ... }`, resolved as `$<name>`. The Keychain account is `<wp-user>@<host>` and **splits on the LAST `@`** — the WordPress `user_login` is frequently itself an email address (`thomas@kntnt.com@safeteam.se` is a real account name), so the host is everything after the final `@` and the `-u` user is everything before it. Splitting on the first `@` produces a user that does not exist, which authenticates as nobody without reporting any error. You resolve it yourself, inside the authenticated call's own subshell, at the moment each call needs it — see *Hard rules*.
 - `plugin_root` — `${CLAUDE_PLUGIN_ROOT}`, so you can locate `scripts/unseal.py`, `scripts/bootstrap_parse.py`, `scripts/discovery.py`, and `scripts/classify.py`.
 - `table_prefix` — production's table prefix (from the health check's `GET /environment`), which `bootstrap_parse.py` needs.
 - `scratchpad_dir` — where to write the large JSON documents this phase produces.
@@ -31,6 +31,10 @@ The task prompt gives you:
 ## What to do
 
 Resolve `credential` inside each authenticated call's own subshell — e.g. `curl -u "<user>:$(security find-generic-password -s <service> -a <account> -w)"` for the Keychain shape, or `curl -u "<user>:$<name>"` for the env shape — never into a shell variable you echo, print, or otherwise surface; it exists only inside the subshell of the call that uses it.
+
+Give every Extractor request URL a **unique** `_cb=<value>` query parameter (`_cb=$(date +%s)-$RANDOM` is enough) — `?_cb=...` when the URL has no query string, `&_cb=...` when it already has one, which the paged `GET /files` loop (`?cursor=<opaque>`) does. A page cache or CDN in front of production can otherwise replay a stored response — including a stored refusal — to a call whose credentials are perfectly correct.
+
+Capture the response headers of every Extractor call (`curl -sS -D "<scratchpad_dir>/headers.txt"`) and check them for `x-litespeed-cache: hit`, `cf-cache-status: HIT`, `x-cache: HIT`, `x-proxy-cache: HIT`, or a non-zero `age:`. A cache hit on an authenticated call is **not** an answer: stop immediately and return `FAILED` naming the header and the endpoint — *"production served a CACHED response to an authenticated Extractor call"* — and never retry past it (the retry hits the same cache key) and never fold the cached body into anything you emit.
 
 1. Gather the three discovery sources over the REST surface:
    - `GET /environment` — the runtime/config scalars (home/site URLs, content/uploads paths, core version, table prefix, PHP version, database flavour/version/collation), the active plugins, the drop-ins, and the resolved `wp-config` defines with the secret family already redacted server-side.
@@ -60,6 +64,8 @@ On `FAILED`, include the failing helper's stderr as `error` instead of the count
 
 ## Hard rules
 
+- Never trust a response carrying a cache-hit header on an authenticated call — return `FAILED` naming the header and the endpoint instead of using its body.
+- Never issue an Extractor request without its unique `_cb` cache-buster, and never reuse one across calls.
 - Never ask the operator anything — you have no way to reach them and no way to pause the run.
 - Never fabricate a count, a checksum, or an exit code — every evidence-block field must come from something you actually ran.
 - Never inline the raw discovery or classification JSON in your response — only their scratchpad paths.

@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.7.0] – 2026-08-13
+
+### Added
+
+- `scripts/unseal.py` reads a container in which a table arrives as **one or more** consecutive segments sharing its name, concatenating them in index order into the reassembled dump. Kntnt Extractor 0.4.0 packages a large table in bounded row slices across as many ticks as it takes — one sealed segment per slice — because a table exceeding the host's `memory_limit` or `max_execution_time` was previously killed mid-tick and retried forever, making the site unclonable; the reader's positional check assumed exactly one segment per table and refused such a container outright. The newline terminator is applied once per table rather than once per segment, so a sliced dump is byte-identical to an unsliced one. The old one-segment shape is the one-slice case of the same rule and still reads, so the Extractor API floor stays at ≥ 2 and a client works against an un-upgraded production install. Validation stays strict: a structure-only table is still required to be exactly one segment, and a container that does not match the requested selection is still refused rather than reassembled into the wrong thing.
+
+### Fixed
+
+- The control channel no longer mistakes a failed authentication, or a cached error response, for a missing capability. Three changes, one root cause: an authentication attempt with a **wrong username** is treated as anonymous by WordPress — `wp_authenticate_application_password()` short-circuits silently on an unknown login and returns no error of its own — so the caller sees only `rest_not_logged_in`, and on a site behind a page cache that anonymous-looking refusal was cached and replayed to every later call, correct credentials included. (1) Every Extractor request now carries a unique `_cb` cache-buster (`&`-appended in the paged `GET /files` cursor loop, which already has a query string), so no intermediary can answer a call from a stored response. (2) The health check's step 2 establishes **who** is authenticated — from a credentialed `GET /status`'s `authenticated_as` and `capabilities` on Extractor API version ≥ 4, and otherwise from a same-username/wrong-password probe whose `incorrect_password` proves the `Authorization` header arrives — before it interprets any refusal; the old inference from a `403` on `/environment` beside a `200` on `/audit-log` was unsound, since a cached refusal and a wrong username both mimic it exactly. (3) An authenticated response carrying `x-litespeed-cache: hit`, `cf-cache-status: HIT`, `x-cache: HIT`, `x-proxy-cache: HIT`, or a non-zero `age:` now raises a loud, specific diagnostic and aborts, instead of being read as a genuine answer. `docs/implementation-notes.md` gains a symptom-to-cause troubleshooting table for the three indistinguishable causes.
+- The Keychain account convention `<wp-user>@<host>` is now documented as splitting on the **last** `@`, never the first. The WordPress `user_login` is frequently an email address in its own right — `thomas@kntnt.com@safeteam.se` is a real, valid account name — so a first-`@` split produces the login `thomas`, which does not exist, and authenticates as nobody without reporting any error. The documentation now states explicitly that the first component is the `user_login` (often an email), where an operator finds theirs (**Users → Profile → Username**), and that a credentialed `GET /status` reports it back as `authenticated_as`.
+
 ## [0.6.0] – 2026-07-24
 
 ### Added
@@ -108,7 +119,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - Initial release.
 
-[Unreleased]: https://github.com/Kntnt/kntnt-wp-skills/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/Kntnt/kntnt-wp-skills/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.7.0
 [0.6.0]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.6.0
 [0.5.0]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.5.0
 [0.4.1]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.4.1

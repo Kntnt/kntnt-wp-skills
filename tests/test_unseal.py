@@ -293,6 +293,258 @@ def test_seal_malformed_segment_reports_clear_diagnostic(tmp_path: Path) -> None
     assert not container.exists()
 
 
+def test_multi_slice_table_reassembles_byte_identical_to_a_single_segment(tmp_path: Path) -> None:
+    """From Extractor API version 5 a table is packaged in bounded slices of rows
+    across several ticks, each its own sealed segment under the table's own name
+    (kntnt-extractor ADR-0013). Slices are cut on extended-``INSERT`` boundaries,
+    so concatenating them in index order must reproduce the whole-table dump byte
+    for byte — the reassembled ``.sql`` is identical whichever shape arrived."""
+
+    public_key, private_key_path = _keygen(tmp_path)
+
+    slices = [
+        "DROP TABLE IF EXISTS `wp_posts`;\nCREATE TABLE `wp_posts` (id INT);\nINSERT INTO `wp_posts` VALUES (1),(2);\n",
+        "INSERT INTO `wp_posts` VALUES (3),(4);\n",
+        "INSERT INTO `wp_posts` VALUES (5);\n",
+    ]
+
+    # The same table, once as three consecutive slices and once whole, so the two
+    # reassembled dumps can be compared directly rather than against a literal.
+    sliced_container = tmp_path / "sliced.kntntext"
+    _seal(sliced_container, public_key, [{"name": "wp_posts", "data": _b64(part)} for part in slices])
+    whole_container = tmp_path / "whole.kntntext"
+    _seal(whole_container, public_key, [{"name": "wp_posts", "data": _b64("".join(slices))}])
+
+    selection = {
+        "private_key_path": str(private_key_path),
+        "tables": ["wp_posts"],
+        "structure_only": [],
+        "files": [],
+    }
+    sliced_sql = tmp_path / "sliced.sql"
+    sliced = _run(
+        "unseal",
+        {
+            **selection,
+            "container_path": str(sliced_container),
+            "sql_path": str(sliced_sql),
+            "files_root": str(tmp_path / "sliced-files"),
+        },
+    )
+    whole_sql = tmp_path / "whole.sql"
+    whole = _run(
+        "unseal",
+        {
+            **selection,
+            "container_path": str(whole_container),
+            "sql_path": str(whole_sql),
+            "files_root": str(tmp_path / "whole-files"),
+        },
+    )
+
+    assert sliced.returncode == 0, sliced.stderr.decode()
+    assert whole.returncode == 0, whole.stderr.decode()
+    assert sliced_sql.read_bytes() == whole_sql.read_bytes()
+    # No separator is injected between slices of one table: the rows run on.
+    assert "VALUES (1),(2);\nINSERT INTO `wp_posts` VALUES (3),(4);\n" in sliced_sql.read_text()
+    # The count reports tables, not segments — three slices are still one table.
+    assert json.loads(sliced.stdout)["tables_written"] == 1
+
+
+def test_multi_slice_table_concatenates_in_index_order(tmp_path: Path) -> None:
+    """The slices of one table are reassembled in the sealed index's own order,
+    not in any order the reader chooses — a dump whose rows are transposed would
+    still import, so nothing downstream would catch a reordering here."""
+
+    public_key, private_key_path = _keygen(tmp_path)
+    container = tmp_path / "artifact.kntntext"
+    _seal(
+        container,
+        public_key,
+        [
+            {"name": "wp_options", "data": _b64("-- SLICE-A\n")},
+            {"name": "wp_options", "data": _b64("-- SLICE-B\n")},
+            {"name": "wp_options", "data": _b64("-- SLICE-C\n")},
+        ],
+    )
+
+    sql_path = tmp_path / "dump.sql"
+    result = _run(
+        "unseal",
+        {
+            "container_path": str(container),
+            "private_key_path": str(private_key_path),
+            "sql_path": str(sql_path),
+            "files_root": str(tmp_path / "files"),
+            "tables": ["wp_options"],
+            "structure_only": [],
+            "files": [],
+        },
+    )
+
+    assert result.returncode == 0, result.stderr.decode()
+    sql = sql_path.read_text()
+    assert sql.index("SLICE-A") < sql.index("SLICE-B") < sql.index("SLICE-C")
+
+
+def test_mixed_container_of_sliced_and_unsliced_tables_reassembles(tmp_path: Path) -> None:
+    """A real extraction slices only the tables that need it: a big table arrives
+    as several segments while a small one still arrives as exactly one, in the
+    same container. Both must reassemble, in the requested table order, with the
+    structure-only DDL that follows them untouched by the slicing rule."""
+
+    public_key, private_key_path = _keygen(tmp_path)
+    container = tmp_path / "artifact.kntntext"
+    _seal(
+        container,
+        public_key,
+        [
+            {"name": "wp_posts", "data": _b64("INSERT INTO wp_posts VALUES (1);\n")},
+            {"name": "wp_postmeta", "data": _b64("INSERT INTO wp_postmeta VALUES (1);\n")},
+            {"name": "wp_postmeta", "data": _b64("INSERT INTO wp_postmeta VALUES (2);\n")},
+            {"name": "wp_postmeta", "data": _b64("INSERT INTO wp_postmeta VALUES (3);\n")},
+            {"name": "wp_options", "data": _b64("INSERT INTO wp_options VALUES (1);\n")},
+            {"name": "wp_actionscheduler_logs", "data": _b64("CREATE TABLE wp_actionscheduler_logs (id INT);\n")},
+            {"name": "wp-content/uploads/big.bin", "data": _b64("PART-ONE-")},
+            {"name": "wp-content/uploads/big.bin", "data": _b64("PART-TWO")},
+        ],
+    )
+
+    sql_path = tmp_path / "out" / "dump.sql"
+    files_root = tmp_path / "out" / "files"
+    result = _run(
+        "unseal",
+        {
+            "container_path": str(container),
+            "private_key_path": str(private_key_path),
+            "sql_path": str(sql_path),
+            "files_root": str(files_root),
+            "tables": ["wp_posts", "wp_postmeta", "wp_options"],
+            "structure_only": ["wp_actionscheduler_logs"],
+            "files": ["wp-content/uploads/big.bin"],
+        },
+    )
+
+    assert result.returncode == 0, result.stderr.decode()
+    report = json.loads(result.stdout)
+    # Three tables, however many segments they took to arrive.
+    assert report["tables_written"] == 3
+    assert report["structure_only_written"] == 1
+    assert report["files_written"] == 1
+
+    sql = sql_path.read_text()
+    assert sql.count("INSERT INTO wp_postmeta") == 3
+    assert sql.index("INSERT INTO wp_posts") < sql.index("INSERT INTO wp_postmeta VALUES (1)")
+    assert sql.index("INSERT INTO wp_postmeta VALUES (3)") < sql.index("INSERT INTO wp_options")
+    assert sql.index("INSERT INTO wp_options") < sql.index("CREATE TABLE wp_actionscheduler_logs")
+    assert (files_root / "wp-content/uploads/big.bin").read_text() == "PART-ONE-PART-TWO"
+
+
+def test_sliced_container_still_refuses_a_mismatched_selection(tmp_path: Path) -> None:
+    """Tolerating repeated names must not weaken the selection check into
+    "anything goes": a container carrying a table this run never asked for is
+    refused exactly as a single-segment mismatch always was."""
+
+    public_key, private_key_path = _keygen(tmp_path)
+    container = tmp_path / "artifact.kntntext"
+    _seal(
+        container,
+        public_key,
+        [
+            {"name": "wp_posts", "data": _b64("INSERT INTO wp_posts VALUES (1);\n")},
+            {"name": "wp_posts", "data": _b64("INSERT INTO wp_posts VALUES (2);\n")},
+            {"name": "wp_comments", "data": _b64("INSERT INTO wp_comments VALUES (1);\n")},
+        ],
+    )
+
+    sql_path = tmp_path / "dump.sql"
+    result = _run(
+        "unseal",
+        {
+            "container_path": str(container),
+            "private_key_path": str(private_key_path),
+            "sql_path": str(sql_path),
+            "files_root": str(tmp_path / "files"),
+            "tables": ["wp_posts"],
+            "structure_only": [],
+            "files": [],
+        },
+    )
+
+    assert result.returncode != 0
+    assert "do not match the requested" in result.stderr.decode()
+    assert not sql_path.exists()
+
+
+def test_a_missing_requested_table_is_refused_however_the_others_were_sliced(tmp_path: Path) -> None:
+    """The mirror of the check above: a container whose slices exhaust before the
+    requested tables do is short of a table, and is refused rather than yielding a
+    dump that silently lacks one."""
+
+    public_key, private_key_path = _keygen(tmp_path)
+    container = tmp_path / "artifact.kntntext"
+    _seal(
+        container,
+        public_key,
+        [
+            {"name": "wp_posts", "data": _b64("INSERT INTO wp_posts VALUES (1);\n")},
+            {"name": "wp_posts", "data": _b64("INSERT INTO wp_posts VALUES (2);\n")},
+        ],
+    )
+
+    sql_path = tmp_path / "dump.sql"
+    result = _run(
+        "unseal",
+        {
+            "container_path": str(container),
+            "private_key_path": str(private_key_path),
+            "sql_path": str(sql_path),
+            "files_root": str(tmp_path / "files"),
+            "tables": ["wp_posts", "wp_comments"],
+            "structure_only": [],
+            "files": [],
+        },
+    )
+
+    assert result.returncode != 0
+    assert not sql_path.exists()
+
+
+def test_structure_only_table_is_never_sliced(tmp_path: Path) -> None:
+    """A structure-only table is DDL and nothing else, so the plugin emits exactly
+    one segment for it however large the table is (kntnt-extractor
+    ``Artifact_Builder::advance``). A container claiming two is not a shape the
+    plugin can produce, and is refused rather than silently concatenated."""
+
+    public_key, private_key_path = _keygen(tmp_path)
+    container = tmp_path / "artifact.kntntext"
+    _seal(
+        container,
+        public_key,
+        [
+            {"name": "wp_actionscheduler_logs", "data": _b64("CREATE TABLE wp_actionscheduler_logs (id INT);\n")},
+            {"name": "wp_actionscheduler_logs", "data": _b64("-- impossible second DDL segment\n")},
+        ],
+    )
+
+    sql_path = tmp_path / "dump.sql"
+    result = _run(
+        "unseal",
+        {
+            "container_path": str(container),
+            "private_key_path": str(private_key_path),
+            "sql_path": str(sql_path),
+            "files_root": str(tmp_path / "files"),
+            "tables": [],
+            "structure_only": ["wp_actionscheduler_logs"],
+            "files": [],
+        },
+    )
+
+    assert result.returncode != 0
+    assert not sql_path.exists()
+
+
 def test_selection_mismatch_fails_closed(tmp_path: Path) -> None:
     """When the container's sealed index does not match the expected selection,
     the helper refuses rather than silently reassemble the wrong thing."""

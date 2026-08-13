@@ -46,11 +46,14 @@ trailer:
     index_length (8 bytes, unsigned 64-bit little-endian)  <- the final 8 bytes
 ```
 
-Segments are written full-data tables first (one each), then structure-only
-tables (one DDL-only each), then files split into bounded parts sharing one
-installation-root-relative name. The reader locates the sealed index from the
-final 8 bytes, unseals the ordered names, walks the self-framed records, and
-reassembles by name.
+Segments are written full-data tables first, then structure-only tables (one
+DDL-only segment each), then files. A full-data table and a file are packaged by
+the same rule: each contributes one *or more* consecutive segments sharing one
+name — a table sliced into bounded batches of rows from Extractor API version 5
+(kntnt-extractor ADR-0013), a file split into bounded parts since the format
+existed. The reader locates the sealed index from the final 8 bytes, unseals the
+ordered names, walks the self-framed records, and reassembles each entity by
+concatenating every segment carrying its name, in index order.
 """
 
 from __future__ import annotations
@@ -233,27 +236,76 @@ def _parse_segments(container: bytes, public_key: bytes, private_key: bytes) -> 
     return segments
 
 
-def _validate_selection(names: list[str], tables: list[str], structure_only: list[str], files: list[str]) -> None:
-    """Confirm the container's ordered names match the expected selection.
+def _group_consecutive(segments: list[tuple[str, bytes]]) -> list[tuple[str, bytes]]:
+    """Concatenate each run of consecutive same-named segments into one entity.
 
-    Tables come first (one segment each), then structure-only tables, then the
-    file parts whose distinct names, in first-appearance order, are the file set.
-    A mismatch means the container is not what this run asked for, so it is
-    refused rather than reassembled into the wrong thing.
+    A full-data table contributes one or more consecutive slices under its own
+    name from Extractor API version 5 (kntnt-extractor ADR-0013), exactly as an
+    oversized file has always contributed several parts; an older Extractor
+    contributes exactly one. Joining the run's bytes — rather than treating each
+    segment as a whole entity — is what makes both shapes reassemble identically:
+    slices are cut on extended-``INSERT`` boundaries, so their concatenation is
+    the whole-table dump byte for byte, and nothing may be inserted between them.
     """
 
-    table_count = len(tables) + len(structure_only)
-    if names[:len(tables)] != tables:
-        raise UnsealError("Container's full-data table segments do not match the requested tables.")
-    if names[len(tables):table_count] != structure_only:
-        raise UnsealError("Container's structure-only segments do not match the requested tables.")
+    # Collect each run's parts, extending the open run while the name repeats.
+    groups: list[tuple[str, list[bytes]]] = []
+    for name, plaintext in segments:
+        if groups and groups[-1][0] == name:
+            groups[-1][1].append(plaintext)
+            continue
+        groups.append((name, [plaintext]))
 
+    return [(name, b"".join(chunks)) for name, chunks in groups]
+
+
+def _validate_selection(names: list[str], tables: list[str], structure_only: list[str], files: list[str]) -> tuple[int, int]:
+    """Confirm the container's ordered names match the expected selection.
+
+    Full-data tables come first, each carrying one or more consecutive segments
+    under its own name; then structure-only tables, each exactly one DDL-only
+    segment, since DDL is never sliced (kntnt-extractor
+    ``Artifact_Builder::advance``); then the file parts whose distinct names, in
+    first-appearance order, are the file set. A mismatch means the container is
+    not what this run asked for, so it is refused rather than reassembled into
+    the wrong thing.
+
+    Returns the two offsets into ``names`` that separate the three regions, so
+    the caller splits the segments on the boundaries proven here rather than
+    recomputing them from list lengths that no longer describe the container.
+
+    Because a table's run is consumed greedily, a selection that names the same
+    entity twice — or a file whose install-root-relative path is byte-identical
+    to a requested table's name — cannot be told apart from a sliced table and is
+    refused. That is the safe direction: no such selection is one the plugin
+    accepts, and refusing beats reassembling the segments into the wrong entity.
+    """
+
+    # Consume each requested table's whole run of slices, in the requested order.
+    offset = 0
+    for table in tables:
+        if offset >= len(names) or names[offset] != table:
+            raise UnsealError("Container's full-data table segments do not match the requested tables.")
+        while offset < len(names) and names[offset] == table:
+            offset += 1
+    tables_end = offset
+
+    # Consume one — and only one — DDL segment per requested structure-only table.
+    for table in structure_only:
+        if offset >= len(names) or names[offset] != table:
+            raise UnsealError("Container's structure-only segments do not match the requested tables.")
+        offset += 1
+    structure_end = offset
+
+    # Whatever remains is the file region, whose distinct names are the file set.
     distinct_files: list[str] = []
-    for name in names[table_count:]:
+    for name in names[structure_end:]:
         if name not in distinct_files:
             distinct_files.append(name)
     if distinct_files != files:
         raise UnsealError("Container's file segments do not match the requested files.")
+
+    return tables_end, structure_end
 
 
 def _safe_destination(files_root: Path, name: str) -> Path:
@@ -292,21 +344,24 @@ def run_unseal(config: dict[str, Any]) -> dict[str, Any]:
 
     container = container_path.read_bytes()
     segments = _parse_segments(container, public_key, private_key)
-    _validate_selection([name for name, _ in segments], tables, structure_only, files)
+    tables_end, structure_end = _validate_selection([name for name, _ in segments], tables, structure_only, files)
 
-    table_count = len(tables) + len(structure_only)
-
-    # Reassemble the dump: preamble, every table segment in order, trailer.
+    # Reassemble the dump: preamble, every table whole, trailer. Each region is
+    # grouped on its own so a run can never be joined across the boundary the
+    # validation just proved, and the newline terminator is applied once per
+    # table rather than once per slice — inserting one between a table's slices
+    # would break the byte-identity the plugin's statement-boundary cut gives.
     sql_parts = [SQL_PREAMBLE]
-    for _, plaintext in segments[:table_count]:
-        text = plaintext.decode("utf-8")
-        sql_parts.append(text if text.endswith("\n") else text + "\n")
+    for region in (segments[:tables_end], segments[tables_end:structure_end]):
+        for _, plaintext in _group_consecutive(region):
+            text = plaintext.decode("utf-8")
+            sql_parts.append(text if text.endswith("\n") else text + "\n")
     sql_parts.append(SQL_TRAILER)
 
     # Group consecutive same-named file parts and write each file whole.
     file_bytes: dict[str, bytearray] = {}
     file_order: list[str] = []
-    for name, plaintext in segments[table_count:]:
+    for name, plaintext in segments[structure_end:]:
         if name not in file_bytes:
             file_bytes[name] = bytearray()
             file_order.append(name)
