@@ -296,9 +296,12 @@ def test_seal_malformed_segment_reports_clear_diagnostic(tmp_path: Path) -> None
 def test_multi_slice_table_reassembles_byte_identical_to_a_single_segment(tmp_path: Path) -> None:
     """From Extractor API version 5 a table is packaged in bounded slices of rows
     across several ticks, each its own sealed segment under the table's own name
-    (kntnt-extractor ADR-0013). Slices are cut on extended-``INSERT`` boundaries,
-    so concatenating them in index order must reproduce the whole-table dump byte
-    for byte — the reassembled ``.sql`` is identical whichever shape arrived."""
+    (kntnt-extractor ADR-0013). While the row budget is what bounds a slice it is
+    cut on extended-``INSERT`` boundaries, so concatenating the slices in index
+    order reproduces the whole-table dump byte for byte — the reassembled ``.sql``
+    is identical whichever shape arrived. (The byte budget added in API version 6
+    can cut inside a batch instead; that shape is the next test's, and it is why
+    reassembly may assume a complete *statement* per slice and nothing more.)"""
 
     public_key, private_key_path = _keygen(tmp_path)
 
@@ -349,6 +352,67 @@ def test_multi_slice_table_reassembles_byte_identical_to_a_single_segment(tmp_pa
     assert "VALUES (1),(2);\nINSERT INTO `wp_posts` VALUES (3),(4);\n" in sliced_sql.read_text()
     # The count reports tables, not segments — three slices are still one table.
     assert json.loads(sliced.stdout)["tables_written"] == 1
+
+
+def test_byte_bounded_slices_with_uneven_statements_reassemble(tmp_path: Path) -> None:
+    """From Extractor API version 6 a slice is bounded by bytes as well as by
+    rows, and a byte-bounded cut lands on the row that fills the budget rather
+    than on a statement-batch boundary — so a table of fat rows arrives as
+    ``INSERT``s carrying uneven numbers of rows, unlike anything an unsliced dump
+    would emit.
+
+    This is the shape the cross-repo contract actually has to survive. The single
+    property reassembly may rely on is that every slice ends on a *complete*
+    statement; it may not rely on the batches being uniform, nor on the result
+    matching a single-segment dump byte for byte. The last time an Extractor
+    release changed the artifact's shape, both repositories' suites stayed green
+    and the client silently kept only each table's final slice, so the shape is
+    pinned here rather than left to be discovered in a run.
+    """
+
+    public_key, private_key_path = _keygen(tmp_path)
+
+    # Uneven batches, each a closed statement: what a byte budget produces when a
+    # few fat rows fill it partway through a batch.
+    slices = [
+        "DROP TABLE IF EXISTS `wp_rcb_template`;\nCREATE TABLE `wp_rcb_template` (id INT, body LONGTEXT);\n"
+        "INSERT INTO `wp_rcb_template` VALUES (1,'aaa'),(2,'bbb'),(3,'ccc');\n",
+        "INSERT INTO `wp_rcb_template` VALUES (4,'ddd');\n",
+        "INSERT INTO `wp_rcb_template` VALUES (5,'eee'),(6,'fff');\n",
+    ]
+    container = tmp_path / "artifact.kntntext"
+    _seal(
+        container,
+        public_key,
+        [{"name": "wp_rcb_template", "data": _b64(part)} for part in slices],
+    )
+
+    sql_path = tmp_path / "dump.sql"
+    result = _run(
+        "unseal",
+        {
+            "container_path": str(container),
+            "private_key_path": str(private_key_path),
+            "sql_path": str(sql_path),
+            "files_root": str(tmp_path / "files"),
+            "tables": ["wp_rcb_template"],
+            "structure_only": [],
+            "files": [],
+        },
+    )
+
+    assert result.returncode == 0, result.stderr.decode()
+    sql = sql_path.read_text()
+
+    # Every row survives, in order, with no separator injected between slices and
+    # no statement broken across the join.
+    assert "".join(slices) in sql
+    for row_id in range(1, 7):
+        assert f"({row_id}," in sql
+    assert "VALUES (1,'aaa'),(2,'bbb'),(3,'ccc');\nINSERT INTO `wp_rcb_template` VALUES (4,'ddd');\n" in sql
+
+    # Three slices are still one table, whatever their statements carried.
+    assert json.loads(result.stdout)["tables_written"] == 1
 
 
 def test_multi_slice_table_concatenates_in_index_order(tmp_path: Path) -> None:

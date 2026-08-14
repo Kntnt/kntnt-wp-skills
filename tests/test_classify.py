@@ -1495,6 +1495,95 @@ def test_no_form_plugins_active_yields_no_integrations() -> None:
     assert findings == []
 
 
+def test_the_ws_form_fluentcrm_addon_names_the_service() -> None:
+    # Arrange — the pairing a real site ran that the initial registry missed
+    # entirely: the slug matched the WS Form prefix but no known service, so the
+    # mandatory risk-warning bullet vanished without a word.
+    document = {"plugins": {"active": [
+        "ws-form/ws-form.php",
+        "ws-form-fluentcrm/ws-form-fluentcrm.php",
+    ]}}
+
+    # Act.
+    findings = classify_document(document)["integrations"]["form_to_service"]
+
+    # Assert — the service is named, not merely suspected.
+    assert len(findings) == 1
+    assert findings[0]["service"] == "FluentCRM"
+    assert findings[0]["warning"] == (
+        "submitting form WS Form locally writes to live service FluentCRM"
+    )
+
+
+def test_an_unrecognised_service_addon_is_reported_not_silently_dropped() -> None:
+    # Arrange — an add-on of a recognised form plugin whose service is in no
+    # registry, which is the state every registry is in the day before it is
+    # extended.
+    document = {"plugins": {"active": [
+        "ws-form/ws-form.php",
+        "ws-form-someneversedservice/ws-form-someneversedservice.php",
+    ]}}
+
+    # Act.
+    findings = classify_document(document)["integrations"]["form_to_service"]
+
+    # Assert — the operator is told to look, and the finding claims no service
+    # name it cannot know. The empty service is what marks it unidentified.
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding["form"] == "WS Form"
+    assert finding["service"] == ""
+    assert "unidentified live service" in finding["warning"]
+    assert "ws-form-someneversedservice" in finding["warning"]
+
+
+def test_a_known_non_service_addon_is_not_reported() -> None:
+    # Arrange — add-ons that extend their host plugin without connecting to any
+    # third party; flagging these would drown the real findings in noise.
+    document = {"plugins": {"active": [
+        "ws-form/ws-form.php",
+        "ws-form-pro/ws-form-pro.php",
+        "ws-form-signature/ws-form-signature.php",
+        "gravityforms/gravityforms.php",
+        "gravityformscli/gravityformscli.php",
+        "wpforms-lite/wpforms-lite.php",
+    ]}}
+
+    # Act.
+    findings = classify_document(document)["integrations"]["form_to_service"]
+
+    # Assert.
+    assert findings == []
+
+
+def test_a_service_addon_with_a_trailing_tier_still_names_the_service() -> None:
+    # Arrange — the service token is not the last one in the slug, which a bare
+    # end-of-string match would miss and silently downgrade to unidentified.
+    document = {"plugins": {"active": [
+        "ws-form-mailchimp-pro/ws-form-mailchimp-pro.php",
+    ]}}
+
+    # Act.
+    findings = classify_document(document)["integrations"]["form_to_service"]
+
+    # Assert.
+    assert len(findings) == 1
+    assert findings[0]["service"] == "Mailchimp"
+
+
+def test_a_remainder_merely_ending_in_a_service_name_is_not_that_service() -> None:
+    # Arrange — whole-token matching is what keeps a coincidental letter run from
+    # asserting a service the add-on has nothing to do with.
+    document = {"plugins": {"active": ["ws-form-predrip/ws-form-predrip.php"]}}
+
+    # Act.
+    findings = classify_document(document)["integrations"]["form_to_service"]
+
+    # Assert — reported, but as unidentified rather than as Drip.
+    assert len(findings) == 1
+    assert findings[0]["service"] == ""
+
+
 def test_a_malformed_active_plugin_entry_fails_loudly() -> None:
     # Arrange — a non-string element in plugins.active, which the raw discovery
     # seam can pass through unvalidated.

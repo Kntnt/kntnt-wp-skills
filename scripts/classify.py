@@ -190,20 +190,78 @@ CRM_SUBSCRIBER_TABLE_EXACT: frozenset[str] = frozenset({"newsletter"})
 # slug characteristically starts with its host form plugin's slug and ends
 # with the connected service's slug — WS Form's own add-on distribution
 # scheme, and the shape Gravity Forms' official add-ons share without the
-# hyphen. This is the initial pattern set the issue names; extending either
-# registry covers a newly observed pairing without touching the matching
-# logic.
+# hyphen. Extending any of the three registries below covers a newly observed
+# pairing without touching the matching logic.
+#
+# The three registries are deliberately asymmetric in how they fail when they
+# lag reality, because this is a safety check and reality always moves first.
+# A form-prefixed add-on whose suffix is in neither service registry yields an
+# *unidentified-service* finding rather than silence: `ws-form-fluentcrm` on a
+# real site matched a prefix, matched no suffix, and so dropped the mandatory
+# risk-warning bullet without a word — the one outcome a check that exists to
+# stop a local form submission writing into a live service must never have.
 FORM_PLUGIN_PREFIXES: dict[str, str] = {
     "ws-form": "WS Form",
     "wpforms": "WPForms",
     "gravityforms": "Gravity Forms",
     "fluentform": "Fluent Forms",
 }
+
+# Add-on suffixes that name the live third-party service they write into. A
+# match here yields a finding that states the service by name. Both on-site
+# engines (FluentCRM, MailPoet) and hosted ones belong here: an on-site CRM's
+# own subscriber gate (ADR-0019) empties the table, but the add-on still fires
+# a submission at whatever list the local copy is configured against.
 SERVICE_CONNECTOR_SUFFIXES: dict[str, str] = {
-    "mailchimp": "Mailchimp",
+    "activecampaign": "ActiveCampaign",
+    "aweber": "AWeber",
+    "brevo": "Brevo",
+    "campaignmonitor": "Campaign Monitor",
+    "constantcontact": "Constant Contact",
+    "convertkit": "ConvertKit",
+    "drip": "Drip",
+    "fluentcrm": "FluentCRM",
+    "getresponse": "GetResponse",
     "hubspot": "HubSpot",
+    "klaviyo": "Klaviyo",
+    "mailchimp": "Mailchimp",
+    "mailerlite": "MailerLite",
+    "mailpoet": "MailPoet",
+    "pipedrive": "Pipedrive",
+    "salesforce": "Salesforce",
+    "sendinblue": "Sendinblue",
+    "slack": "Slack",
+    "trello": "Trello",
+    "twilio": "Twilio",
     "zapier": "Zapier",
+    "zohocrm": "Zoho CRM",
 }
+
+# Add-on suffixes known to connect to no third-party service at all — a form
+# plugin's own paid tier, or a feature add-on that stays entirely on the site.
+# This registry exists only to keep the unidentified-service finding from
+# crying wolf on every WS Form or Gravity Forms install; unlike the two above
+# it is an exemption list, so when it lags it lags in the *loud* direction: an
+# add-on absent from both registries is reported for the operator to judge,
+# never assumed harmless.
+NON_SERVICE_ADDON_SUFFIXES: frozenset[str] = frozenset({
+    "cli",
+    "conversational-forms",
+    "coupons",
+    "form-pages",
+    "lite",
+    "pdf",
+    "polls",
+    "post-management",
+    "pro",
+    "quiz",
+    "signature",
+    "submissions",
+    "survey",
+    "surveys",
+    "surveys-polls",
+    "userregistration",
+})
 
 # A subdirectory is a heavy blob only when it clears an absolute floor *and*
 # stands out from its peers — both together, so a uniformly large library is not
@@ -749,12 +807,23 @@ def detect_form_to_service_integrations(active_plugins: list[Any]) -> list[dict[
     """Detect per-submission form-to-service integrations from the active-plugins
     list.
 
-    A finding fires when one active plugin's directory slug both starts with a
-    recognised form-plugin prefix and ends with a recognised service-connector
-    suffix — the shape a form plugin's own service add-on takes (WS Form's own
-    add-on distribution scheme; Gravity Forms' official add-ons the same way
-    without the hyphen). The bare host slug itself never matches, since a host
-    plugin's own presence carries no service and is not a hazard on its own.
+    An active plugin qualifies when its directory slug starts with a recognised
+    form-plugin prefix without being that bare prefix — the shape a form
+    plugin's own add-on takes (WS Form's own add-on distribution scheme;
+    Gravity Forms' official add-ons the same way without the hyphen). The bare
+    host slug itself never matches, since a host plugin's own presence carries
+    no service and is not a hazard on its own.
+
+    What the add-on's remaining slug says then decides which of three outcomes
+    it earns, and the asymmetry between them is the point. A remainder naming a
+    known service yields a finding stating that service. A remainder listed as
+    a known non-service add-on yields nothing. **Anything else yields an
+    unidentified-service finding**, because a registry of third-party services
+    always lags the sites it is run against, and this check exists precisely to
+    stop a local form submission writing into a live one. Silence on the
+    unrecognised is the one outcome it must never produce: `ws-form-fluentcrm`
+    on a real site matched a prefix, matched no suffix, and dropped the
+    mandatory risk-warning bullet without a word.
 
     Presence alone is the signal, mirroring ``detect_multilingual`` in
     discovery.py: an add-on plugin cannot function without its host, and it is
@@ -763,10 +832,12 @@ def detect_form_to_service_integrations(active_plugins: list[Any]) -> list[dict[
     this a risk. Each finding carries the matched plugin entry, the form and
     service labels, and the ready-composed consequence sentence the
     risk-warning step lists verbatim, so classification — not the runtime
-    skill — decides the wording (ADR-0005). A non-string entry earns the
-    branded ``classify:`` fail-loud diagnostic rather than an uncaught
-    traceback, since the raw discovery seam passes these list elements through
-    without validating each one.
+    skill — decides the wording (ADR-0005). An unidentified finding carries an
+    empty ``service``, which is what a consumer distinguishes the two kinds by,
+    and a warning that names the add-on rather than asserting a service it does
+    not know. A non-string entry earns the branded ``classify:`` fail-loud
+    diagnostic rather than an uncaught traceback, since the raw discovery seam
+    passes these list elements through without validating each one.
     """
 
     findings: list[dict[str, str]] = []
@@ -775,21 +846,60 @@ def detect_form_to_service_integrations(active_plugins: list[Any]) -> list[dict[
             raise ClassifyError(
                 f"plugins.active[{index}]: expected str, got {type(plugin).__name__}"
             )
+
+        # Reduce the entry to its add-on remainder under the first host prefix it
+        # carries; a slug has exactly one host plugin, so the first match settles it.
         slug = plugin.split("/", 1)[0]
-        for prefix, form in FORM_PLUGIN_PREFIXES.items():
-            if slug == prefix or not slug.startswith(prefix):
-                continue
-            for suffix, service in SERVICE_CONNECTOR_SUFFIXES.items():
-                if slug.endswith(suffix):
-                    findings.append({
-                        "plugin": plugin,
-                        "form": form,
-                        "service": service,
-                        "warning": (
-                            f"submitting form {form} locally writes to live "
-                            f"service {service}"
-                        ),
-                    })
+        match = next(
+            (
+                (form, slug[len(prefix):].lstrip("-"))
+                for prefix, form in FORM_PLUGIN_PREFIXES.items()
+                if slug != prefix and slug.startswith(prefix)
+            ),
+            None,
+        )
+        if match is None:
+            continue
+        form, remainder = match
+
+        # Name the service when the remainder is one, stay quiet when it is a known
+        # non-service add-on, and report an unidentified service otherwise. Matching
+        # is on whole hyphen-delimited tokens rather than a bare string suffix, so
+        # `ws-form-mailchimp-pro` still names Mailchimp and a remainder that merely
+        # ends in the letters of a service ("predrip") never does.
+        tokens = remainder.split("-")
+        service = next(
+            (
+                label
+                for suffix, label in SERVICE_CONNECTOR_SUFFIXES.items()
+                if remainder == suffix or suffix in tokens
+            ),
+            None,
+        )
+        if service is not None:
+            findings.append({
+                "plugin": plugin,
+                "form": form,
+                "service": service,
+                "warning": (
+                    f"submitting form {form} locally writes to live "
+                    f"service {service}"
+                ),
+            })
+        elif not (
+            remainder in NON_SERVICE_ADDON_SUFFIXES
+            or any(token in NON_SERVICE_ADDON_SUFFIXES for token in tokens)
+        ):
+            findings.append({
+                "plugin": plugin,
+                "form": form,
+                "service": "",
+                "warning": (
+                    f"submitting form {form} locally may write to an "
+                    f"unidentified live service through add-on {slug} — "
+                    f"verify what it connects to before submitting anything"
+                ),
+            })
 
     return findings
 

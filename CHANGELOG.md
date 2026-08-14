@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.8.0] – 2026-08-14
+
+### Added
+
+- The Extractor version pin gains a **verified ceiling** alongside its floor: the skills are checked against API version ≤ 6, and a `GET /status` reporting more stops for the operator (aborting under `--yes`) rather than proceeding on an artifact contract this client has never been tested against. A floor alone cannot catch the hazard that actually occurred: API version 5 changed a table from exactly one sealed segment into one *or more*, and an un-updated client kept only each table's final slice — every other slice lost, with no error raised on either side and both repositories' suites green throughout. `tests/test_api_version_ceiling_consistency.py` binds the ceiling across every surface that states the pin, so raising it is a deliberate act of verification rather than an omission.
+
+### Changed
+
+- `scripts/classify.py` no longer stays silent about a form plugin's add-on it does not recognise. A slug carrying a recognised form-plugin prefix now earns one of three outcomes: a finding naming the service, silence when the remainder is a known non-service add-on (a paid tier, a PDF or signature feature), or an **unidentified-service finding** naming the add-on for the operator to check. `safeteam.se` runs `ws-form-fluentcrm`, which matched the `ws-form` prefix and no service suffix, so the mandatory form-to-service bullet in the risk warning — the one check standing between a local form submission and a live CRM — was dropped without a word (ADR-0009). The two registries now lag in opposite directions on purpose: extending the service registry improves the wording, extending the non-service registry removes noise, and an add-on in neither is reported rather than assumed harmless. The service registry also gained FluentCRM and eighteen other engines, and matching is on whole hyphen-delimited tokens, so `ws-form-mailchimp-pro` names Mailchimp and a remainder merely ending in a service's letters does not.
+- Both `clone` and `pull` list an unidentified-service finding exactly like a named one — an unrecognised service is one the operator has to check, not one to leave out.
+- The poll discipline's stall rule counts `progress.chunks_done` as an advance, alongside the state change and the two coarse counters it already watched (ADR-0018). Those two move only when a whole table or a whole file finishes, so a job slicing one large table reported `3/186` unchanged for minutes while perfectly healthy — indistinguishable from a wedged job, and worked around by widening the 10-minute stall window to 2400 s, which is how a genuinely dead job comes to take forty minutes to notice. Kntnt Extractor 0.5.0 adds `chunks_done`, which moves on every packaging chunk; the stall window therefore stays at 10 minutes. Against an Extractor below API version 6 the field is absent and the rule degrades to its previous form, with the fallback stated in the run's output rather than an absent field read as a stall.
+- `agents/discovery-classify.md` and `agents/extract-transfer.md` state that a poll loop is one blocking, self-terminating shell invocation, never one tool call per poll, and that the agent returns **exactly once, with a verdict**. `discovery-classify` returned three times mid-bootstrap saying it was still waiting — ~55k tokens each, no evidence block, every piece of real work already done — because its contract gave it no way to wait out a job taking minutes and no way to resume polling after a return. An exhausted budget is now a `FAILED` carrying the job id and last counters, so the orchestrator can consume or cancel the still-active job instead of leaving one wedged against the plugin's one-active-job rule.
+- `discovery-classify` creates its own working directory under the run's scratchpad and may name only artifacts it wrote there in its evidence block. In the same run it reported artifacts the *orchestrator* had produced, with matching SHA256s, while its own `consume` returned `404` because the orchestrator had already consumed the job — an evidence block is only evidence when nothing else could have written the files it describes.
+
+### Fixed
+
+- The container-format contract in `docs/implementation-notes.md` stated that slices concatenate to the whole-table dump byte for byte because the plugin cuts them on extended-`INSERT` boundaries. From Extractor API version 6 a slice is bounded by bytes as well as rows and a byte-bounded cut lands on the row that fills the budget, so the statement grouping differs from an unsliced dump's. The contract now states the property that actually holds and that reassembly relies on — **every slice ends on a complete statement** — and says explicitly that byte-identity is not among them. `tests/test_unseal.py` pins the uneven-statement shape that a byte budget produces.
+
 ## [0.7.0] – 2026-08-13
 
 ### Added
@@ -119,7 +137,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - Initial release.
 
-[Unreleased]: https://github.com/Kntnt/kntnt-wp-skills/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/Kntnt/kntnt-wp-skills/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.8.0
 [0.7.0]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.7.0
 [0.6.0]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.6.0
 [0.5.0]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.5.0
