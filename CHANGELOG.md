@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.9.0] – 2026-08-14
+
 ### Added
 
 - `docs/poll-discipline.md` is the poll discipline's canonical statement, and the two consistency suites now read their pinned phrases **from it** instead of restating them in Python. The literals had been living inside `tests/test_poll_discipline_consistency.py`, which made a test file the source of truth for a product decision, and every rule stated only in prose was free to drift — as it did: the two poll-owning agents came to state the same new ban in different words, and the binding meant to catch that had to be loosened to accept both. Changing a rule is now one edit in the document plus the matching edit in each surface, and the suites refuse the change until every surface has followed. The surfaces still restate the discipline in full, because an agent definition loaded standalone must carry the whole rule set; what the document adds is one place where the wording is decided, and a pointer to it from each surface. A guard test pins the expected phrase names, so a phrase vanishing from the document reddens rather than quietly disabling its own enforcement.
@@ -145,7 +147,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - Initial release.
 
-[Unreleased]: https://github.com/Kntnt/kntnt-wp-skills/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/Kntnt/kntnt-wp-skills/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.9.0
 [0.8.0]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.8.0
 [0.7.0]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.7.0
 [0.6.0]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.6.0
