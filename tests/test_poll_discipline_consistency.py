@@ -35,6 +35,7 @@ import re
 from pathlib import Path
 
 import pytest
+from conftest import pinned_phrases
 
 # Repository layout. This test sits at ``tests/``, one level below the root.
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
@@ -53,14 +54,19 @@ FULL_DISCIPLINE_DOCS: tuple[tuple[str, Path], ...] = (
     ("extract-transfer agent", EXTRACT_TRANSFER),
 )
 
-# The pinned literals of the discipline, as they appear in prose. The cadence
-# and timeout anchor on their exact phrasing; the stall window and the main
-# budget anchor on the values themselves.
-PINNED_LITERALS: tuple[tuple[str, str], ...] = (
-    ("15 s poll cadence", r"every 15 s"),
-    ("120 s per-request timeout", r"120 s per-request timeout"),
-    ("10-minute stall window", r"10-minute stall window"),
-    ("3600 s main budget", r"\b3600\b"),
+# The pinned literals of the discipline, read from the canonical document rather
+# than restated here: ``docs/poll-discipline.md`` is where the rule lives, and
+# this suite is only its enforcement. The confirmed-vanished rule comes from the
+# same place, in both its full and compact forms.
+FULL_FORM_PHRASES: dict[str, str] = pinned_phrases(
+    "Pinned phrases — every surface stating the discipline in full"
+)
+COMPACT_FORM_PHRASES: dict[str, str] = pinned_phrases("Pinned phrases — the compact form")
+
+PINNED_LITERALS: tuple[tuple[str, str], ...] = tuple(
+    (name, phrase)
+    for name, phrase in FULL_FORM_PHRASES.items()
+    if name != "confirmed-vanished rule, full form"
 )
 
 # The live surfaces an agent actually loads or is pointed at — the skills,
@@ -78,20 +84,13 @@ LIVE_SURFACES: tuple[Path, ...] = (
 # The confirmed-vanished rule (issue #41), stated identically in full in every
 # surface that spells the main-extraction poll discipline out in full. A `404`
 # alone is a transport-class blip, never terminal on its own.
-CONFIRMED_VANISHED_FULL: str = (
-    "a confirmed-vanished job (a `404`, treated as a transport-class fault "
-    "and retried under the existing 30 s / 60 s backoff, that also `404`s "
-    "on re-poll with the id absent from `GET /extractions` — a single "
-    "`404` is logged and retried, never terminal on its own, and polling "
-    "continues within budget)"
-)
+CONFIRMED_VANISHED_FULL: str = FULL_FORM_PHRASES["confirmed-vanished rule, full form"]
 
 # The compact form of the same rule, carried by the bootstrap loop's
 # reference in ``agents/discovery-classify.md`` alongside its own budget.
-CONFIRMED_VANISHED_COMPACT: str = (
-    "a confirmed-vanished job (`404`, re-confirmed via `GET /extractions` "
-    "and a second poll)"
-)
+CONFIRMED_VANISHED_COMPACT: str = COMPACT_FORM_PHRASES[
+    "confirmed-vanished rule, compact form"
+]
 
 
 @pytest.mark.parametrize("doc_name, path", FULL_DISCIPLINE_DOCS)
@@ -104,10 +103,11 @@ def test_poll_discipline_literals_are_pinned(
     drift apart on cadence, timeout, stall window, or budget."""
 
     text = path.read_text(encoding="utf-8")
-    assert re.search(pattern, text), (
-        f"{doc_name} is missing the {literal_name} literal /{pattern}/ — "
+    assert pattern in text, (
+        f"{doc_name} is missing the {literal_name} literal {pattern!r} — "
         "the poll discipline's pinned values must appear in every surface "
-        "that states the loop (issue #34, ADR-0018)"
+        "that states the loop (issue #34, ADR-0018), and they are defined in "
+        "docs/poll-discipline.md, never here"
     )
 
 
@@ -118,7 +118,7 @@ def test_bootstrap_poll_carries_its_fifteen_minute_budget() -> None:
     wall-clock bound without loading any other file."""
 
     text = DISCOVERY_CLASSIFY.read_text(encoding="utf-8")
-    assert re.search(r"15-minute", text), (
+    assert COMPACT_FORM_PHRASES["bootstrap budget"] in text, (
         "discovery-classify agent is missing the bootstrap poll's 15-minute "
         "overall budget (issue #34, ADR-0018)"
     )
