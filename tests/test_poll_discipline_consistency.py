@@ -34,6 +34,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import poll_extraction as pe
 import pytest
 from conftest import pinned_phrases
 
@@ -69,6 +70,19 @@ PINNED_LITERALS: tuple[tuple[str, str], ...] = tuple(
     if name != "confirmed-vanished rule, full form"
 )
 
+# The numeric phrases are bound to ``scripts/poll_extraction.py``, not restated
+# as fresh literals here — the script is the decision, the document is its
+# wording, and this map is the assertion that the two have not drifted.
+SCRIPT_BOUND_PHRASES: tuple[tuple[str, str], ...] = (
+    ("poll cadence", f"every {pe.POLL_CADENCE_SECONDS} s"),
+    (
+        "per-request timeout",
+        f"{pe.PER_REQUEST_TIMEOUT_SECONDS} s per-request timeout",
+    ),
+    ("stall window", "10-minute stall window"),
+    ("main-extraction budget", str(pe.MAIN_BUDGET_SECONDS)),
+)
+
 # The live surfaces an agent actually loads or is pointed at — the skills,
 # the subagent definitions, the spec, the notes, and the manpages. The ADRs
 # are historical records and legitimately describe the old
@@ -91,6 +105,23 @@ CONFIRMED_VANISHED_FULL: str = FULL_FORM_PHRASES["confirmed-vanished rule, full 
 CONFIRMED_VANISHED_COMPACT: str = COMPACT_FORM_PHRASES[
     "confirmed-vanished rule, compact form"
 ]
+
+
+def test_canonical_phrases_match_the_script_literals() -> None:
+    """The document's pinned numeric phrases are exactly the script's constants,
+    so changing a cadence or budget in one place without the other reddens."""
+
+    for name, expected in SCRIPT_BOUND_PHRASES:
+        assert FULL_FORM_PHRASES[name] == expected, (
+            f"docs/poll-discipline.md's {name!r} is {FULL_FORM_PHRASES[name]!r}, "
+            f"but scripts/poll_extraction.py binds {expected!r}"
+        )
+    assert COMPACT_FORM_PHRASES["bootstrap budget"] == "15-minute"
+    assert pe.BOOTSTRAP_BUDGET_SECONDS == 15 * 60
+    assert pe.PREFLIGHT_BUDGET_SECONDS == 10 * 60
+    assert pe.STALL_WINDOW_SECONDS == 10 * 60
+    assert pe.BACKOFF_FIRST_SECONDS == 30
+    assert pe.BACKOFF_SECOND_SECONDS == 60
 
 
 @pytest.mark.parametrize("doc_name, path", FULL_DISCIPLINE_DOCS)

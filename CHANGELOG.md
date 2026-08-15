@@ -6,6 +6,7 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Changed
 
+- The poll loop is now `scripts/poll_extraction.py`: one blocking invocation, one terminal verdict, the eight discipline literals in code so an agent cannot re-derive the cadence, timeouts, backoff, confirmed-vanished check, stall window, or the three budgets from prose. The Application Password is `KNTNT_EXTRACTOR_APP_PASSWORD` in that one process's environment — never argv, never printed. The poll-owning agents and both skills invoke the helper; the consistency suites bind the pinned phrases to the script's constants.
 - The main extraction is submitted with `strict: false`, so a file that vanished between the `GET /files` walk and the `POST` is skipped and reported rather than failing the whole job. `extract-transfer` sends the member, surfaces any `skipped_files` the create or poll returns, and unseals against the remaining file list — the container only holds what the plugin packaged. A missing table is still a hard `404`; the error `data` now names every missing table and every missing file, so the recovery is no longer a full re-walk. `strict` defaults to today's hard fail on an older Extractor that ignores the member, and the new fields are additive, so the verified API-version ceiling stays ≤ 6.
 
 ### Fixed

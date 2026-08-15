@@ -165,3 +165,19 @@ def test_discovery_classify_owns_its_working_directory() -> None:
         "discovery-classify.md's Hard rules do not forbid claiming an artifact "
         "it did not write itself"
     )
+
+
+@pytest.mark.parametrize("name", POLLING_AGENTS)
+def test_polling_agent_invokes_the_poll_helper(name: str) -> None:
+    """Each poll-owning subagent names ``scripts/poll_extraction.py`` as the
+    loop it runs, so it cannot fall back to writing a fresh shell loop."""
+
+    body = _body(AGENTS_DIR / f"{name}.md")
+    assert "scripts/poll_extraction.py" in body, (
+        f"{name}.md never names scripts/poll_extraction.py — the poll loop "
+        "lives in that helper, not in a loop the agent writes"
+    )
+    assert "KNTNT_EXTRACTOR_APP_PASSWORD" in body, (
+        f"{name}.md never names KNTNT_EXTRACTOR_APP_PASSWORD — the secret "
+        "must be documented as environment-only for the helper"
+    )

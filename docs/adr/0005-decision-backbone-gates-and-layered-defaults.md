@@ -8,3 +8,4 @@ Defaults layer without precedence ceremony: `built-in default < live derivation 
 
 - Adding a new decision means adding one gate to the ordered list; all three run modes get it for free.
 - The AI writes recommendations (e.g. from the blob heuristic) but never decides freely — the gate is the authority.
+- The same "never decide freely" rule puts every other deterministic decision in `scripts/` — an agent cannot re-derive a poll cadence, a stall window, or a confirmed-vanished check differently each run ([ADR-0018](./0018-poll-discipline-and-two-chunk-preflight.md), `scripts/poll_extraction.py`).

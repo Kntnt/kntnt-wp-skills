@@ -8,7 +8,7 @@ A subagent is loaded standalone into its own context. It cannot be trusted to fo
 
 What is pinned, and what is not: **headings, hard rules, and the numeric literals are carried verbatim; the narrative around them is each surface's own voice.** A SKILL file explaining the discipline to an orchestrator and an agent definition instructing a subagent legitimately read differently, and forcing them word-for-word identical would make both worse. What may not differ is a rule's own statement — that is what drifts unnoticed.
 
-This file is what holds it together. The phrases pinned below are the ones every restatement must carry verbatim, and `tests/test_poll_discipline_consistency.py` and `tests/test_poll_agent_single_verdict_consistency.py` read them **from here**. Changing a rule is one edit in this file plus the matching edit in each surface; the tests then refuse the change until every surface has followed. Before this file existed the literals lived inside the test, which made a test file the source of truth for a product decision and left every rule stated only in prose free to drift — as it did: two agents came to state the same new ban in different words, and the binding that was supposed to catch that had to be loosened to accommodate both.
+This file is what holds it together. The phrases pinned below are the ones every restatement must carry verbatim, and `tests/test_poll_discipline_consistency.py` and `tests/test_poll_agent_single_verdict_consistency.py` read them **from here**. The numeric literals themselves live in `scripts/poll_extraction.py` — that is the binding, so an agent cannot re-derive the loop — and the consistency suite asserts these phrases match those constants. Changing a rule is one edit in the script, the matching edit here, and the matching edit in each surface; the tests then refuse the change until every surface has followed. Before this file existed the literals lived inside the test, which made a test file the source of truth for a product decision and left every rule stated only in prose free to drift — as it did: two agents came to state the same new ban in different words, and the binding that was supposed to catch that had to be loosened to accommodate both.
 
 ## The discipline
 
@@ -20,7 +20,7 @@ This file is what holds it together. The phrases pinned below are the ones every
 
 **Terminal conditions.** `state == "failed"`, a confirmed-vanished job, no advance within the 10-minute stall window, or exhaustion of the loop's overall budget. Nothing else — any number of individual transport failures keeps the loop polling within its budget.
 
-**How the loop is executed.** One blocking shell invocation that polls until it reaches a terminal verdict and exits, never one tool call per poll, and the agent returns exactly once with a verdict. See *Pinned phrases — the poll-owning subagents*, below.
+**How the loop is executed.** One blocking invocation of `scripts/poll_extraction.py` that polls until it reaches a terminal verdict and exits, never one tool call per poll and never a loop the agent writes itself, and the agent returns exactly once with a verdict. The Application Password is passed in that one process's environment (`KNTNT_EXTRACTOR_APP_PASSWORD`), never on argv. See *Pinned phrases — the poll-owning subagents*, below.
 
 ## Pinned phrases — every surface stating the discipline in full
 
@@ -81,7 +81,7 @@ a confirmed-vanished job (`404`, re-confirmed via `GET /extractions` and a secon
 ### the wait-in-one-loop heading
 
 ```text
-Wait inside one shell loop, never across returns
+Wait inside one poll_extraction.py invocation, never across returns
 ```
 
 ### the give-up line the loop must print

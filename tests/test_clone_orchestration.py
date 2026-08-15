@@ -49,6 +49,7 @@ REQUIRED_HELPERS: tuple[str, ...] = (
     "scripts/filter_manifest.py",
     "scripts/build_selection.py",
     "scripts/unseal.py",
+    "scripts/poll_extraction.py",
     "scripts/dump_sanity.py",
 )
 

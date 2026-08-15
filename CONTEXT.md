@@ -83,6 +83,10 @@ Local plugins/themes with no production counterpart — dev tools to keep or jun
 The Kntnt Extractor plugin's own background job that dumps, archives, seals, and publishes the selection outside the docroot. The skills submit it (`POST /extractions`) and poll it to a terminal state; they own none of its mechanics.
 _Avoid_: pack, pack job
 
+**Poll helper**:
+`scripts/poll_extraction.py` — the one blocking invocation that waits on an extraction job and exits with a terminal verdict plus the poll telemetry. Agents invoke it; they do not write the loop. The Application Password is `KNTNT_EXTRACTOR_APP_PASSWORD` in that process's environment, never argv.
+_Avoid_: poll loop (as something an agent writes)
+
 **Selection**:
 The explicit lists submitted to an extraction — full-data `tables`, structure-only `tables_structure_only`, and `files` — all computed client-side, so only what survives every exclusion is ever named. The main extraction is submitted with `strict: false`, so a file that vanishes between the manifest walk and the POST is dropped by the plugin rather than failing the job.
 _Avoid_: pack list
