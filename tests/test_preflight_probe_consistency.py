@@ -103,6 +103,25 @@ def test_slow_probe_warning_names_backstop_cadence(
     )
 
 
+@pytest.mark.parametrize("doc_name, path", WARNING_DOCS)
+def test_fast_preflight_is_not_a_promise_about_the_main_extraction(
+    doc_name: str, path: Path
+) -> None:
+    """A silent-pass preflight only proved the loopback and continuation
+    path on two structure-only tables. Both skills must say so, so a few
+    seconds of green is never read as a promise about a large table or a
+    large file."""
+
+    text = path.read_text(encoding="utf-8")
+    assert re.search(r"not a promise about the main extraction", text), (
+        f"{doc_name} never states that a fast preflight is not a promise "
+        "about the main extraction"
+    )
+    assert re.search(r"large table", text) and re.search(r"large file", text), (
+        f"{doc_name} never names the sizes a fast preflight cannot speak for"
+    )
+
+
 @pytest.mark.parametrize(
     "path", LIVE_SURFACES, ids=lambda p: str(p.relative_to(REPO_ROOT))
 )
