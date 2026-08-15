@@ -80,7 +80,6 @@ SCRIPT_BOUND_PHRASES: tuple[tuple[str, str], ...] = (
         f"{pe.PER_REQUEST_TIMEOUT_SECONDS} s per-request timeout",
     ),
     ("stall window", "10-minute stall window"),
-    ("main-extraction budget", str(pe.MAIN_BUDGET_SECONDS)),
 )
 
 # The live surfaces an agent actually loads or is pointed at — the skills,
@@ -122,6 +121,8 @@ def test_canonical_phrases_match_the_script_literals() -> None:
     assert pe.STALL_WINDOW_SECONDS == 10 * 60
     assert pe.BACKOFF_FIRST_SECONDS == 30
     assert pe.BACKOFF_SECOND_SECONDS == 60
+    assert FULL_FORM_PHRASES["main-extraction budget"] == "the stall window is the stop"
+    assert not hasattr(pe, "MAIN_BUDGET_SECONDS")
 
 
 @pytest.mark.parametrize("doc_name, path", FULL_DISCIPLINE_DOCS)

@@ -14,11 +14,11 @@ This file is what holds it together. The phrases pinned below are the ones every
 
 **Cadence and timeouts.** Poll every 15 s after a successful poll, with a 120 s per-request timeout. On a transport timeout, connection error, or 5xx, log it and retry after 30 s — 60 s from the second consecutive failure — resetting to the 15 s cadence on the next success. A single bad response is never failure. The cadence is not arbitrary: it matches the Extractor's default `tick_budget`, and on a detachable host every poll advances the job in-process after the response is sent, so polling is propulsion and is never backed off while polls succeed.
 
-**Overall budgets.** 10 minutes for the preflight, 15 minutes for the bootstrap, 3600 s (`poll_max_wait_seconds`) for the main extraction.
+**Overall budgets.** 10 minutes for the preflight, 15 minutes for the bootstrap. The main extraction has no overall wall-clock budget — the stall window is the stop.
 
 **What counts as an advance.** A state change, an increase in `progress.chunks_done`, or an increase in the sum `progress.tables_done + progress.files_done`. `chunks_done` (Extractor API version 6 and up) is the one that matters: the other two move only when a whole table or a whole file finishes, so a job slicing one large table looks exactly like a wedged one. A `queued` job carries no counters, so its stall clock runs on state alone. Against an Extractor below API version 6 the field is absent — fall back to the coarse counters, widen the stall window, and say so in the run's output rather than reading an absent field as a stall.
 
-**Terminal conditions.** `state == "failed"`, a confirmed-vanished job, no advance within the 10-minute stall window, or exhaustion of the loop's overall budget. Nothing else — any number of individual transport failures keeps the loop polling within its budget.
+**Terminal conditions.** `state == "failed"`, a confirmed-vanished job, or no advance within the 10-minute stall window. A preflight or bootstrap loop also fails on exhaustion of its own overall budget. Nothing else — any number of individual transport failures keeps the loop polling.
 
 **How the loop is executed.** One blocking invocation of `scripts/poll_extraction.py` that polls until it reaches a terminal verdict and exits, never one tool call per poll and never a loop the agent writes itself, and the agent returns exactly once with a verdict. The Application Password is passed in that one process's environment (`KNTNT_EXTRACTOR_APP_PASSWORD`), never on argv. See *Pinned phrases — the poll-owning subagents*, below.
 
@@ -47,7 +47,7 @@ every 15 s
 ### main-extraction budget
 
 ```text
-3600
+the stall window is the stop
 ```
 
 ### confirmed-vanished rule, full form

@@ -1,7 +1,7 @@
 """Behavioural tests for the extraction-poll helper.
 
 The helper is the deterministic seam that waits on a Kntnt Extractor job
-(ADR-0018): one blocking invocation, one terminal verdict, the eight
+(ADR-0018): one blocking invocation, one terminal verdict, the seven
 discipline literals living in the script so an agent cannot re-derive the
 loop. Tests drive ``poll()`` through an injected fetcher and clock — never a
 live site — and drive ``main()`` for the CLI and credential contract.
@@ -96,7 +96,7 @@ def _listing(*ids: str) -> pe.HttpResponse:
 def _poll(
     script: dict[str, list[Any]],
     *,
-    budget: int = pe.MAIN_BUDGET_SECONDS,
+    budget: int | None = None,
     clock: FakeClock | None = None,
 ) -> pe.PollResult:
     clock = clock or FakeClock()
@@ -170,7 +170,7 @@ def test_transport_timeout_retries_with_first_backoff_then_succeeds() -> None:
     result = pe.poll(
         endpoint=ENDPOINT,
         job_id=JOB_ID,
-        budget_seconds=pe.MAIN_BUDGET_SECONDS,
+        budget_seconds=None,
         fetch=fetcher,
         clock=clock,
         cache_buster=lambda: "cb1",
@@ -188,7 +188,7 @@ def test_second_consecutive_transport_failure_uses_second_backoff() -> None:
     pe.poll(
         endpoint=ENDPOINT,
         job_id=JOB_ID,
-        budget_seconds=pe.MAIN_BUDGET_SECONDS,
+        budget_seconds=None,
         fetch=ScriptedFetcher(
             {
                 _job_path(): [
@@ -333,8 +333,49 @@ def test_chunks_done_increase_is_an_advance() -> None:
     assert result.verdict == "ready"
 
 
+def test_unbounded_advancing_job_is_not_budget_killed() -> None:
+    """Main extraction has no overall budget: a slow-but-advancing job reaches ready."""
+
+    clock = FakeClock()
+    polls_past_old_hour = 250
+    advancing = [
+        _job(
+            "running",
+            progress={
+                "tables_done": 0,
+                "tables_total": 1,
+                "files_done": i,
+                "files_total": polls_past_old_hour,
+                "chunks_done": i,
+            },
+        )
+        for i in range(1, polls_past_old_hour)
+    ]
+    ready = _job(
+        "ready",
+        download_url="https://example.com/dl",
+        progress={
+            "tables_done": 0,
+            "tables_total": 1,
+            "files_done": polls_past_old_hour,
+            "files_total": polls_past_old_hour,
+            "chunks_done": polls_past_old_hour,
+        },
+    )
+    result = pe.poll(
+        endpoint=ENDPOINT,
+        job_id=JOB_ID,
+        budget_seconds=None,
+        fetch=ScriptedFetcher({_job_path(): [*advancing, ready]}),
+        clock=clock,
+        cache_buster=lambda: "cb1",
+    )
+
+    assert result.verdict == "ready"
+    assert clock.t > 3600
+
 def test_budget_exhaustion_prints_give_up_line() -> None:
-    """A job that keeps advancing still dies when the overall budget expires."""
+    """A preflight/bootstrap job that keeps advancing still dies when its budget expires."""
 
     clock = FakeClock()
     stderr = io.StringIO()
@@ -418,7 +459,7 @@ def test_every_request_carries_a_unique_cache_buster() -> None:
     pe.poll(
         endpoint=ENDPOINT,
         job_id=JOB_ID,
-        budget_seconds=pe.MAIN_BUDGET_SECONDS,
+        budget_seconds=None,
         fetch=fetcher,
         clock=FakeClock(),
         cache_buster=lambda: next(busts),
@@ -433,7 +474,7 @@ def test_main_reads_password_from_env_never_argv(capsys: pytest.CaptureFixture[s
     """The secret lives in ``KNTNT_EXTRACTOR_APP_PASSWORD``, never in argv."""
 
     code = pe.main(
-        [ENDPOINT, JOB_ID, "3600", "--user", "thomas"],
+        [ENDPOINT, JOB_ID, "--user", "thomas"],
         environ={},
     )
     captured = capsys.readouterr()
@@ -451,7 +492,7 @@ def test_main_never_echoes_the_password(capsys: pytest.CaptureFixture[str]) -> N
         {_job_path(): [_job("ready", download_url="https://example.com/dl")]}
     )
     code = pe.main(
-        [ENDPOINT, JOB_ID, "3600", "--user", "thomas"],
+        [ENDPOINT, JOB_ID, "--user", "thomas"],
         environ={pe.PASSWORD_ENV: PASSWORD},
         fetch=fetcher,
         clock=FakeClock(),
@@ -472,13 +513,13 @@ def test_main_rejects_password_flag() -> None:
 
     with pytest.raises(SystemExit):
         pe.main(
-            [ENDPOINT, JOB_ID, "3600", "--user", "thomas", "--password", PASSWORD],
+            [ENDPOINT, JOB_ID, "--user", "thomas", "--password", PASSWORD],
             environ={pe.PASSWORD_ENV: PASSWORD},
         )
 
 
 def test_literals_are_the_eight_pinned_values() -> None:
-    """The script owns the eight discipline literals — move them, do not invent."""
+    """The script owns the seven discipline literals — move them, do not invent."""
 
     assert pe.POLL_CADENCE_SECONDS == 15
     assert pe.PER_REQUEST_TIMEOUT_SECONDS == 120
@@ -487,4 +528,4 @@ def test_literals_are_the_eight_pinned_values() -> None:
     assert pe.STALL_WINDOW_SECONDS == 600
     assert pe.PREFLIGHT_BUDGET_SECONDS == 600
     assert pe.BOOTSTRAP_BUDGET_SECONDS == 900
-    assert pe.MAIN_BUDGET_SECONDS == 3600
+    assert not hasattr(pe, "MAIN_BUDGET_SECONDS")

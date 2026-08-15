@@ -7,8 +7,9 @@
 This helper is the deterministic seam of the poll discipline (ADR-0018): one
 blocking invocation waits on ``GET /extractions/{id}`` and exits exactly once
 with a verdict plus the telemetry an evidence block needs. Agents invoke it;
-they do not write the loop. The eight numeric literals live here so they
-cannot be re-derived differently each run.
+they do not write the loop. The seven numeric literals live here so they
+cannot be re-derived differently each run. The main extraction has no
+overall wall-clock budget — omit the argv — and the stall window is the stop.
 
 The Application Password is read from ``KNTNT_EXTRACTOR_APP_PASSWORD`` in this
 process's environment. It is never accepted on argv, never printed, and never
@@ -17,9 +18,9 @@ form, not ``export`` — so the secret exists only inside the call that uses it.
 
 Stdout is one JSON object with ``verdict``, ``observed``, and ``inferred``
 separated. Stderr is the progress log, including ``gave up after N minutes``
-when a stall window or overall budget expires. Do not pipe stdout through
-``tee`` without ``set -o pipefail``: the pipeline's exit code must be this
-helper's, not tee's.
+when a stall window or a bounded loop's budget expires. Do not pipe stdout
+through ``tee`` without ``set -o pipefail``: the pipeline's exit code must
+be this helper's, not tee's.
 
 Exit codes: 0 ready, 1 usage / missing secret, 2 failed state, 3
 confirmed-vanished, 4 stall, 5 budget, 6 cache-hit.
@@ -41,8 +42,9 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any, Protocol, TextIO
 
-# The eight pinned poll-discipline literals (ADR-0018). Move them; do not
-# invent new ones. Callers pass one of the three budgets as argv.
+# The seven pinned poll-discipline literals (ADR-0018). Move them; do not
+# invent new ones. Preflight and bootstrap pass their budget as argv; the
+# main extraction omits it.
 POLL_CADENCE_SECONDS = 15
 PER_REQUEST_TIMEOUT_SECONDS = 120
 BACKOFF_FIRST_SECONDS = 30
@@ -50,7 +52,6 @@ BACKOFF_SECOND_SECONDS = 60
 STALL_WINDOW_SECONDS = 600
 PREFLIGHT_BUDGET_SECONDS = 600
 BOOTSTRAP_BUDGET_SECONDS = 900
-MAIN_BUDGET_SECONDS = 3600
 
 # Existing credential convention (issue #44) — not a new discipline literal.
 PASSWORD_ENV = "KNTNT_EXTRACTOR_APP_PASSWORD"
@@ -294,7 +295,7 @@ def poll(
     *,
     endpoint: str,
     job_id: str,
-    budget_seconds: int,
+    budget_seconds: int | None,
     fetch: Callable[..., HttpResponse],
     clock: Clock,
     cache_buster: Callable[[], str],
@@ -305,9 +306,9 @@ def poll(
     Args:
         endpoint: Extractor REST base URL, no trailing slash required.
         job_id: The job the caller already submitted.
-        budget_seconds: Overall wall-clock budget (one of the three pinned
-            budgets, passed in so the same helper serves preflight, bootstrap,
-            and main extraction).
+        budget_seconds: Overall wall-clock budget for the preflight or
+            bootstrap, or ``None`` for the main extraction (no overall budget;
+            the stall window is the stop).
         fetch: ``fetch(url, timeout=...) -> HttpResponse``. Transport failures
             are signalled by raising; HTTP statuses ride on the response.
         clock: Injectable time source.
@@ -327,6 +328,8 @@ def poll(
         return clock.now() - started
 
     def remaining() -> float:
+        if budget_seconds is None:
+            return float("inf")
         return budget_seconds - wall()
 
     def give_up(verdict: str, minutes: int, observed: dict[str, Any]) -> PollResult:
@@ -342,8 +345,8 @@ def poll(
 
     while True:
 
-        # Stop when the overall budget is already spent.
-        if remaining() <= 0:
+        # Stop when a bounded loop's overall budget is already spent.
+        if budget_seconds is not None and remaining() <= 0:
             return give_up(
                 "budget",
                 budget_seconds // 60,
@@ -555,7 +558,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("endpoint", help="Extractor REST base URL")
     parser.add_argument("job_id", help="Extraction job id")
-    parser.add_argument("budget", type=int, help="Overall wall-clock budget in seconds")
+    parser.add_argument(
+        "budget",
+        nargs="?",
+        type=int,
+        default=None,
+        help="Overall wall-clock budget in seconds; omit for the main extraction",
+    )
     parser.add_argument("--user", required=True, help="WordPress user_login for HTTP basic auth")
     return parser
 
@@ -582,7 +591,7 @@ def main(
         )
         return EXIT_USAGE
 
-    if args.budget <= 0:
+    if args.budget is not None and args.budget <= 0:
         print("poll_extraction.py: budget must be a positive number of seconds", file=sys.stderr)
         return EXIT_USAGE
 
