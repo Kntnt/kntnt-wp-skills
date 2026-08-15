@@ -84,8 +84,12 @@ The Kntnt Extractor plugin's own background job that dumps, archives, seals, and
 _Avoid_: pack, pack job
 
 **Selection**:
-The explicit lists submitted to an extraction — full-data `tables`, structure-only `tables_structure_only`, and `files` — all computed client-side, so only what survives every exclusion is ever named.
+The explicit lists submitted to an extraction — full-data `tables`, structure-only `tables_structure_only`, and `files` — all computed client-side, so only what survives every exclusion is ever named. The main extraction is submitted with `strict: false`, so a file that vanishes between the manifest walk and the POST is dropped by the plugin rather than failing the job.
 _Avoid_: pack list
+
+**Skipped file**:
+A file named in a `strict: false` submission that no longer existed on production at job creation. The plugin drops it from the packaged selection, records it on the job, and returns it on the create and the poll. The skills surface those paths to the operator and unseal against the remaining file list, because the container does not contain them. A missing table is never skipped.
+_Avoid_: ignored file, optional file
 
 **Structure-only table**:
 A table carried as DROP/CREATE DDL with no rows — how every empty-classified table travels, so the table exists locally with zero rows.
