@@ -270,7 +270,44 @@ def test_stall_without_advance_is_terminal() -> None:
 
     assert result.verdict == "stall"
     assert result.inferred["gave_up_after_minutes"] == pe.STALL_WINDOW_SECONDS // 60
+    assert result.observed["progress"] == {
+        "tables_done": 3,
+        "tables_total": 186,
+        "files_done": 0,
+        "files_total": 0,
+        "chunks_done": 3,
+    }
     assert any(s == pe.POLL_CADENCE_SECONDS for s in clock.sleeps)
+
+
+def test_stall_after_advance_keeps_last_progress() -> None:
+    """A job that moves, then sits still, give-up JSON still carries last counters."""
+
+    clock = FakeClock()
+    first = {
+        "tables_done": 3,
+        "tables_total": 186,
+        "files_done": 0,
+        "files_total": 0,
+        "chunks_done": 3,
+    }
+    later = {
+        "tables_done": 3,
+        "tables_total": 186,
+        "files_done": 0,
+        "files_total": 0,
+        "chunks_done": 4,
+    }
+    polls_after_advance = (pe.STALL_WINDOW_SECONDS // pe.POLL_CADENCE_SECONDS) + 2
+    result = _poll(
+        {_job_path(): [_job("running", progress=first), *[_job("running", progress=later)] * polls_after_advance]},
+        clock=clock,
+    )
+
+    assert result.verdict == "stall"
+    assert result.observed["job_state"] == "running"
+    assert result.observed["progress"] == later
+    assert result.observed["progress"] is not None
 
 
 def test_chunks_done_increase_is_an_advance() -> None:
@@ -326,7 +363,25 @@ def test_budget_exhaustion_prints_give_up_line() -> None:
 
     assert result.verdict == "budget"
     assert result.inferred["gave_up_after_minutes"] == pe.PREFLIGHT_BUDGET_SECONDS // 60
+    assert result.observed["progress"] is not None
+    assert result.observed["progress"]["tables_done"] == 40
+    assert result.observed["progress"]["chunks_done"] == 40
     assert "gave up after 10 minutes" in stderr.getvalue()
+
+
+def test_give_up_without_counters_leaves_progress_null() -> None:
+    """Queued the whole time: give-up JSON has progress null, not invented counters."""
+
+    clock = FakeClock()
+    polls_needed = (pe.STALL_WINDOW_SECONDS // pe.POLL_CADENCE_SECONDS) + 2
+    result = _poll(
+        {_job_path(): [_job("queued")] * polls_needed},
+        clock=clock,
+    )
+
+    assert result.verdict == "stall"
+    assert result.observed["job_state"] == "queued"
+    assert result.observed["progress"] is None
 
 
 def test_cache_hit_is_terminal_not_retried() -> None:

@@ -141,6 +141,7 @@ class _Advance:
     at: float | None = None
     saw_progress: bool = False
     chunks_done_absent: bool = False
+    progress: dict[str, Any] | None = None
 
 
 @dataclass
@@ -349,6 +350,7 @@ def poll(
                 {
                     "job_id": job_id,
                     "job_state": loop.advance.state,
+                    "progress": loop.advance.progress,
                 },
             )
 
@@ -361,7 +363,7 @@ def poll(
                 {
                     "job_id": job_id,
                     "job_state": loop.advance.state,
-                    "progress": None,
+                    "progress": loop.advance.progress,
                 },
             )
 
@@ -465,6 +467,7 @@ def poll(
                 )
             loop.advance.chunks_done_absent = True
 
+        last_progress = payload["progress"] if saw_progress else loop.advance.progress
         if _has_advanced(loop.advance, state, chunks, coarse):
             loop.advance = _Advance(
                 state=state,
@@ -473,7 +476,10 @@ def poll(
                 at=clock.now(),
                 saw_progress=saw_progress,
                 chunks_done_absent=loop.advance.chunks_done_absent,
+                progress=last_progress,
             )
+        elif saw_progress:
+            loop.advance.progress = payload["progress"]
 
         if saw_progress:
             tables = payload["progress"].get("tables_done", "?")
