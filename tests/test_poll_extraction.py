@@ -254,6 +254,32 @@ def test_second_404_with_job_still_listed_continues() -> None:
     assert result.verdict == "ready"
 
 
+def test_never_2xx_without_budget_stalls_from_loop_start() -> None:
+    """Transport-only faults and no budget still give up after the stall window.
+
+    ``advance.at`` is written only after a successful poll. If the stall clock
+    required that stamp, a main-extraction loop that never sees a 2xx would
+    skip both budget and stall and hang. The clock must run from loop start.
+    """
+
+    clock = FakeClock()
+    faults_needed = (pe.STALL_WINDOW_SECONDS // pe.BACKOFF_FIRST_SECONDS) + 2
+    result = pe.poll(
+        endpoint=ENDPOINT,
+        job_id=JOB_ID,
+        budget_seconds=None,
+        fetch=ScriptedFetcher({_job_path(): [TimeoutError("down")] * faults_needed}),
+        clock=clock,
+        cache_buster=lambda: "cb1",
+    )
+
+    assert result.verdict == "stall"
+    assert result.inferred["gave_up_after_minutes"] == pe.STALL_WINDOW_SECONDS // 60
+    assert result.observed["progress"] is None
+    assert clock.t >= pe.STALL_WINDOW_SECONDS
+    assert result.inferred["poll_transport_failures"] > 0
+
+
 def test_stall_without_advance_is_terminal() -> None:
     """Unchanging coarse progress for the stall window is a stall verdict."""
 

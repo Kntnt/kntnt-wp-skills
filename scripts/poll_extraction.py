@@ -358,8 +358,8 @@ def poll(
             )
 
         # Stop when nothing has advanced inside the stall window.
-        last_at = loop.advance.at
-        if last_at is not None and clock.now() - last_at >= STALL_WINDOW_SECONDS:
+        last_at = loop.advance.at if loop.advance.at is not None else started
+        if clock.now() - last_at >= STALL_WINDOW_SECONDS:
             return give_up(
                 "stall",
                 STALL_WINDOW_SECONDS // 60,
