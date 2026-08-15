@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed
+
+- The resolved exclusion set left cache-plugin trees, backup-tool working directories, and the Extractor's own uploads staging in scope. On a live site that meant LiteSpeed's hashed CSS, BackWPup restore logs, and a previous failed job's `.sealed.building` were selected for clone — and the last of those can vanish mid-run because `POST /extractions` reclaims the directory the selection just named. `ALWAYS_EXCLUDED` now covers the known cache-plugin and backup-tool trees (`wp-content/litespeed`, `wp-content/et-cache`, `wp-content/w3tc-*`, `wp-content/uploads/backwpup*`) and the plugin's own three uploads directories as a self-reference, not a cache. The names that live inside the uploads directory — the backup tool's scratch and the plugin's three — are re-anchored on the classifications' `uploads_prefix`, so a site that moved its uploads directory (a non-default `WP_CONTENT_DIR`, an `UPLOADS` define) excludes them where they actually are and not only at the standard location, which is the layout `classify.py` already honours everywhere else. Glob-bearing directory prefixes match in `filter_manifest.py` and `baseline_diff.py` the same way, so a suffixed live directory is dropped and a sibling that does not fit the glob is kept; a consistency suite now pins those two matchers as one implementation, since a disagreement between them is exactly the deletion-diff poisoning issue #35 closed at the assembly end. The assembler is still the one source both the selection and the baseline consume.
+
 ## [0.9.0] – 2026-08-14
 
 ### Added

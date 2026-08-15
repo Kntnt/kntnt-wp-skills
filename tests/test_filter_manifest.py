@@ -86,6 +86,29 @@ def test_a_nested_entry_under_an_excluded_directory_is_dropped() -> None:
     assert result["entries"] == []
 
 
+def test_a_glob_directory_prefix_drops_matching_trees_and_keeps_siblings() -> None:
+    # Arrange — a cache-plugin or backup-tool tree is named with a glob because
+    # the live directory carries a suffix (w3tc-cache, backwpup-123). Matching
+    # must still be path-segment aware so a sibling that does not fit the glob
+    # is kept.
+    result = filter_on({
+        "entries": [
+            entry("wp-content/w3tc-cache/object/a"),
+            entry("wp-content/uploads/backwpup-abc/restore.log"),
+            entry("wp-content/uploads/backwpup-abc"),
+            entry("wp-content/uploads/keep/file.jpg"),
+            entry("wp-content/w3tcache/not-this"),
+        ],
+        "exclusions": ["wp-content/w3tc-*", "wp-content/uploads/backwpup*"],
+    })
+
+    # Assert.
+    assert [row["path"] for row in result["entries"]] == [
+        "wp-content/uploads/keep/file.jpg",
+        "wp-content/w3tcache/not-this",
+    ]
+
+
 def test_a_same_named_sibling_of_an_excluded_path_is_kept() -> None:
     # Arrange — "gallery-archive" merely starts with "gallery"; matching must be
     # path-segment aware, not a bare string prefix.

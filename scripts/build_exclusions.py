@@ -24,10 +24,13 @@ The set is the union of:
 - :data:`ALWAYS_EXCLUDED` — the canonical, static always-excluded paths (the
   configuration file and its credential-bearing backup/swap/variant siblings,
   ``.env`` files anywhere in the tree, root-level SQL dumps and key material,
-  the WordPress drop-ins, the debug log, the cache dir, the upgrade dirs, and
+  the WordPress drop-ins, the debug log, the known cache-plugin and backup-tool
+  trees, the plugin's own transfer-staging directories, the upgrade dirs, and
   the whole WordPress core tree — ``wp-admin/``, ``wp-includes/``, and the
   root-level core PHP files), the single source of truth every prose reference
-  points at.
+  points at. Its uploads-level members are spelled at the standard uploads
+  location and re-anchored on ``classifications.uploads_prefix`` when the site
+  has moved it.
 - The DB-known generated thumbnails (``classifications.thumbnails.exclude``),
   when the plan resolves ``generated_thumbnails`` to ``exclude``.
 - The flagged heavy blobs (``classifications.blobs.flagged[*].path``), when the
@@ -119,16 +122,61 @@ _DROP_INS: tuple[str, ...] = (
     "wp-content/blog-suspended.php",
 )
 
-# The debug log, and the regenerable-locally cache and upgrade directories — all
-# production runtime detritus, never content: the log is production's, the cache
-# is rebuilt on demand, and the upgrade dirs are transient unpack scratch space
-# WordPress' own updater owns.
+# The debug log, and the regenerable-locally cache and upgrade directories —
+# all production runtime detritus, never content: the log is production's, a
+# cache is rebuilt on demand, and the upgrade dirs are transient unpack space
+# WordPress' own updater owns. ``_CACHES`` is the known cache-plugin trees, not
+# just ``wp-content/cache``: a clone that carries LiteSpeed's hashed CSS or a
+# W3 Total Cache object store is worse than useless.
 _LOGS: tuple[str, ...] = ("wp-content/debug.log",)
-_CACHES: tuple[str, ...] = ("wp-content/cache",)
+_CACHES: tuple[str, ...] = (
+    "wp-content/cache",
+    "wp-content/litespeed",
+    "wp-content/et-cache",
+    "wp-content/w3tc-*",
+)
 _UPGRADE_DIRS: tuple[str, ...] = (
     "wp-content/upgrade",
     "wp-content/upgrade-temp-backup",
 )
+
+# The detritus that lives *inside* the uploads directory, named relative to it
+# because the uploads directory is not always ``wp-content/uploads``: a site
+# that moves it (a non-default ``WP_CONTENT_DIR``, an ``UPLOADS`` define) would
+# otherwise carry every one of these, which is the failure this set exists to
+# close. The resolved location is re-anchored on the classifications'
+# ``uploads_prefix`` by :func:`uploads_level_exclusions`; the standard location
+# below is the fallback spelling the static constant is built from, never a
+# second source of truth about where uploads live.
+#
+# The backup tool's working directories are that tool's own scratch —
+# yesterday's BackWPup restore log is never content. The Extractor's own three
+# directories are a self-reference rather than a cache: the moment
+# ``POST /extractions`` is accepted the plugin may create a new job directory
+# and reclaim an old one, so a path in the selection can vanish because of the
+# very run that selected it. They are listed by full name because a prefix of
+# ``kntnt-extractor`` must not swallow a coincidental
+# ``kntnt-extractor-something-else`` the site actually owns.
+_UPLOADS_LEVEL: tuple[str, ...] = (
+    "backwpup*",
+    "kntnt-extractor",
+    "kntnt-extractor-audit",
+    "kntnt-extractor-downloads",
+)
+
+# The standard WordPress single-site uploads location relative to the site root,
+# the fallback the static constant is spelled at.
+_DEFAULT_UPLOADS_PREFIX = "wp-content/uploads"
+
+
+def uploads_level_exclusions(uploads_prefix: str) -> tuple[str, ...]:
+    """Anchor the uploads-level names on a resolved uploads location, so a site
+    that moved its uploads directory excludes the same detritus the standard
+    layout does — the plugin's own transfer staging above all, which a clone must
+    never select."""
+
+    prefix = uploads_prefix.rstrip("/")
+    return tuple(f"{prefix}/{name}" for name in _UPLOADS_LEVEL)
 
 # The whole WordPress core admin and includes trees, at the install root. Clone
 # §4 scaffolds the exact core version with ``mkwp`` before extraction ever
@@ -178,6 +226,7 @@ ALWAYS_EXCLUDED: tuple[str, ...] = (
     *_DROP_INS,
     *_LOGS,
     *_CACHES,
+    *uploads_level_exclusions(_DEFAULT_UPLOADS_PREFIX),
     *_UPGRADE_DIRS,
     *_CORE_DIRECTORIES,
     *_CORE_ROOT_FILES,
@@ -300,6 +349,16 @@ def build_exclusions(payload: Any) -> dict[str, Any]:
 
     # The canonical always-excluded paths — every run, regardless of any decision.
     prefixes: set[str] = set(ALWAYS_EXCLUDED)
+
+    # Re-anchor the uploads-level names on this site's own uploads location, so a
+    # moved uploads directory still drops the backup-tool scratch and the
+    # Extractor's own staging. The constant already carries the standard spelling,
+    # so a default layout adds nothing; a classifications document too old to
+    # carry the prefix keeps exactly that standard spelling rather than failing —
+    # only the media gate below needs the prefix badly enough to demand it.
+    resolved_uploads = classifications.get("uploads_prefix")
+    if isinstance(resolved_uploads, str) and resolved_uploads:
+        prefixes.update(uploads_level_exclusions(resolved_uploads))
 
     # The DB-known generated thumbnails, when the plan resolves to excluding them
     # (the default — they are regenerated locally after import).

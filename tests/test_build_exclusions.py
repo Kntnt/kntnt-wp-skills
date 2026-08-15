@@ -109,6 +109,13 @@ def test_always_excluded_covers_the_documented_categories() -> None:
     assert "wp-content/maintenance.php" in always
     assert "wp-content/debug.log" in always
     assert "wp-content/cache" in always
+    assert "wp-content/litespeed" in always
+    assert "wp-content/et-cache" in always
+    assert "wp-content/w3tc-*" in always
+    assert "wp-content/uploads/backwpup*" in always
+    assert "wp-content/uploads/kntnt-extractor" in always
+    assert "wp-content/uploads/kntnt-extractor-audit" in always
+    assert "wp-content/uploads/kntnt-extractor-downloads" in always
     assert "wp-content/upgrade" in always
     assert "wp-content/upgrade-temp-backup" in always
 
@@ -170,6 +177,13 @@ def test_always_excluded_pins_its_exact_contents() -> None:
         "wp-content/blog-suspended.php",
         "wp-content/debug.log",
         "wp-content/cache",
+        "wp-content/litespeed",
+        "wp-content/et-cache",
+        "wp-content/w3tc-*",
+        "wp-content/uploads/backwpup*",
+        "wp-content/uploads/kntnt-extractor",
+        "wp-content/uploads/kntnt-extractor-audit",
+        "wp-content/uploads/kntnt-extractor-downloads",
         "wp-content/upgrade",
         "wp-content/upgrade-temp-backup",
         "wp-admin",
@@ -224,6 +238,34 @@ def test_excluding_media_adds_the_uploads_prefix() -> None:
 
     # Assert — the whole uploads tree is anchored into the set.
     assert "wp-content/uploads" in exclusions
+
+
+def test_a_moved_uploads_directory_still_excludes_the_uploads_level_detritus() -> None:
+    # Arrange — a site with a non-default content directory, the layout classify.py
+    # honours rather than flags. The Extractor's staging and the backup tool's
+    # scratch live under *that* uploads directory, not the standard one.
+    exclusions = set(build(make_payload(uploads_prefix="content/files")))
+
+    # Assert — the uploads-level names are re-anchored on the resolved location, so
+    # a selection built here can never name the plugin's own staging (which the run
+    # itself may reclaim mid-flight) or yesterday's backup log.
+    assert "content/files/kntnt-extractor" in exclusions
+    assert "content/files/kntnt-extractor-audit" in exclusions
+    assert "content/files/kntnt-extractor-downloads" in exclusions
+    assert "content/files/backwpup*" in exclusions
+
+    # And the standard spelling stays, since it costs nothing and a manifest that
+    # carries both layouts is a manifest neither spelling should miss.
+    assert set(build_exclusions.ALWAYS_EXCLUDED) <= exclusions
+
+
+def test_a_default_uploads_directory_adds_no_second_spelling() -> None:
+    # Act — the standard layout, which the constant is already spelled at.
+    exclusions = build(make_payload())
+
+    # Assert — re-anchoring is a no-op there: exactly one spelling of each name.
+    assert len([p for p in exclusions if p.endswith("/kntnt-extractor")]) == 1
+    assert "wp-content/uploads/backwpup*" in exclusions
 
 
 def test_including_blobs_omits_the_flagged_blobs() -> None:

@@ -206,6 +206,33 @@ def test_a_file_under_a_nested_excluded_path_is_not_deleted() -> None:
     assert result["production_deleted"] == []
 
 
+def test_a_glob_directory_prefix_is_out_of_scope_and_its_sibling_is_not() -> None:
+    # Arrange — the mirror of tests/test_filter_manifest.py's glob case, on the
+    # deletion side: a cache-plugin tree named with a glob because the live
+    # directory carries a suffix. If the diff matched globs differently from the
+    # filter, a tree the selection dropped would surface as production-deleted.
+    payload = {
+        "baseline": {
+            "scope": {"exclusions": []},
+            "entries": [
+                entry("wp-content/w3tc-cache/object/a", 100, 1700000000),
+                entry("wp-content/w3tcache/keep.php", 200, 1700000000),
+            ],
+        },
+        "current": {
+            "scope": {"exclusions": ["wp-content/w3tc-*"]},
+            "entries": [],
+        },
+    }
+
+    # Act.
+    result = run_on(payload)
+
+    # Assert — the glob-matched tree is out of scope, the sibling that does not fit
+    # the glob is a genuine deletion.
+    assert result["production_deleted"] == ["wp-content/w3tcache/keep.php"]
+
+
 def test_a_same_named_sibling_of_an_excluded_path_is_still_diffed() -> None:
     # Arrange — an exclusion of "…/gallery" must not swallow a sibling directory
     # whose name merely starts with the same string ("…/gallery-archive").

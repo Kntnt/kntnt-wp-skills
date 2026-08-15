@@ -101,10 +101,31 @@ def _matches_at_root(path: str, pattern: str) -> bool:
     return "/" not in path and fnmatch.fnmatchcase(path.lower(), pattern.lower())
 
 
+def _has_glob(pattern: str) -> bool:
+    """Whether ``pattern`` carries a glob metacharacter of its own, so it must
+    be matched with ``fnmatch`` rather than as a literal prefix."""
+
+    return "*" in pattern or "?" in pattern
+
+
+def _matches_glob_prefix(path: str, pattern: str) -> bool:
+    """Match a glob-bearing directory prefix against ``path`` or any of its
+    ancestors, case-insensitively. ``wp-content/w3tc-*`` therefore drops
+    ``wp-content/w3tc-cache/object`` and keeps the sibling ``wp-content/w3tcache``.
+    Mirrors ``scripts/baseline_diff.py``'s ``_matches_glob_prefix`` exactly."""
+
+    parts = path.split("/")
+    for end in range(1, len(parts) + 1):
+        if fnmatch.fnmatchcase("/".join(parts[:end]).lower(), pattern.lower()):
+            return True
+    return False
+
+
 def is_excluded(path: str, exclusions: tuple[str, ...]) -> bool:
     """Report whether a path falls under any anchored exclusion prefix: an
     exact match or descendant of an excluded directory (including a top-level
     core directory such as ``wp-admin`` or ``wp-includes``, issue #37), a
+    glob-bearing directory prefix such as ``wp-content/w3tc-*``, a
     root-anchored credential-bearing or core-file pattern, or a ``.env``-style
     pattern matched anywhere in the tree (issue #36) — except
     ``wp-config-sample.php``, which the broad ``wp-config-*.php`` variant
@@ -119,6 +140,8 @@ def is_excluded(path: str, exclusions: tuple[str, ...]) -> bool:
             if _matches_anywhere(path, prefix):
                 return True
         elif path == prefix or path.startswith(f"{prefix}/"):
+            return True
+        elif _has_glob(prefix) and "/" in prefix and _matches_glob_prefix(path, prefix):
             return True
         elif "/" not in prefix and _matches_at_root(path, prefix):
             return True
