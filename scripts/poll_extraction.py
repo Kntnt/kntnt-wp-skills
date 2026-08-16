@@ -42,14 +42,21 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any, Protocol, TextIO
 
-# The seven pinned poll-discipline literals (ADR-0018). Move them; do not
+# The eight pinned poll-discipline literals (ADR-0018). Move them; do not
 # invent new ones. Preflight and bootstrap pass their budget as argv; the
-# main extraction omits it.
+# main extraction omits it. COARSE_STALL_WINDOW_SECONDS is the wider window
+# that applies once chunks_done is observed absent: below API version 6 the
+# remaining counters, tables_done and files_done, move only when a whole
+# table or file finishes, so they stand still for minutes at a time on a
+# completely healthy job slicing one large table. 2400 is not a guess — it
+# is the value a live production run against an API-version-5 Extractor was
+# manually widened to before it completed.
 POLL_CADENCE_SECONDS = 15
 PER_REQUEST_TIMEOUT_SECONDS = 120
 BACKOFF_FIRST_SECONDS = 30
 BACKOFF_SECOND_SECONDS = 60
 STALL_WINDOW_SECONDS = 600
+COARSE_STALL_WINDOW_SECONDS = 2400
 PREFLIGHT_BUDGET_SECONDS = 600
 BOOTSTRAP_BUDGET_SECONDS = 900
 
@@ -332,6 +339,15 @@ def poll(
             return float("inf")
         return budget_seconds - wall()
 
+    def stall_window() -> int:
+        """The stall window this loop is under: widened once ``chunks_done`` is
+        observed absent, because the coarse counters alone stand still for
+        minutes on a healthy job slicing one large table."""
+
+        if loop.advance.chunks_done_absent:
+            return COARSE_STALL_WINDOW_SECONDS
+        return STALL_WINDOW_SECONDS
+
     def give_up(verdict: str, minutes: int, observed: dict[str, Any]) -> PollResult:
         _log(stream, f"gave up after {minutes} minutes")
         return _result(
@@ -357,12 +373,15 @@ def poll(
                 },
             )
 
-        # Stop when nothing has advanced inside the stall window.
+        # Stop when nothing has advanced inside the stall window — widened once
+        # chunks_done is known absent, so a coarse-counter job is not read as
+        # stalled while it is slicing one large table.
+        window = stall_window()
         last_at = loop.advance.at if loop.advance.at is not None else started
-        if clock.now() - last_at >= STALL_WINDOW_SECONDS:
+        if clock.now() - last_at >= window:
             return give_up(
                 "stall",
-                STALL_WINDOW_SECONDS // 60,
+                window // 60,
                 {
                     "job_id": job_id,
                     "job_state": loop.advance.state,
@@ -466,7 +485,9 @@ def poll(
             if not loop.advance.chunks_done_absent:
                 _log(
                     stream,
-                    "chunks_done absent; stall detection falls back to coarse counters",
+                    "chunks_done absent; stall detection falls back to coarse "
+                    f"counters and the stall window widens to "
+                    f"{COARSE_STALL_WINDOW_SECONDS // 60} minutes",
                 )
             loop.advance.chunks_done_absent = True
 

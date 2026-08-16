@@ -359,6 +359,86 @@ def test_chunks_done_increase_is_an_advance() -> None:
     assert result.verdict == "ready"
 
 
+def test_stall_window_unwidened_when_chunks_done_present() -> None:
+    """``chunks_done`` present keeps the 10-minute window even after this change."""
+
+    clock = FakeClock()
+    stuck = _job(
+        "running",
+        progress={"tables_done": 3, "tables_total": 186, "files_done": 0, "files_total": 0, "chunks_done": 3},
+    )
+    polls_needed = (pe.STALL_WINDOW_SECONDS // pe.POLL_CADENCE_SECONDS) + 2
+    result = _poll({_job_path(): [stuck] * polls_needed}, clock=clock)
+
+    assert result.verdict == "stall"
+    assert result.inferred["gave_up_after_minutes"] == pe.STALL_WINDOW_SECONDS // 60
+    assert result.inferred["chunks_done_absent"] is False
+
+
+def test_stall_window_widens_when_chunks_done_absent() -> None:
+    """No ``chunks_done``: 700 s of unchanging coarse counters is not read as a stall.
+
+    This is the regression this plan exists to prevent — under the old,
+    unconditional 600 s window this job would have aborted here.
+    """
+
+    clock = FakeClock()
+    stuck = _job(
+        "running",
+        progress={"tables_done": 3, "tables_total": 186, "files_done": 0, "files_total": 0},
+    )
+    ready = _job("ready", download_url="https://example.com/dl")
+    # 47 polls of 15 s cadence carry the clock past 700 s while still stuck;
+    # the next poll then resolves, proving the loop was still polling.
+    polls_past_700s = (700 // pe.POLL_CADENCE_SECONDS) + 1
+    result = _poll({_job_path(): [stuck] * polls_past_700s + [ready]}, clock=clock)
+
+    assert result.verdict == "ready"
+    assert clock.t > 700
+
+
+def test_widened_stall_still_fires_and_reports_forty_minutes() -> None:
+    """No ``chunks_done``: unchanging coarse counters past 2400 s is still a stall,
+    and the reported give-up minutes come from the widened window, not the
+    unconditional 10-minute one."""
+
+    clock = FakeClock()
+    stuck = _job(
+        "running",
+        progress={"tables_done": 3, "tables_total": 186, "files_done": 0, "files_total": 0},
+    )
+    polls_needed = (pe.COARSE_STALL_WINDOW_SECONDS // pe.POLL_CADENCE_SECONDS) + 2
+    result = _poll({_job_path(): [stuck] * polls_needed}, clock=clock)
+
+    assert result.verdict == "stall"
+    assert result.inferred["gave_up_after_minutes"] == 40
+    assert clock.t >= pe.COARSE_STALL_WINDOW_SECONDS
+
+
+def test_chunks_done_absent_flag_matches_which_window_fired() -> None:
+    """The evidence block lets a reader tell which window was in force: ``True``
+    when the widened window fired, ``False`` when the narrow one did."""
+
+    narrow_clock = FakeClock()
+    narrow_stuck = _job(
+        "running",
+        progress={"tables_done": 3, "tables_total": 186, "files_done": 0, "files_total": 0, "chunks_done": 3},
+    )
+    narrow_polls = (pe.STALL_WINDOW_SECONDS // pe.POLL_CADENCE_SECONDS) + 2
+    narrow_result = _poll({_job_path(): [narrow_stuck] * narrow_polls}, clock=narrow_clock)
+
+    wide_clock = FakeClock()
+    wide_stuck = _job(
+        "running",
+        progress={"tables_done": 3, "tables_total": 186, "files_done": 0, "files_total": 0},
+    )
+    wide_polls = (pe.COARSE_STALL_WINDOW_SECONDS // pe.POLL_CADENCE_SECONDS) + 2
+    wide_result = _poll({_job_path(): [wide_stuck] * wide_polls}, clock=wide_clock)
+
+    assert narrow_result.inferred["chunks_done_absent"] is False
+    assert wide_result.inferred["chunks_done_absent"] is True
+
+
 def test_unbounded_advancing_job_is_not_budget_killed() -> None:
     """Main extraction has no overall budget: a slow-but-advancing job reaches ready."""
 

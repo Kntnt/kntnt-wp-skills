@@ -79,7 +79,11 @@ SCRIPT_BOUND_PHRASES: tuple[tuple[str, str], ...] = (
         "per-request timeout",
         f"{pe.PER_REQUEST_TIMEOUT_SECONDS} s per-request timeout",
     ),
-    ("stall window", "10-minute stall window"),
+    ("stall window", f"{pe.STALL_WINDOW_SECONDS // 60}-minute stall window"),
+    (
+        "coarse stall window",
+        f"{pe.COARSE_STALL_WINDOW_SECONDS // 60}-minute stall window",
+    ),
 )
 
 # The live surfaces an agent actually loads or is pointed at — the skills,

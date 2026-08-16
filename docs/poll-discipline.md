@@ -16,9 +16,9 @@ This file is what holds it together. The phrases pinned below are the ones every
 
 **Overall budgets.** 10 minutes for the preflight, 15 minutes for the bootstrap. The main extraction has no overall wall-clock budget — the stall window is the stop.
 
-**What counts as an advance.** A state change, an increase in `progress.chunks_done`, or an increase in the sum `progress.tables_done + progress.files_done`. `chunks_done` (Extractor API version 6 and up) is the one that matters: the other two move only when a whole table or a whole file finishes, so a job slicing one large table looks exactly like a wedged one. A `queued` job carries no counters, so its stall clock runs on state alone. Against an Extractor below API version 6 the field is absent — fall back to the coarse counters, widen the stall window, and say so in the run's output rather than reading an absent field as a stall.
+**What counts as an advance.** A state change, an increase in `progress.chunks_done`, or an increase in the sum `progress.tables_done + progress.files_done`. `chunks_done` (Extractor API version 6 and up) is the one that matters: the other two move only when a whole table or a whole file finishes, so a job slicing one large table looks exactly like a wedged one. A `queued` job carries no counters, so its stall clock runs on state alone. Against an Extractor below API version 6 the field is absent — fall back to the coarse counters, widen the stall window to 40 minutes, and say so in the run's output rather than reading an absent field as a stall. 40 minutes is not a guess: it is the value a live production run against an API-version-5 Extractor was manually widened to before it completed, on a 186-table site working through one large table where the coarse counters stood still for minutes at a time on a completely healthy job.
 
-**Terminal conditions.** `state == "failed"`, a confirmed-vanished job, or no advance within the 10-minute stall window. A preflight or bootstrap loop also fails on exhaustion of its own overall budget. Nothing else — any number of individual transport failures keeps the loop polling.
+**Terminal conditions.** `state == "failed"`, a confirmed-vanished job, or no advance within the stall window — 10 minutes normally, widened to 40 minutes once `chunks_done` is observed absent. A preflight or bootstrap loop also fails on exhaustion of its own overall budget. Nothing else — any number of individual transport failures keeps the loop polling.
 
 **How the loop is executed.** One blocking invocation of `scripts/poll_extraction.py` that polls until it reaches a terminal verdict and exits, never one tool call per poll and never a loop the agent writes itself, and the agent returns exactly once with a verdict. The Application Password is passed in that one process's environment (`KNTNT_EXTRACTOR_APP_PASSWORD`), never on argv. See *Pinned phrases — the poll-owning subagents*, below.
 
@@ -42,6 +42,12 @@ every 15 s
 
 ```text
 10-minute stall window
+```
+
+### coarse stall window
+
+```text
+40-minute stall window
 ```
 
 ### main-extraction budget
