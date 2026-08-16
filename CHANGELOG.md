@@ -4,6 +4,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+## [0.10.0] – 2026-08-16
+
 ### Added
 
 - The canonical discovery document now carries the Extractor API version the health check observed, as a required top-level `api_version` sibling of `environment` — plumbing that previously stopped at the health check itself, discarded the moment the comparison against the floor and ceiling was made. `agents/discovery-classify.md` passes the number through verbatim rather than re-fetching it, and both skills' run report now states the version production reported and, when it is below this client's ceiling, names each behaviour that is consequently degraded on this host: the identity report's absence below API version 4, the absent `progress.chunks_done` and widened stall window below API version 6, and `strict` being silently ignored by any Extractor that predates it. The report was previously silent on all three even though production runs API version 5 today. This plumbing changes no decision — the version pin's floor and ceiling are unchanged — it only makes an existing fact reportable.
@@ -167,7 +169,8 @@ All notable changes to this project are documented here. The format follows [Kee
 
 - Initial release.
 
-[Unreleased]: https://github.com/Kntnt/kntnt-wp-skills/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/Kntnt/kntnt-wp-skills/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.10.0
 [0.9.0]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.9.0
 [0.8.0]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.8.0
 [0.7.0]: https://github.com/Kntnt/kntnt-wp-skills/releases/tag/v0.7.0
