@@ -37,8 +37,13 @@ REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 
 # The highest Extractor API version this client is verified against. Raise it
 # only after checking a release's artifact shape against ``scripts/unseal.py``
-# and the container-format contract in ``docs/implementation-notes.md``.
-VERIFIED_CEILING: int = 6
+# and the container-format contract in ``docs/implementation-notes.md``. The
+# 6 -> 7 raise found the bump itself (Extractor plan 008, ADR-0018) to be a
+# deliberate compatibility interlock rather than a shape claim -- read the
+# ADR before assuming "api_version moved" implies "the artifact moved"; check
+# the Extractor's own ``docs/container-format.md`` (its ``FORMAT_VERSION``)
+# for the artifact question directly.
+VERIFIED_CEILING: int = 7
 
 # The floor, unchanged since it was set: the version that ships the environment
 # endpoint, structure-only extraction, and caller job listing together.
