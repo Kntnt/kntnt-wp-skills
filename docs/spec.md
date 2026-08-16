@@ -228,6 +228,8 @@ The skills no longer generate or run any packing machinery; the Kntnt Extractor 
 
 The sealed container is fetched over HTTPS from the one-time `download_url` with resume and retry, then unsealed by the deterministic helper: the ephemeral private key opens each segment's sealed key (`crypto_box_seal` open), each segment is decrypted (`crypto_secretbox` open), and the container is reassembled — table segments concatenated into one importable `.sql` with a prepended connection-safe preamble (charset `SET NAMES`, `FOREIGN_KEY_CHECKS`, SQL mode), file segments written to disk by their install-root-relative path. The `crypto_secretbox` authentication is what catches a truncated or corrupted download — a tampered or short segment fails to open, so a bad transfer is caught before it touches the local site; no separate checksum file is needed. Immediately after the container unseals, the job is consumed with `POST /extractions/{id}/consume` and confirmed gone. The plugin's own TTL/watchdog cleanup and the next health check's stranded-job sweep are the backstops.
 
+A run that aborts after submitting a job accounts for that job before stopping — cancelled when it never reached `ready`, consumed when it reached `ready` and downloaded but failed to unseal, or reported and left for an accept-or-override gate when it reached `ready` but the download failed or never ran, since the production artifact may then be the only copy of the extraction. A failed discovery reports and clears its cleartext bootstrap dump the same way, unless the operator explicitly chooses to keep it for diagnosis ([ADR-0022](./adr/0022-close-the-exposure-window-on-every-failure-path.md)).
+
 ### Import and localise (local, destructive)
 
 In order:

@@ -51,7 +51,10 @@ Capture the response headers of every Extractor call (`curl -sS -D "<scratchpad_
 **Evidence block:**
 
 - `status`: `DONE` or `FAILED`
-- `job_id`, `job_state` — the terminal state the plugin reported
+- `job_id` — present whenever a job was submitted at all, including on `FAILED`
+- `job_state` — the terminal state the plugin reported, or the last observed state on `FAILED`
+- `failure_phase` (only on `FAILED`) — `never_ready` (a `failed` state, a confirmed-vanished job, or an exhausted stall window), `downloaded_unseal_failed` (the container downloaded but the unseal failed), or `ready_download_failed` (the job reached `ready` but the download failed or never ran) — so the orchestrator's close-out can pick the matching case directly rather than re-deriving it from `job_state` and `consumed` alone
+- `container_path` — the downloaded sealed container's local path, present whenever the download completed, so a close-out can report it and a retry does not re-download
 - `poll_wall_seconds`, `poll_transport_failures` — the poll loop's total wall time and how many transport failures it retried
 - `poll_final_progress` — the final observed `progress` counters
 - `db_dump_path`, `db_dump_bytes`
