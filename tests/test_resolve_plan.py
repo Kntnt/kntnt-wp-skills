@@ -781,6 +781,63 @@ def test_engine_pin_truncates_the_database_version_to_major_minor() -> None:
     assert engine["source"] == "live"
 
 
+# --- Withheld wp-config defines: never offered, saved selections pruned ------
+
+
+def test_a_withheld_define_is_not_offered_at_the_gate() -> None:
+    # Arrange — a portable-looking define whose value the Extractor withheld,
+    # spliced into the real discovery document so the amended classify_defines
+    # classifies it for real, not a hand-built stand-in.
+    document, _ = canonical_inputs("representative-site.json")
+    document["defines"] = document["defines"] + [{"name": "SOME_API_KEY", "value": None}]
+    classifications = json.loads(_pipe(CLASSIFY, json.dumps(document).encode()))
+
+    # Act.
+    plan = resolve({
+        "operation": "resolve",
+        "skill": "pull",
+        "flags": [],
+        "answers": {},
+        "discovery": document,
+        "classifications": classifications,
+        "saved_plan": None,
+    })
+
+    # Assert — the withheld define never reaches the gate the operator sees.
+    offered = decision(plan, "wp_config_defines")["value"]
+    assert "SOME_API_KEY" not in offered
+    assert set(offered) == {"WP_MEMORY_LIMIT", "WP_MAX_MEMORY_LIMIT", "WP_DEBUG", "FS_METHOD"}
+
+
+def test_a_saved_selection_naming_a_now_withheld_define_is_pruned_without_failing() -> None:
+    # Arrange — a saved plan that once ported SOME_API_KEY, from a run before
+    # production's Extractor started withholding it. This run it classifies as
+    # withheld, so the existing saved-plan pruning (scripts/resolve_plan.py:
+    # 304-309) must drop it from the replayed selection rather than fail the
+    # run — the pruning rule composing with the new class, with no change to
+    # resolve_plan.py.
+    document, _ = canonical_inputs("representative-site.json")
+    document["defines"] = document["defines"] + [{"name": "SOME_API_KEY", "value": None}]
+    classifications = json.loads(_pipe(CLASSIFY, json.dumps(document).encode()))
+
+    # Act.
+    plan = resolve({
+        "operation": "resolve",
+        "skill": "pull",
+        "flags": [],
+        "answers": {},
+        "discovery": document,
+        "classifications": classifications,
+        "saved_plan": {"ported_defines": ["SOME_API_KEY", "WP_DEBUG"]},
+    })
+
+    # Assert — the run succeeds; the withheld name is pruned and the still-
+    # portable saved name survives.
+    defines = decision(plan, "wp_config_defines")
+    assert defines["value"] == ["WP_DEBUG"]
+    assert defines["source"] == "saved"
+
+
 def test_clone_walks_the_project_name_bookend_and_omits_pull_only_decisions() -> None:
     # Arrange & Act.
     plan = resolve(envelope(skill="clone"))

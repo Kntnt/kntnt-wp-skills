@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Fixed
+
+- A define whose value the Extractor withheld (`null` on the wire from `GET /environment`) is no longer ported. `scripts/classify.py` now classifies such a define auto-excluded under a new `withheld` class instead of offering it at the `wp_config_defines` gate, so `scripts/wpconfig_block.py` never writes `define('NAME', null);` into the local `wp-config.php` — a define `php -l` accepts and the smoke test never catches, but which makes `defined('NAME')` report `true` and suppresses whatever fallback the plugin runs for "not configured". This was latent until now: every name the Extractor currently masks is also routed to an auto-excluded class by name, but the Extractor is replacing its secret deny-list with an allow-list, after which a masked plugin define (a third-party API key, say) would have reached the gate and the writer with a `null` value. Both `clone` and `pull` now name every withheld define in the run report, so the operator learns which values did not come down instead of finding out later that a plugin is silently unconfigured. `scripts/wpconfig_block.py` also gained its own rejection of a `None` define value as defence in depth, for a caller outside the normal classifier-to-writer path. See [ADR-0020](docs/adr/0020-withheld-define-values-are-never-ported.md).
+
 ### Changed
 
 - Two-phase discovery's "the bootstrap is small" claim is now written down as a **premise** that holds only where `wp_postmeta` is small, so a bloated table is a known case rather than a surprise. A skip-`wp_postmeta` fallback was considered and is not implemented: 493 MB of table versus 279 MB of thumbnails compared InnoDB allocated size to files, while the whole bootstrap container measured 30 MB — a loss on transferred bytes, with only server-side cost remaining ([ADR-0017](docs/adr/0017-discovery-over-extractor-rest-two-phase.md)).

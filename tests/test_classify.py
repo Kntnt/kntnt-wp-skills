@@ -201,6 +201,64 @@ def test_every_define_is_classified_exactly_once() -> None:
     assert len(offered) + len(excluded) == 26
 
 
+def test_a_withheld_define_is_auto_excluded_and_not_offered() -> None:
+    # Arrange — a portable-looking define whose value the Extractor withheld,
+    # the shape a null-masked plugin API key takes on the wire.
+    document = {"defines": [{"name": "SOME_API_KEY", "value": None}]}
+
+    # Act.
+    classifications = classify_document(document)
+
+    # Assert — classed auto-excluded under the withheld class, never portable.
+    assert excluded_classes(classifications).get("SOME_API_KEY") == "withheld"
+    assert "SOME_API_KEY" not in portable_names(classifications)
+
+
+def test_a_withheld_define_carries_no_value() -> None:
+    # Arrange — the same withheld define as above.
+    document = {"defines": [{"name": "SOME_API_KEY", "value": None}]}
+
+    # Act.
+    classifications = classify_document(document)
+    entries = classifications["defines"]["auto_excluded"]
+
+    # Assert — the auto-excluded shape contract holds: name and class only,
+    # never a "value" key, even for the class this plan adds.
+    assert len(entries) == 1
+    assert "value" not in entries[0]
+
+
+def test_falsy_but_present_define_values_still_port() -> None:
+    # Arrange — false, 0, and "" are real values, not withheld sentinels. A
+    # fix written as a truthiness test rather than `is None` would wrongly
+    # classify every one of these as withheld.
+    document = {"defines": [
+        {"name": "WP_DEBUG", "value": False},
+        {"name": "SOME_COUNT", "value": 0},
+        {"name": "SOME_LABEL", "value": ""},
+    ]}
+
+    # Act.
+    classifications = classify_document(document)
+
+    # Assert — all three are still offered at the gate, each with its value.
+    portable = {entry["name"]: entry.get("value") for entry in classifications["defines"]["portable"]}
+    assert portable == {"WP_DEBUG": False, "SOME_COUNT": 0, "SOME_LABEL": ""}
+    assert excluded_classes(classifications) == {}
+
+
+def test_a_name_classified_define_keeps_its_own_class_when_withheld() -> None:
+    # Arrange — a credential define whose value happens to be null too; its
+    # name-based class must win, not the new value-based one.
+    document = {"defines": [{"name": "DB_PASSWORD", "value": None}]}
+
+    # Act.
+    classifications = classify_document(document)
+
+    # Assert — still "credentials", never eroded to "withheld".
+    assert excluded_classes(classifications).get("DB_PASSWORD") == "credentials"
+
+
 def test_secret_define_values_never_appear_in_the_output() -> None:
     # Arrange — an auto-excluded define carrying a secret sentinel value, fed
     # straight to the classifier: its own contract is that an auto-excluded define

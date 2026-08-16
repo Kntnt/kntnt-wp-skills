@@ -21,6 +21,15 @@ file — piping the portable records wholesale would silently port defines the
 operator deselected at the gate (issue #42). When ``select`` is absent every
 record is written, so a caller that already filtered its list is unaffected.
 
+A define record whose ``value`` is ``None`` is rejected rather than written:
+``null`` on the wire from ``GET /environment`` is the Extractor's masking value
+for a define it will not disclose, and ``defined('NAME')`` reports ``true``
+regardless of the value written, so a ported ``null`` would suppress the
+plugin's own "not configured" fallback. ``scripts/classify.py`` already routes
+such a define out of the portable set it offers, so this is defence in depth —
+it exists for a caller that hand-built its ``defines`` list, which the SKILLs
+forbid but cannot prevent.
+
 The block is delimited by the exact lines ``// BEGIN kntnt-wp-skills`` /
 ``// END kntnt-wp-skills``. When both markers are present the content between
 them is replaced (idempotent re-run); when neither is present the whole block is
@@ -146,6 +155,15 @@ def _defines(value: Any) -> list[tuple[str, Any]]:
         if not DEFINE_NAME_PATTERN.match(name):
             raise WpConfigBlockError(
                 f"{context}: '{name}' is not a valid PHP constant name"
+            )
+
+        # A withheld value never becomes a define: the Extractor masks a value
+        # it will not disclose to null, and writing define('NAME', null) makes
+        # defined('NAME') report true, suppressing the plugin's own fallback.
+        if record.get("value") is None:
+            raise WpConfigBlockError(
+                f"{context}: '{name}' has no value (the Extractor withheld it); "
+                "a withheld define is never ported"
             )
 
         # Reject the two duplicate-define() paths php -l cannot catch: a name

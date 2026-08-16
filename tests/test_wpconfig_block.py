@@ -323,7 +323,9 @@ def test_string_literal_escapes_backslash_and_single_quote() -> None:
 
 
 def test_scalar_literals_render_bare() -> None:
-    # Arrange — the four JSON scalar shapes render as bare PHP literals.
+    # Arrange — the three JSON scalar shapes render as bare PHP literals. A
+    # `None` value is covered separately: it is rejected, not rendered (see
+    # test_a_withheld_define_value_fails_loud below).
     payload = {
         "wp_config": scaffold_without_markers(),
         "defines": [
@@ -331,7 +333,6 @@ def test_scalar_literals_render_bare() -> None:
             {"name": "A_FLOAT", "value": 1.5},
             {"name": "A_TRUE", "value": True},
             {"name": "A_FALSE", "value": False},
-            {"name": "A_NULL", "value": None},
         ],
         "table_prefix": "wp_",
         "cron": "run",
@@ -345,7 +346,49 @@ def test_scalar_literals_render_bare() -> None:
     assert "define('A_FLOAT', 1.5);" in block
     assert "define('A_TRUE', true);" in block
     assert "define('A_FALSE', false);" in block
-    assert "define('A_NULL', null);" in block
+
+
+def test_a_withheld_define_value_fails_loud() -> None:
+    # Arrange — a define record whose value is None, the shape a define the
+    # classifier withheld would take if it reached the writer through some
+    # path other than the normal portable-set join (defence in depth: after
+    # classify.py's fix such a record never reaches here through the SKILLs).
+    payload = {
+        "wp_config": scaffold_without_markers(),
+        "defines": [{"name": "SOME_API_KEY", "value": None}],
+        "table_prefix": "wp_",
+        "cron": "run",
+    }
+
+    # Act.
+    result = run_block(payload)
+
+    # Assert — a non-zero exit, a branded diagnostic naming the define.
+    assert result.returncode != 0
+    assert b"wpconfig_block:" in result.stderr
+    assert b"SOME_API_KEY" in result.stderr
+
+
+def test_falsy_but_present_define_values_still_render() -> None:
+    # Arrange — false and 0 are real values, not withheld sentinels; a fix
+    # written as a truthiness test rather than `is None` would wrongly reject
+    # both at this boundary too.
+    payload = {
+        "wp_config": scaffold_without_markers(),
+        "defines": [
+            {"name": "A_FALSE", "value": False},
+            {"name": "A_ZERO", "value": 0},
+        ],
+        "table_prefix": "wp_",
+        "cron": "run",
+    }
+
+    # Act.
+    block = write(payload)["block"]
+
+    # Assert.
+    assert "define('A_FALSE', false);" in block
+    assert "define('A_ZERO', 0);" in block
 
 
 def test_object_value_fails_loud() -> None:

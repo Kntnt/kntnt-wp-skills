@@ -144,6 +144,9 @@ _Avoid_: project root, working directory, cwd (as a synonym — the root is a sp
 **Marked block**:
 The clearly delimited section the skills own in the local `wp-config.php` — ported production defines and the table prefix — separate from mkwp's DDEV block.
 
+**Withheld define**:
+A production define whose value `GET /environment` returned as `null` because the Extractor would not disclose it — auto-excluded by value rather than by name, never ported, always reported.
+
 **Preserved inactive set**:
 The locally deactivated plugins, derived from live local state each `pull` and re-applied after import.
 

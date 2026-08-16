@@ -91,6 +91,16 @@ DOMAIN_PATH_DEFINES = frozenset(
 INFRASTRUCTURE_DEFINES = frozenset({"WP_CACHE", "DISABLE_WP_CRON"})
 INFRASTRUCTURE_PREFIXES = ("WP_REDIS_", "WP_MEMCACHED_", "MEMCACHED_", "REDIS_")
 
+# The auto-excluded class for a define the Extractor withheld: `null` on the
+# wire from `GET /environment` is the Extractor's masking value for a define it
+# will not disclose, never a signal that the define's real value is null. A
+# define classified this way would otherwise be portable by name, but porting a
+# withheld value would write `define('NAME', null);` into the local
+# wp-config.php, and `defined('NAME')` then reports `true` — suppressing
+# whatever fallback the plugin runs for "not configured". This class is decided
+# by value, unlike the four above, which are decided by name alone.
+WITHHELD_CLASS = "withheld"
+
 # The operational-table families whose content is regenerated locally rather than
 # carried: analytics, cookie-consent, email-log, and search-index. Each pattern
 # is matched against a table name *after* the site's prefix is stripped, so a
@@ -439,7 +449,13 @@ def classify_defines(defines: list[Any]) -> dict[str, list[dict[str, Any]]]:
     A portable define carries its value, because it is written verbatim into the
     marked block; an auto-excluded define carries only its name and class — its
     value is deliberately dropped, since it is never written and some (a DB
-    password, a salt) are secrets that must not enter model context.
+    password, a salt) are secrets that must not enter model context. A third
+    outcome sits between the two: a define `define_class` would otherwise leave
+    portable, but whose value is `None`, is auto-excluded under
+    :data:`WITHHELD_CLASS` instead — the Extractor's masking value for a define
+    it will not disclose, never the define's real value. The value check runs
+    only once the name-based classes have had their turn, so a name-classified
+    define keeps its own class regardless of its (already-dropped) value.
     """
 
     portable: list[dict[str, Any]] = []
@@ -449,6 +465,8 @@ def classify_defines(defines: list[Any]) -> dict[str, list[dict[str, Any]]]:
         record = _record(entry, context)
         name = _field(record, "name", str, context)
         classification = define_class(name)
+        if classification is None and record.get("value") is None:
+            classification = WITHHELD_CLASS
         if classification is None:
             portable.append({"name": name, "value": record.get("value")})
         else:
