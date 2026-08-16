@@ -78,6 +78,76 @@ def test_valid_discovery_output_is_parsed_into_a_canonical_document() -> None:
     assert document["themes"] == ["astra", "twentytwentyfour"]
 
 
+def test_the_document_carries_the_extractor_api_version_the_health_check_observed() -> None:
+    # Arrange & Act — the fixture carries the version the health check would
+    # have observed on its GET /status call.
+    document = document_for("representative-site.json")
+
+    # Assert — the version rides through to the top-level document verbatim, so
+    # a later phase can know which of its own behaviours are degraded on this
+    # host.
+    assert document["api_version"] == 6
+
+
+def test_a_missing_api_version_fails_loudly() -> None:
+    # Arrange — api_version is required, not optional: an absent value is
+    # exactly the defect this document exists to close, so it must fail loud
+    # rather than ride through silently.
+    payload = load_fixture("representative-site.json")
+    del payload["api_version"]
+
+    # Act.
+    result = run_on(payload)
+
+    # Assert — a loud exit that names the offending field, never a document.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"discovery:")
+    assert b"api_version" in result.stderr
+
+
+def test_a_string_api_version_fails_loudly() -> None:
+    # Arrange — the version is compared numerically downstream; a string would
+    # compare wrong rather than fail, so it must be rejected here instead.
+    payload = load_fixture("representative-site.json")
+    payload["api_version"] = "6"
+
+    # Act.
+    result = run_on(payload)
+
+    # Assert.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"discovery:")
+    assert b"api_version" in result.stderr
+
+
+def test_a_float_api_version_fails_loudly() -> None:
+    # Arrange — the same numeric-comparison hazard as a string: a float must
+    # not ride through as though it were the required int.
+    payload = load_fixture("representative-site.json")
+    payload["api_version"] = 6.0
+
+    # Act.
+    result = run_on(payload)
+
+    # Assert.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"discovery:")
+    assert b"api_version" in result.stderr
+
+
+def test_api_version_is_a_sibling_of_environment_not_a_member() -> None:
+    # Arrange & Act — a later reader must look for api_version in exactly one
+    # place: the document's top level, never inside environment.
+    document = document_for("representative-site.json")
+
+    # Assert.
+    assert "api_version" in document
+    assert "api_version" not in document["environment"]
+
+
 def test_the_canonical_document_carries_the_full_table_enumeration() -> None:
     # Arrange — the tables source enumerates every table with its size. The
     # canonical document must carry the complete enumeration so classification and
@@ -413,8 +483,10 @@ def test_malformed_json_input_fails_loudly() -> None:
 
 
 def test_missing_environment_section_fails_loudly() -> None:
-    # Arrange & Act — a well-formed object lacking the required section.
-    result = run_discovery(b'{"tables": {}}')
+    # Arrange & Act — a well-formed object lacking the required section, but
+    # carrying api_version so the missing-environment failure is the one
+    # under test.
+    result = run_discovery(b'{"api_version": 6, "tables": {}}')
 
     # Assert.
     assert result.returncode != 0

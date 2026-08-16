@@ -8,8 +8,12 @@ This helper is the assembler seam of two-phase discovery (ADR-0016, ADR-0017).
 Discovery no longer rides on a single server-side payload; it is reconstructed
 client-side from three sources, and this helper normalises them into the one
 canonical document every later recommendation derives from. It takes a single
-JSON object on stdin with four sections:
+JSON object on stdin with an ``api_version`` and four sections:
 
+- ``api_version`` — the Extractor API version the health check's ``GET
+  /status`` observed before the subagent was ever dispatched, passed through
+  verbatim so later phases can know which of their behaviours are degraded on
+  this host.
 - ``environment`` — the ``GET /environment`` response: the runtime/config scalars
   (PHP version, server software, WordPress core version, home/site URL, table
   prefix, content/uploads dirs, database server flavour/version/collation), the
@@ -494,15 +498,20 @@ def build_mass_send(raw: dict[str, Any]) -> dict[str, Any]:
 
 def build_document(raw: Any) -> dict[str, Any]:
     """Assemble the canonical discovery document from the four REST-derived
-    sections.
+    sections and the Extractor API version the health check observed.
 
     The ``environment`` section is required — it anchors the site, the runtime,
     and the database facts; ``tables``, ``files``, and ``bootstrap`` are optional
-    at this boundary and enrich the document when present. The document is built
+    at this boundary and enrich the document when present. ``api_version`` is
+    required too: it is a fact the health check already knows, and an optional
+    field that can be silently absent would reproduce the exact defect this
+    document exists to close — something the client is supposed to know, that
+    nothing downstream can then report or reason about. The document is built
     by explicit construction from allowlisted fields — never a blanket copy — so
     no secret rides along by accident.
     """
 
+    api_version = _require(raw, "api_version", int, "input")
     environment = _require(raw, "environment", dict, "input")
     tables_source = _optional(raw, "tables", dict, {}, "input")
     files = _optional(raw, "files", list, [], "input")
@@ -521,6 +530,14 @@ def build_document(raw: Any) -> dict[str, Any]:
 
     return {
         "schema_version": SCHEMA_VERSION,
+        # The health check observes the Extractor API version once, before this
+        # document is even assembled; carrying it through as a sibling fact —
+        # never as a member of `environment`, which is about the WordPress
+        # install rather than the control channel — is what lets every later
+        # phase know which of its own behaviours are degraded on this host. A
+        # fact that lived only in the orchestrator's transcript could not be
+        # reported, tested, or reasoned about after the fact.
+        "api_version": api_version,
         "site": {
             "home_url": _require(wordpress, "home_url", str, "environment.wordpress"),
             "site_url": _optional(wordpress, "site_url", str, "", "environment.wordpress"),

@@ -1,4 +1,5 @@
 {
+  "api_version": 6,
   "environment": {
     "php_version": "8.2.18",
     "server_software": "nginx/1.24.0",
