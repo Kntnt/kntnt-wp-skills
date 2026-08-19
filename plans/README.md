@@ -24,7 +24,7 @@ Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJE
 
 Plans 004 and 005 were added on 2026-08-16 after cross-repo review with the Extractor-side session; 001–003 came out of the original audit. Plans 006 and 007 were added on 2026-08-16 after the operator settled the six open questions in `~/Projects/kntnt-transfer-engine-status.md`; both are stamped against `2734a2c` and neither has been executed.
 
-## What 006 and 007 are for, in one line each
+## What 006–011 are for, in one line each
 
 - **006** — the client decides whether the Extractor withheld a define's value by looking at the value, which the Extractor's own `docs/define-disclosure.md` says a reader MUST NOT do; the operator is consequently told a define was withheld when the server in fact disclosed it as `null`, and is given the same one-line remedy whether the reason was `secret` (leave it alone) or `not_allow_listed` (the site operator can opt it in). **Read its "Why this matters" third paragraph before believing it recovers the legitimately-null case** — it deliberately does not, and says why.
 - **009** — `extract-transfer` is told to wait inside one blocking invocation and return once with a verdict. On **both** production runs it returned without one, and on the second it had backgrounded the poll first, so the poll outlived the agent and would have reported to nobody. The written close-out for a verdict-less return is `DELETE`; only a manual check of the job stopped a healthy 2.5-hour extraction being cancelled. The instruction is not the problem — a boundary a model can cross cheaply will be crossed, so the fix moves the boundary.
