@@ -16,6 +16,9 @@ The findings behind these plans, and the answers to the two questions this run w
 | 006 | Decide a define's disclosure from the `disclosure` member, never from its value | P2 | M | 001 (DONE) | TODO |
 | 007 | Mirror the Extractor's widened restricted-path family, and handle its refusal | P1 | M | — | TODO |
 | 008 | Retry a locked `consume` instead of failing a finished run | P1 | S | — | TODO |
+| 009 | Give the long poll to the orchestrator, so it cannot be orphaned | P1 | M | — | TODO |
+| 010 | Let the job's own state outrank a subagent's verdict | P1 | S | — | TODO |
+| 011 | Detect the files macOS silently merges | P2 | S | — | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale).
 
@@ -24,6 +27,9 @@ Plans 004 and 005 were added on 2026-08-16 after cross-repo review with the Extr
 ## What 006 and 007 are for, in one line each
 
 - **006** — the client decides whether the Extractor withheld a define's value by looking at the value, which the Extractor's own `docs/define-disclosure.md` says a reader MUST NOT do; the operator is consequently told a define was withheld when the server in fact disclosed it as `null`, and is given the same one-line remedy whether the reason was `secret` (leave it alone) or `not_allow_listed` (the site operator can opt it in). **Read its "Why this matters" third paragraph before believing it recovers the legitimately-null case** — it deliberately does not, and says why.
+- **009** — `extract-transfer` is told to wait inside one blocking invocation and return once with a verdict. On **both** production runs it returned without one, and on the second it had backgrounded the poll first, so the poll outlived the agent and would have reported to nobody. The written close-out for a verdict-less return is `DELETE`; only a manual check of the job stopped a healthy 2.5-hour extraction being cancelled. The instruction is not the problem — a boundary a model can cross cheaply will be crossed, so the fix moves the boundary.
+- **010** — the companion guard, and the smaller one: on any `FAILED` **or absent** verdict, re-query `GET /extractions/{id}` and let the job's own state outrank the subagent's claim. An absent verdict carries no information about the job, yet today it routes onto the branch that cancels it. One sentence of ordering; it has now saved a run twice.
+- **011** — `unseal.py` reported `files_written: 48578` while 48,552 distinct files landed: 26 NFC/NFD pairs that Linux keeps apart and APFS merges, 18 of them with differing sizes. **The defect is the silent count** — the helper counts what it wrote, never what landed, so it cannot notice a collision it caused. Impact was bounded this time and the plan says so.
 - **008** — the Extractor's unreleased work makes `consume` take the per-job tick lock and answer `409 kntnt_extractor_locked` when it is held, with "the caller simply retries" as the intended handling. This client has no handling and its own rule that an unconsumed job is always `FAILED`, so a narrow lock contention turns a finished multi-hour run into a failed verdict. **The race is narrow and the plan says so** — the data is never at risk, since download and unseal both precede the consume. Found during release preparation, not by the original audit.
 - **007** — the client's copy of the restricted-path pattern family is stale against the widening the Extractor's plan 016 makes, and `grep -rn "kntnt_extractor_restricted_path"` over this repository's runtime surface returns nothing at all. Once the server widens, a site carrying a `wp-config.old` or an `id_ed25519` fails the whole create at submission on an error code the client has never seen. The pattern widening is one file; the handling is the part that matters, because the mirror is allowed to go stale again by design.
 
