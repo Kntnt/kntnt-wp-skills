@@ -13,14 +13,16 @@ The findings behind these plans, and the answers to the two questions this run w
 | 003 | Carry the Extractor's API version into the discovery document and report what it degrades | P2 | M | — | DONE (`93fb454`) — 962 passed on main. Eight raw envelope fixtures needed the new required key, not the two the plan's `grep` over `tests/*.py` predicted; the Python-side count really was two, and all eight are the same kind of fixture, so the STOP condition's worry did not apply. No decision branches on the field |
 | 004 | Raise the verified Extractor API-version ceiling from 6 to 7 | P1 | S+M | **001** | DONE (`7eb6b90`) — 962 passed, ADR-0021, verification record appended to the plan file. Verified against extractor `7dc2420` (untagged; `[Unreleased]`). **No version-7 container was unsealed** — a reviewer decision, recorded as such: verification is by source inspection from three angles (the bump's own ADRs, the new `docs/container-format.md`, and the artifact-writing commit history since `v0.5.1`, nine commits read individually). The plan's advance guess about what rode the bump was wrong on two of three counts and was corrected against the repo |
 | 005 | Close the cleanup handoff on every failure path | P2 | M | — | DONE (`2734a2c`) — 962 passed, ADR-0022. **Step 3 was done, not skipped**: extractor 013's `state` parameter is settled. The extra listing is unconditional, with no version check and no `honours` read, because an unregistered query parameter is simply ignored by WordPress's REST dispatcher — verified at review against the plugin's own route registration, which carried no `args` at all before 013. Follow-up deliberately not built: a consistency suite pinning the three close-out cases across all four surfaces |
-| 006 | Decide a define's disclosure from the `disclosure` member, never from its value | P2 | M | 001 (DONE) | TODO |
-| 007 | Mirror the Extractor's widened restricted-path family, and handle its refusal | P1 | M | — | TODO |
-| 008 | Retry a locked `consume` instead of failing a finished run | P1 | S | — | TODO |
-| 009 | Give the long poll to the orchestrator, so it cannot be orphaned | P1 | M | — | TODO |
-| 010 | Let the job's own state outrank a subagent's verdict | P1 | S | — | TODO |
-| 011 | Detect the files macOS silently merges | P2 | S | — | TODO |
+| 006 | Decide a define's disclosure from the `disclosure` member, never from its value | P2 | M | 001 (DONE) | TODO — tracked as #56 |
+| 007 | Mirror the Extractor's widened restricted-path family, and handle its refusal | P1 | M | — | TODO — tracked as #55 |
+| 008 | Retry a locked `consume` instead of failing a finished run | P1 | S | — | TODO — tracked as #54 |
+| 009 | Give the long poll to the orchestrator, so it cannot be orphaned | P1 | M | — | TODO — tracked as #58 |
+| 010 | Let the job's own state outrank a subagent's verdict | P1 | S | — | TODO — tracked as #53 |
+| 011 | Detect the files macOS silently merges | P2 | S | — | TODO — tracked as #57 |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale).
+
+**Where the rest of the open work lives.** Every unexecuted plan above is also an issue on this repository's tracker, and so is every finding that has *no* plan — the ones that need a decision or a plan written first. Filed 2026-08-19 from the record of the first two production runs. A plan-backed issue carries `ready-for-agent` and the plan is its specification; a finding without one carries `needs-triage`. Two of them cross the repository boundary and say so in their bodies, because a reader here cannot see the Extractor's index: #55 must be installed before `Kntnt/kntnt-extractor#37` reaches production, and #63 is cheap only once `Kntnt/kntnt-extractor#28` lands. The tracker is the authority on what is open; this table is the authority on what each plan does.
 
 Plans 004 and 005 were added on 2026-08-16 after cross-repo review with the Extractor-side session; 001–003 came out of the original audit. Plans 006 and 007 were added on 2026-08-16 after the operator settled the six open questions in `~/Projects/kntnt-transfer-engine-status.md`; both are stamped against `2734a2c` and neither has been executed.
 
