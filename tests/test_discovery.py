@@ -455,6 +455,43 @@ def test_defines_are_carried_with_secret_values_redacted() -> None:
     assert by_name["AUTH_SALT"] is None
 
 
+def test_a_defines_disclosure_rides_into_the_document() -> None:
+    # Arrange — the environment endpoint states, per define, why the value is
+    # what it is; the classifier downstream reads that discriminator and nothing
+    # else, so it has to survive the assembly.
+    payload = load_fixture("representative-site.json")
+    payload["environment"]["defines"] = [
+        {"name": "SOME_PLUGIN_MODE", "value": None, "disclosure": "not_allow_listed"},
+    ]
+
+    # Act.
+    result = run_on(payload)
+    document: dict[str, Any] = json.loads(result.stdout)
+
+    # Assert — carried through intact, verbatim, unrecognised values included.
+    assert result.returncode == 0, result.stderr.decode()
+    assert document["defines"] == [
+        {"name": "SOME_PLUGIN_MODE", "value": None, "disclosure": "not_allow_listed"},
+    ]
+
+
+def test_a_define_without_a_disclosure_carries_no_disclosure_key() -> None:
+    # Arrange — an Extractor predating the disclosure protocol sends no such
+    # member. Its absence is the signal, so it must not be defaulted to a value.
+    payload = load_fixture("representative-site.json")
+    payload["environment"]["defines"] = [{"name": "SOME_PLUGIN_MODE", "value": None}]
+
+    # Act.
+    result = run_on(payload)
+    document: dict[str, Any] = json.loads(result.stdout)
+
+    # Assert — the key is absent, not present-and-null: the classifier's
+    # pre-protocol fallback tells the two apart by exactly this.
+    assert result.returncode == 0, result.stderr.decode()
+    record = document["defines"][0]
+    assert "disclosure" not in record
+
+
 def test_a_malformed_define_record_fails_loudly() -> None:
     # Arrange — a define entry lacking its 'name' must fail loud rather than ride
     # into the document half-built or crash on a KeyError.

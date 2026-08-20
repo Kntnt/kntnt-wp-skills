@@ -149,7 +149,7 @@ _Avoid_: project root, working directory, cwd (as a synonym — the root is a sp
 The clearly delimited section the skills own in the local `wp-config.php` — ported production defines and the table prefix — separate from mkwp's DDEV block.
 
 **Withheld define**:
-A production define whose value `GET /environment` returned as `null` because the Extractor would not disclose it — auto-excluded by value rather than by name, never ported, always reported.
+A production define the auto-excluded class claims per record rather than by name, never ported and always reported with its reason. The Extractor's `disclosure` discriminator decides — `secret`, `not_allow_listed`, or any verdict this client does not recognise — never the value, which the protocol forbids reading it from; a value-based verdict survives only against an Extractor predating the discriminator. A define the server disclosed whose live value is `null` is not withheld, and is reported as its own case, but is not ported either.
 
 **Preserved inactive set**:
 The locally deactivated plugins, derived from live local state each `pull` and re-applied after import.

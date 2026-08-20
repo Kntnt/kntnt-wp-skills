@@ -93,6 +93,21 @@ def excluded_classes(classifications: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def excluded_reasons(classifications: dict[str, Any]) -> dict[str, Any]:
+    """Reduce the auto-excluded defines to a name -> reason map, reading the key
+    the withheld class carries and the name-based classes deliberately do not.
+
+    A name missing from the map is a define excluded without a reason, which is
+    the contract for the four name-based classes.
+    """
+
+    return {
+        entry["name"]: entry["reason"]
+        for entry in classifications["defines"]["auto_excluded"]
+        if "reason" in entry
+    }
+
+
 def portable_names(classifications: dict[str, Any]) -> set[str]:
     """Reduce the offered defines to the set of their names."""
 
@@ -261,6 +276,118 @@ def test_a_name_classified_define_keeps_its_own_class_when_withheld() -> None:
 
     # Assert — still "credentials", never eroded to "withheld".
     assert excluded_classes(classifications).get("DB_PASSWORD") == "credentials"
+
+
+def test_a_secret_disclosure_is_withheld_with_its_reason() -> None:
+    # Arrange — a define the Extractor withheld because its name is shaped like
+    # a credential, announced through the disclosure discriminator.
+    document = {"defines": [
+        {"name": "SOME_PLUGIN_TOKEN", "value": None, "disclosure": "secret"},
+    ]}
+
+    # Act.
+    classifications = classify_document(document)
+
+    # Assert — withheld, and the reason rides along so the report can give the
+    # remedy that fits a secret rather than the one that fits an allow-list.
+    assert excluded_classes(classifications).get("SOME_PLUGIN_TOKEN") == "withheld"
+    assert excluded_reasons(classifications).get("SOME_PLUGIN_TOKEN") == "secret"
+
+
+def test_a_not_allow_listed_disclosure_is_withheld_with_its_reason() -> None:
+    # Arrange — the same withholding, but for the other reason the protocol
+    # names: the name is simply not on that site's disclosure allow-list.
+    document = {"defines": [
+        {"name": "SOME_PLUGIN_MODE", "value": None, "disclosure": "not_allow_listed"},
+    ]}
+
+    # Act.
+    classifications = classify_document(document)
+
+    # Assert — the two withholdings share a class and are told apart by reason.
+    assert excluded_classes(classifications).get("SOME_PLUGIN_MODE") == "withheld"
+    assert excluded_reasons(classifications).get("SOME_PLUGIN_MODE") == "not_allow_listed"
+
+
+def test_an_unrecognised_disclosure_is_treated_as_withheld() -> None:
+    # Arrange — a fourth discriminator this client has never heard of, carrying
+    # a present value. The protocol's enum is closed, so an unknown verdict is a
+    # withholding no matter how inviting the value looks.
+    document = {"defines": [
+        {"name": "SOME_PLUGIN_MODE", "value": "something", "disclosure": "some_future_value"},
+    ]}
+
+    # Act.
+    classifications = classify_document(document)
+
+    # Assert — never offered, and the unrecognised verdict is reported verbatim.
+    assert excluded_classes(classifications).get("SOME_PLUGIN_MODE") == "withheld"
+    assert excluded_reasons(classifications).get("SOME_PLUGIN_MODE") == "some_future_value"
+    assert "SOME_PLUGIN_MODE" not in portable_names(classifications)
+
+
+def test_a_disclosed_value_is_portable() -> None:
+    # Arrange — the ordinary case: the server disclosed the define's live value.
+    document = {"defines": [
+        {"name": "WP_CONTENT_ROOT", "value": "/var/www", "disclosure": "included"},
+    ]}
+
+    # Act.
+    classifications = classify_document(document)
+
+    # Assert — offered at the gate with its value intact.
+    portable = {
+        entry["name"]: entry.get("value")
+        for entry in classifications["defines"]["portable"]
+    }
+    assert portable == {"WP_CONTENT_ROOT": "/var/www"}
+
+
+def test_a_disclosed_null_is_withheld_but_not_reported_as_a_withholding() -> None:
+    # Arrange — production really does define this name as null, and the server
+    # said so. The value is a fact about the define, not a masking.
+    document = {"defines": [
+        {"name": "SOME_PLUGIN_MODE", "value": None, "disclosure": "included"},
+    ]}
+
+    # Act.
+    classifications = classify_document(document)
+
+    # Assert — still never written (ADR-0023), but the operator is told the
+    # truth about why, which is what tells this apart from "secret".
+    assert excluded_classes(classifications).get("SOME_PLUGIN_MODE") == "withheld"
+    assert excluded_reasons(classifications).get("SOME_PLUGIN_MODE") == "disclosed_null"
+
+
+def test_a_pre_protocol_null_keeps_the_value_based_verdict() -> None:
+    # Arrange — an Extractor that predates the disclosure protocol sends no
+    # discriminator at all, so a null value is the only signal there ever was.
+    document = {"defines": [{"name": "SOME_API_KEY", "value": None}]}
+
+    # Act.
+    classifications = classify_document(document)
+
+    # Assert — withheld on the fallback rule, and the reason says the verdict
+    # came from the value rather than from the server.
+    assert excluded_classes(classifications).get("SOME_API_KEY") == "withheld"
+    assert excluded_reasons(classifications).get("SOME_API_KEY") == "value_withheld_pre_protocol"
+
+
+def test_a_name_classified_define_ignores_its_disclosure() -> None:
+    # Arrange — a credential the server chose to disclose. The client's own
+    # name-based class must win before the discriminator is consulted at all.
+    document = {"defines": [
+        {"name": "DB_PASSWORD", "value": "hunter2", "disclosure": "included"},
+    ]}
+
+    # Act.
+    classifications = classify_document(document)
+
+    # Assert — still "credentials", and no reason, which is the shape contract
+    # for the four name-based classes.
+    assert excluded_classes(classifications).get("DB_PASSWORD") == "credentials"
+    assert "DB_PASSWORD" not in excluded_reasons(classifications)
+    assert "DB_PASSWORD" not in portable_names(classifications)
 
 
 def test_secret_define_values_never_appear_in_the_output() -> None:
