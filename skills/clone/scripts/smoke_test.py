@@ -48,9 +48,21 @@ Two CLI shapes, because the two modes take fundamentally different inputs:
 - **Generate** (``--generate``): reads an envelope JSON object from stdin —
   production's canonical discovery document (``scripts/discovery.py``'s
   output) plus the few supplementary facts that document does not itself
-  carry (the local DDEV URL, live entity counts, the mapped sample URLs) —
-  and writes the derived expectations JSON to stdout, matching the sibling
-  helpers' stdin/stdout convention. See :func:`generate_expectations`.
+  carry (the local DDEV URL, live entity counts) — and writes the derived
+  expectations JSON to stdout, matching the sibling helpers' stdin/stdout
+  convention. See :func:`generate_expectations`.
+
+The sample URLs are the one expectation nobody assembles: the copy under test
+is asked for its own front page, post, page and archive (issue #60), because a
+caller building those strings is the one input that can plausibly be built
+wrongly — and a wrong one reads as a rewrite or flush bug in the copy rather
+than as the bad expectation it is. A caller may still override the list, for a
+site with a URL it cannot derive; the report then records the list as
+``supplied`` rather than ``derived``, so a later reader can always tell the two
+apart. Where the source site's own permalink structure and front-page pair are
+recorded, they are compared against the copy's and a disagreement is reported
+— as ``attention``, since the copy is the subject under test and a source that
+has moved on since discovery is not a broken copy.
 """
 
 from __future__ import annotations
@@ -68,6 +80,8 @@ __all__ = [
     "CheckResult",
     "DdevConfig",
     "GenerateError",
+    "SampleUrlDerivation",
+    "SampleUrlResolution",
     "SmokeTestError",
     "check_active_plugin_count",
     "check_baseline_present",
@@ -83,15 +97,19 @@ __all__ = [
     "check_object_cache_dropin_state",
     "check_operational_tables_empty",
     "check_rollback_backup_present",
-    "check_saved_plan_present",
+    "check_sample_url_source_parity",
     "check_sample_urls",
+    "check_saved_plan_present",
     "check_table_prefix",
     "check_total_table_count",
     "default_fetch_url",
     "default_run_command",
+    "derive_sample_urls",
     "generate_expectations",
     "main",
     "parse_ddev_config",
+    "read_site_shape",
+    "resolve_sample_urls",
     "run_checks",
 ]
 
@@ -174,6 +192,48 @@ class DdevConfig:
     db_version: str | None
 
 
+@dataclass(frozen=True)
+class SampleUrlDerivation:
+    """What the copy under test answered when asked for its own sample URLs:
+    the URLs in shape order, and one ``coverage`` line per shape naming the
+    URL that covered it — or, when the site has none of that kind, why none
+    did. ``error`` is set only when the site could not be asked at all, which
+    is the one derivation failure that leaves nothing to fetch."""
+
+    urls: tuple[str, ...]
+    coverage: Mapping[str, str]
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class SampleUrlResolution:
+    """Which sample URLs this run will fetch, where they came from, and the
+    verdict the resolution itself earned.
+
+    ``origin`` is the fact a later reader needs most: ``derived`` means the
+    copy answered for its own URLs, ``supplied`` means a caller's list won and
+    the copy was never asked, ``none`` means there is nothing to fetch. It
+    reaches the report and its compact summary, so a reader can always tell a
+    derived expectation from a supplied one."""
+
+    urls: tuple[str, ...]
+    origin: Literal["supplied", "derived", "none"]
+    checks: tuple[CheckResult, ...]
+
+    @property
+    def expectation(self) -> list[str] | None:
+        """The value :func:`check_sample_urls` takes: the URL list, or ``None``
+        when there is nothing to fetch — the same "absent means skipped, never
+        failed" contract every other expectation follows."""
+
+        return list(self.urls) or None
+
+    def to_dict(self) -> dict[str, Any]:
+        """The report's own ``sampleUrls`` section."""
+
+        return {"origin": self.origin, "urls": list(self.urls)}
+
+
 # --- Small result-shaping helpers ------------------------------------------
 
 
@@ -208,9 +268,16 @@ def default_run_command(clone_dir: Path) -> RunCommand:
     terminal open on the site."""
 
     def _run(args: Sequence[str]) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            list(args), cwd=clone_dir, capture_output=True, text=True, timeout=120
-        )
+        try:
+            return subprocess.run(
+                list(args), cwd=clone_dir, capture_output=True, text=True, timeout=120
+            )
+        except (OSError, subprocess.SubprocessError) as error:
+            # A missing binary or a command that overran its timeout is a check
+            # that could not be run, never a crash. This matters more since the
+            # sample-URL derivation shells out on every run (issue #60): a
+            # machine with no `ddev` on its PATH must still produce a report.
+            return subprocess.CompletedProcess(list(args), 127, "", str(error))
 
     return _run
 
@@ -585,8 +652,11 @@ def check_object_cache_dropin_state(expected: Any, clone_dir: Path) -> CheckResu
 
 
 def check_sample_urls(expected: Any, fetch: FetchUrl) -> list[CheckResult]:
-    """Each sample URL — drawn from the copy's own database — returns HTTP
-    200 without any WordPress fatal-error marker, per URL."""
+    """Each sample URL returns HTTP 200 without any WordPress fatal-error
+    marker, per URL. The list itself is settled by
+    :func:`resolve_sample_urls` — derived from the copy's own database unless
+    a caller overrode it — so this function only ever fetches what it is
+    handed, and ``None`` still means "nothing to check", never a failure."""
 
     if expected is None:
         return [_skip("sample_urls")]
@@ -605,6 +675,249 @@ def check_sample_urls(expected: Any, fetch: FetchUrl) -> list[CheckResult]:
             continue
         results.append(CheckResult(check_id, "pass", f"{url}: HTTP 200, no fatal-error markers"))
     return results
+
+
+# The four request shapes a sample-URL run exercises, in the order the report
+# reads them. Each is derived independently, so a site that genuinely has none
+# of a kind still contributes every other one.
+_SAMPLE_URL_SHAPES: tuple[str, ...] = ("front_page", "post", "page", "archive")
+
+# The three WordPress settings that decide what a URL on a site looks like,
+# keyed by the expectations sub-key each is compared under and valued by the
+# option `wp option get` reads it from. Read off the site under test rather
+# than assumed, and — when the source site's own values are recorded — the
+# whole of what :func:`check_sample_url_source_parity` compares.
+_SITE_SHAPE_OPTIONS: dict[str, str] = {
+    "permalinkStructure": "permalink_structure",
+    "showOnFront": "show_on_front",
+    "pageOnFront": "page_on_front",
+}
+
+def _url_key(url: str) -> str:
+    """A URL reduced to what makes it the same request: the trailing slash a
+    permalink carries and ``wp option get home`` does not is never a different
+    page."""
+
+    return url.rstrip("/")
+
+
+def _sample_url_candidates(run: RunCommand, *args: str) -> tuple[list[str], str | None]:
+    """Run one WP-CLI listing that emits a URL per line, returning its URLs
+    and — when there are none — the reason: the command's own diagnostic, or
+    the plain fact that the site has nothing of this kind."""
+
+    ok, output = _run_ddev_wp(run, *args)
+    if not ok:
+        return [], output or "could not be listed"
+    urls = [line.strip() for line in output.splitlines() if line.strip()]
+    if not urls:
+        return [], "none found"
+    return urls, None
+
+
+def derive_sample_urls(run: RunCommand) -> SampleUrlDerivation:
+    """Ask the copy under test for a representative URL of each shape this
+    smoke test exercises — its front page, a published post, a page that is
+    not the front page, and an archive — rather than having a caller assemble
+    strings only the site itself can get right (issue #60).
+
+    A caller building those strings is the one input that can plausibly be
+    built wrongly, and a wrong one reads as a rewrite or flush bug in the copy
+    rather than as the bad expectation it is. The site knows its own
+    permalinks, so it is asked.
+
+    Every shape but the front page is independent and optional: a site with no
+    published post, or no non-empty category, simply contributes none — a fact
+    about the site, never a failure to produce an expectation. The front page
+    is the one load-bearing answer, since a site that will not answer for
+    ``home`` cannot be asked for anything else either; the reason then comes
+    back in ``error`` and no URL list is guessed at.
+    """
+
+    # The front page, and the only answer whose absence ends the derivation:
+    # every other candidate is judged distinct-or-not against it.
+    ok, home = _run_ddev_wp(run, "option", "get", "home")
+    if not ok or not home:
+        reason = home or "the site reported no home URL"
+        return SampleUrlDerivation((), {shape: reason for shape in _SAMPLE_URL_SHAPES}, reason)
+
+    resolved: dict[str, str] = {"front_page": home}
+    coverage: dict[str, str] = {"front_page": home}
+
+    # The three remaining shapes, one WP-CLI listing each. The page listing
+    # asks for two candidates so a site whose front page is a page still
+    # yields a real subpage; a candidate the front page already covers is
+    # dropped everywhere, since fetching one URL twice tests one request twice.
+    listings: tuple[tuple[str, tuple[str, ...]], ...] = (
+        (
+            "post",
+            ("post", "list", "--post_type=post", "--post_status=publish", "--posts_per_page=1", "--field=url"),
+        ),
+        (
+            "page",
+            ("post", "list", "--post_type=page", "--post_status=publish", "--posts_per_page=2", "--field=url"),
+        ),
+        ("archive", ("term", "list", "category", "--field=url", "--number=1", "--hide_empty=1")),
+    )
+    for shape, args in listings:
+        candidates, reason = _sample_url_candidates(run, *args)
+        distinct = [url for url in candidates if _url_key(url) != _url_key(home)]
+        if distinct:
+            resolved[shape] = coverage[shape] = distinct[0]
+            continue
+        # No reason means the site did answer — with nothing but the front
+        # page, which the front-page shape already covers.
+        coverage[shape] = reason or "only the front page"
+
+    # Shape order, de-duplicated: the report reads front page first, and no
+    # URL earns two fetches however many shapes it happens to cover.
+    urls: list[str] = []
+    for shape in _SAMPLE_URL_SHAPES:
+        url = resolved.get(shape)
+        if url and url not in urls:
+            urls.append(url)
+
+    return SampleUrlDerivation(tuple(urls), coverage)
+
+
+def resolve_sample_urls(expected: Any, run: RunCommand) -> SampleUrlResolution:
+    """Settle which sample URLs this run fetches, and record where they came
+    from.
+
+    Absent is the ordinary case and the whole point of issue #60: the copy is
+    asked for its own URLs, so a caller can no longer hand the test a wrong
+    expectation that reads as a defect in the copy. A caller-supplied list
+    still wins — a genuinely odd site (a multilingual install's localised home
+    and subpage, the canary for the rewrite-flush bug) would otherwise be
+    untestable — but the override is *recorded* rather than silently obeyed,
+    since an unmarked override reproduces this very defect one step further
+    from the reader.
+
+    A site that cannot be asked earns ``attention``, never ``fail``: an input
+    that could not be gathered is a bad input, not a bad copy, and every other
+    check against a site that will not answer is already failing loudly.
+    """
+
+    if expected is None:
+        derivation = derive_sample_urls(run)
+        if derivation.error is not None:
+            return SampleUrlResolution(
+                (),
+                "derived",
+                (
+                    CheckResult(
+                        "sample_urls_source",
+                        "attention",
+                        f"could not derive sample URLs from the copy: {derivation.error}",
+                    ),
+                ),
+            )
+        coverage = ", ".join(
+            f"{shape}: {derivation.coverage.get(shape, 'unknown')}" for shape in _SAMPLE_URL_SHAPES
+        )
+        return SampleUrlResolution(
+            derivation.urls,
+            "derived",
+            (
+                CheckResult(
+                    "sample_urls_source",
+                    "pass",
+                    f"{len(derivation.urls)} URL(s) derived from the copy — {coverage}",
+                ),
+            ),
+        )
+
+    # The expectations file is operator-editable input, so a `sampleUrls` that
+    # is not a list fails this one check loudly rather than being iterated
+    # character by character into a report full of nonsense URLs.
+    if not isinstance(expected, list):
+        return SampleUrlResolution(
+            (),
+            "none",
+            (
+                CheckResult(
+                    "sample_urls_source",
+                    "fail",
+                    f"sampleUrls must be a list of URLs, got {type(expected).__name__}",
+                ),
+            ),
+        )
+
+    if not expected:
+        return SampleUrlResolution(
+            (), "none", (_skip("sample_urls_source", "the expectations document pins an empty URL list"),)
+        )
+
+    return SampleUrlResolution(
+        tuple(str(url) for url in expected),
+        "supplied",
+        (
+            _skip(
+                "sample_urls_source",
+                f"{len(expected)} URL(s) supplied by the caller — the copy was not asked for its own",
+            ),
+        ),
+    )
+
+
+def read_site_shape(run: RunCommand) -> dict[str, str]:
+    """The three URL-deciding settings (:data:`_SITE_SHAPE_OPTIONS`), read off
+    the site the runner points at. A setting the site will not answer for is
+    omitted rather than guessed, so the parity check below reports it as
+    unreadable instead of inventing a disagreement."""
+
+    shape: dict[str, str] = {}
+    for key, option in _SITE_SHAPE_OPTIONS.items():
+        ok, output = _run_ddev_wp(run, "option", "get", option)
+        if ok:
+            shape[key] = output
+    return shape
+
+
+def check_sample_url_source_parity(source_shape: Any, clone_shape: Mapping[str, Any]) -> CheckResult:
+    """The three settings that decide what a URL looks like — the permalink
+    structure and the front-page pair — compared between the source site as
+    discovery recorded it and the copy under test.
+
+    A disagreement here may be the most useful thing this test can report: a
+    permalink structure or front-page setting that did not survive the
+    transfer is exactly the class of defect a fidelity check exists to catch.
+    It is still only ``attention``. The copy is the subject under test, and a
+    source that has legitimately moved on since discovery took its snapshot is
+    not a broken copy — so this names both values for a human and never fails
+    the run on its own.
+
+    Both sides are compared as text: the copy's values come back from ``wp
+    option get`` as strings, and a recorded ``12`` must never disagree with a
+    read-back ``"12"``.
+    """
+
+    if source_shape is None:
+        return _skip("sample_url_source_parity", "the source site's own URL-deciding settings are not recorded")
+    if not isinstance(source_shape, dict):
+        return CheckResult(
+            "sample_url_source_parity", "fail", "sourceSiteShape expectation must be an object"
+        )
+    if not source_shape:
+        return _skip("sample_url_source_parity", "the source site's own URL-deciding settings are not recorded")
+
+    disagreements = []
+    for key in _SITE_SHAPE_OPTIONS:
+        if key not in source_shape:
+            continue
+        source_value = str(source_shape[key])
+        if key not in clone_shape:
+            disagreements.append(f"{key}: source {source_value!r}, copy unreadable")
+            continue
+        clone_value = str(clone_shape[key])
+        if clone_value != source_value:
+            disagreements.append(f"{key}: source {source_value!r}, copy {clone_value!r}")
+
+    if disagreements:
+        return CheckResult("sample_url_source_parity", "attention", "; ".join(disagreements))
+    return CheckResult(
+        "sample_url_source_parity", "pass", "the copy's URL-deciding settings match the source's"
+    )
 
 
 def _bare_host(production_host: str) -> str:
@@ -775,7 +1088,9 @@ def run_checks(
     """Run every check the expectations document activates, and return the
     coherent report: ``ok`` (no FAIL among the checks — ``attention`` and
     ``skip`` never affect it), a ``summary`` of pass/fail/attention/skip
-    counts, and the flat ``checks`` list.
+    counts, a ``sampleUrls`` section saying which URLs were fetched and
+    whether they were derived from the copy or supplied by the caller, and the
+    flat ``checks`` list.
 
     ``run_command`` and ``fetch_url`` default to the real DDEV/curl-shelling
     implementations bound to ``clone_dir``; a caller — chiefly the test
@@ -805,7 +1120,18 @@ def run_checks(
 
     results.extend(check_excluded_dropins_absent(expectations.get("excludedDropins"), clone_dir))
     results.append(check_object_cache_dropin_state(expectations.get("objectCacheDropinPresent"), clone_dir))
-    results.extend(check_sample_urls(expectations.get("sampleUrls"), fetch))
+    # Sample URLs come from the copy under test unless the expectations
+    # document overrides them (issue #60); the source/clone parity check only
+    # asks the copy for its URL-deciding settings when a recorded source value
+    # exists to compare them against.
+    sample_urls = resolve_sample_urls(expectations.get("sampleUrls"), run)
+    results.extend(sample_urls.checks)
+    results.extend(check_sample_urls(sample_urls.expectation, fetch))
+    source_shape = expectations.get("sourceSiteShape")
+    results.append(
+        check_sample_url_source_parity(source_shape, read_site_shape(run) if source_shape else {})
+    )
+
     results.append(check_local_asset_urls(expectations.get("localAssetCheck"), fetch))
     results.append(check_db_check_clean(expectations.get("dbCheck"), run))
     results.append(check_active_plugin_count(expectations.get("activePluginCount"), run))
@@ -820,6 +1146,7 @@ def run_checks(
     return {
         "ok": summary["fail"] == 0,
         "summary": summary,
+        "sampleUrls": sample_urls.to_dict(),
         "checks": [result.to_dict() for result in results],
     }
 
@@ -889,8 +1216,22 @@ def generate_expectations(envelope: Mapping[str, Any]) -> dict[str, Any]:
       "attachments", "users"}``; a per-key override the caller may supply
       directly (e.g. a hand-edited re-verification), taking precedence over
       whatever ``discovery.entity_counts`` reports.
-    - ``sampleUrls`` (optional) — the local-URL-mapped smoke-test URL list;
-      discovery carries no sample URLs of its own.
+    - ``sampleUrls`` (optional) — an **override** for the smoke-test URL
+      list. Omitting it is the intended default: ``run_checks`` then derives
+      the URLs from the copy under test, which knows its own permalinks
+      better than any caller assembling strings (issue #60). Supply it only
+      for a URL the copy cannot derive — a multilingual install's localised
+      home and subpage, the canary for the rewrite-flush bug — knowing that a
+      supplied list replaces the derived set entirely and is recorded as
+      ``supplied`` in the run's report.
+    - ``sourceSiteShape`` (optional) — the *source* site's permalink
+      structure and front-page pair, for the source/clone parity check.
+      Sourced from ``discovery.site``'s ``permalink_structure`` /
+      ``show_on_front`` / ``page_on_front`` when the document carries them,
+      with a per-key envelope override — the same precedence ``entityCounts``
+      follows. Today's discovery document carries none of the three, so the
+      parity check stays dormant unless a caller supplies the section; it
+      starts reporting of its own accord the moment discovery grows them.
     - ``productionHost`` (optional) — paired with ``localUrl`` into the
       ``localAssetCheck`` expectation.
     - ``objectCacheDropinPresent`` (optional) — the object-cache ownership
@@ -1076,11 +1417,27 @@ def generate_expectations(envelope: Mapping[str, Any]) -> dict[str, Any]:
     if object_cache_present is not None:
         expectations["objectCacheDropinPresent"] = bool(object_cache_present)
 
-    # Sample URLs and the local-asset check: both need a local URL to make
-    # sense, so localAssetCheck only appears when both halves are present.
+    # Sample URLs and the local-asset check: the URL list is an override
+    # only — omitted, the checker derives it from the copy itself — while
+    # localAssetCheck needs a local URL to make sense, so it only appears when
+    # both halves are present.
     sample_urls = envelope.get("sampleUrls")
     if isinstance(sample_urls, list) and sample_urls:
         expectations["sampleUrls"] = list(sample_urls)
+
+    # The source site's own URL-deciding settings, for the parity check.
+    # Normalised to strings, since the copy's side of that comparison comes
+    # back from `wp option get` as text and a recorded 12 must never disagree
+    # with a read-back "12".
+    source_shape: dict[str, str] = {}
+    source_shape_override = envelope.get("sourceSiteShape") or {}
+    for camel_key, option in _SITE_SHAPE_OPTIONS.items():
+        if option in site:
+            source_shape[camel_key] = str(site[option])
+        if camel_key in source_shape_override:
+            source_shape[camel_key] = str(source_shape_override[camel_key])
+    if source_shape:
+        expectations["sourceSiteShape"] = source_shape
 
     production_host = envelope.get("productionHost")
     if local_url and production_host:
@@ -1126,9 +1483,12 @@ def _quiet_summary(report: Mapping[str, Any], report_path: Path) -> dict[str, An
     """Reduce a full report to what a caller has to act on.
 
     Every routine ``pass`` and ``skip`` stays in the written report; what comes
-    back is the verdict, the counts, where the report is, and each ``fail`` or
-    ``attention`` finding — the same reduction the delegated path used to get
-    from a subagent's own context, now available to a caller that has none.
+    back is the verdict, the counts, where the sample URLs came from, where the
+    report is, and each ``fail`` or ``attention`` finding — the same reduction
+    the delegated path used to get from a subagent's own context, now available
+    to a caller that has none. The sample-URL origin rides along because a
+    caller with no context to spare is exactly the reader who could not
+    otherwise tell a derived expectation from a supplied one.
     """
 
     anomalies = [
@@ -1139,6 +1499,7 @@ def _quiet_summary(report: Mapping[str, Any], report_path: Path) -> dict[str, An
     return {
         "ok": report["ok"],
         "summary": report["summary"],
+        "sample_urls": report.get("sampleUrls", {"origin": "none", "urls": []}),
         "report_path": str(report_path),
         "anomalies": anomalies,
     }
