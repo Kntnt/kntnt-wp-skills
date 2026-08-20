@@ -10,8 +10,11 @@ sources — the ``environment`` response, the ``tables`` response, the flattened
 JSON object on stdin, the canonical discovery document comes out on stdout, and
 malformed input fails loudly with a non-zero exit. Every test exercises that seam
 through the real command — fixtures in, observable output out — and never reaches
-into the helper's internals. The fixtures under ``fixtures/`` are what the two-
-phase discovery would assemble for a given site; no test touches a real site.
+into the helper's internals, with one deliberate exception: the boundary type
+check's ``bool`` case, which the module declares no field of for a fixture to
+reach through and which is therefore driven by importing the helper. The
+fixtures under ``fixtures/`` are what the two-phase discovery would assemble for
+a given site; no test touches a real site.
 """
 
 from __future__ import annotations
@@ -21,6 +24,8 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+import discovery
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 SCRIPT = Path(__file__).resolve().parent.parent / "skills" / "clone" / "scripts" / "discovery.py"
@@ -138,6 +143,25 @@ def test_a_float_api_version_fails_loudly() -> None:
     assert b"api_version" in result.stderr
 
 
+def test_a_boolean_api_version_fails_loudly() -> None:
+    # Arrange — `bool` subclasses `int` in Python, so a bare isinstance check
+    # accepts True as an integer and an api_version of true would pass the very
+    # type check that exists to reject it (issue #64).
+    payload = load_fixture("representative-site.json")
+    payload["api_version"] = True
+
+    # Act.
+    result = run_on(payload)
+
+    # Assert — the same loud refusal a string or a float gets, naming the type
+    # that arrived so a future occurrence is diagnosable from the message alone.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"discovery:")
+    assert b"api_version" in result.stderr
+    assert b"got bool" in result.stderr
+
+
 def test_api_version_is_a_sibling_of_environment_not_a_member() -> None:
     # Arrange & Act — a later reader must look for api_version in exactly one
     # place: the document's top level, never inside environment.
@@ -202,6 +226,23 @@ def test_a_malformed_table_record_fails_loudly() -> None:
     assert result.stdout == b""
     assert result.stderr.startswith(b"discovery:")
     assert b"tables" in result.stderr
+
+
+def test_a_boolean_table_size_fails_loudly() -> None:
+    # Arrange — an integer field the scan may omit is still an integer field, so
+    # a boolean must not ride in and be summed into the grand total as one byte.
+    payload = load_fixture("representative-site.json")
+    payload["tables"]["tables"] = [{"name": "wp_posts", "bytes": True}]
+
+    # Act.
+    result = run_on(payload)
+
+    # Assert.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"discovery:")
+    assert b"bytes" in result.stderr
+    assert b"got bool" in result.stderr
 
 
 def test_uploads_subdirectories_are_summed_from_the_file_manifest() -> None:
@@ -289,6 +330,28 @@ def test_uploads_subdirectories_still_reports_a_loose_file_directly_in_uploads_r
         for entry in document["uploads"]["subdirectories"]
     }
     assert subdirectories == {"loose-huge-export.zip": 999, "2024": 100}
+
+
+def test_a_boolean_manifest_size_weighs_nothing_in_a_subdirectory_total() -> None:
+    # Arrange — a malformed manifest entry is tolerated rather than fatal (one
+    # stray record must not abort a document built from hundreds of thousands),
+    # and a boolean size is malformed: it must weigh 0 like any other non-integer
+    # size, never the one byte int-ness would otherwise lend it.
+    payload = load_fixture("representative-site.json")
+    payload["files"] = [
+        {"path": "wp-content/uploads/2024/a.jpg", "size": True, "mtime": 1},
+        {"path": "wp-content/uploads/2024/b.jpg", "size": 100, "mtime": 1},
+    ]
+
+    # Act.
+    document = json.loads(run_on(payload).stdout)
+
+    # Assert.
+    subdirectories = {
+        entry["path"]: entry["size_bytes"]
+        for entry in document["uploads"]["subdirectories"]
+    }
+    assert subdirectories == {"2024": 100}
 
 
 def test_database_password_never_appears_in_the_canonical_document() -> None:
@@ -653,6 +716,23 @@ def test_a_non_integer_entity_count_fails_loudly() -> None:
     assert b"published_posts" in result.stderr
 
 
+def test_a_boolean_entity_count_fails_loudly() -> None:
+    # Arrange — a boolean count would otherwise reach the document as a 1 and be
+    # verified against a real site as though the bootstrap had counted it.
+    payload = load_fixture("representative-site.json")
+    payload["bootstrap"]["entity_counts"] = {"published_posts": True}
+
+    # Act.
+    result = run_on(payload)
+
+    # Assert.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"discovery:")
+    assert b"published_posts" in result.stderr
+    assert b"got bool" in result.stderr
+
+
 def test_root_subdirectories_are_summed_from_the_file_manifest() -> None:
     # Arrange — the install-root breakdown must sum each top-level directory's
     # files (the wider blob heuristic's input, issue #38), while a loose file
@@ -722,3 +802,17 @@ def test_root_subdirectories_are_an_ordered_list() -> None:
     subdirectories = document["root"]["subdirectories"]
     assert isinstance(subdirectories, list)
     assert [entry["path"] for entry in subdirectories] == ["alpha", "mu", "zeta"]
+
+
+def test_a_field_declared_bool_still_accepts_a_boolean() -> None:
+    # Arrange — the narrowing is "an int field rejects a bool", never "a bool is
+    # never a valid value". No field in the module is declared bool today, so
+    # there is no fixture to drive this through the CLI and no other guard on the
+    # half of the contract a future bool field would depend on; this one is it.
+    payload = {"strict": True, "verbose": False}
+
+    # Act & Assert — a bool-declared field takes both booleans, required and
+    # optional alike. The rejection half of the contract is pinned through the
+    # CLI by the four int fields above.
+    assert discovery._require(payload, "strict", bool, "input") is True
+    assert discovery._optional(payload, "verbose", bool, True, "input") is False
