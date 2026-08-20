@@ -49,6 +49,10 @@ _Avoid_: profile, preset
 **Replay**:
 The run mode engaged when a saved plan exists: interactive collapses to one "Replay the saved plan?" gate; `--yes` runs it silently.
 
+**Anomaly**:
+A finding a phase reports in full without condemning the run — a step that could not run, one that ran with warnings, or one that exited non-zero for a reason that says nothing about the copy's fidelity. It rides in the evidence block's `anomalies` list beside a `DONE`, and is never a third verdict: a phase is still only ever `DONE` or `FAILED`, and `FAILED` requires evidence that the copy is defective ([ADR-0026](docs/adr/0026-a-phase-fails-on-a-defective-copy-never-on-a-non-zero-exit.md)).
+_Avoid_: warning, soft failure, non-fatal error
+
 ### Files and sync
 
 **Baseline**:

@@ -86,6 +86,7 @@ The whole client-side pack machinery this section once pinned — the outside-do
 
 - Grep the fetched HTML for: `There has been a critical error`, `Fatal error`, `Error establishing a database`.
 - Run `ddev wp db check`.
+- `scripts/smoke_test.py`'s exit code is the phase's verdict, and it carries three meanings, not two: `0` every activated check passed; `1` the checks ran and the report holds at least one `fail`; `2` the script could not run at all — a missing clone directory, an unreadable or non-object expectations file, a malformed invocation, or a probe that raised. Only `1` is evidence about the copy and only `1` may become a `FAILED`; `2` is an anomaly, reported in full inside a `DONE` ([ADR-0026](./adr/0026-a-phase-fails-on-a-defective-copy-never-on-a-non-zero-exit.md)). `--generate` answers `2` on a malformed envelope for the same reason — it inspects no copy.
 
 ## Clone
 

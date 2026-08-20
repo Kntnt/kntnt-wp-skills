@@ -41,10 +41,15 @@ Two CLI shapes, because the two modes take fundamentally different inputs:
 - **Verify** (default): ``smoke_test.py <clone_dir> <expectations_file>
   [--log <report_path>]`` — positional arguments, since an expectations *file*
   is naturally a path, not a JSON blob worth piping. Emits the JSON report to
-  stdout; exits non-zero on any FAIL. With ``--log`` the full report is written
-  to that path instead and stdout carries only the verdict, the pass/fail
-  counts, and the ``fail``/``attention`` findings, so a caller executing this
-  step inline is not handed the whole report to read.
+  stdout. It exits ``1`` on any FAIL and ``2`` when it could not run at all —
+  a missing clone directory, an unreadable or non-object expectations file, a
+  malformed invocation, or a probe that raised — because those two say
+  opposite things about the copy and only the first may condemn it (issue
+  #59, :data:`EXIT_COPY_DEFECTIVE` / :data:`EXIT_COULD_NOT_RUN`). With
+  ``--log`` the full report is written to that path instead and stdout carries
+  only the verdict, the pass/fail counts, and the ``fail``/``attention``
+  findings, so a caller executing this step inline is not handed the whole
+  report to read.
 - **Generate** (``--generate``): reads an envelope JSON object from stdin —
   production's canonical discovery document (``scripts/discovery.py``'s
   output) plus the few supplementary facts that document does not itself
@@ -67,6 +72,9 @@ from typing import Any, Literal
 __all__ = [
     "CheckResult",
     "DdevConfig",
+    "EXIT_COPY_DEFECTIVE",
+    "EXIT_COULD_NOT_RUN",
+    "EXIT_OK",
     "GenerateError",
     "SmokeTestError",
     "check_active_plugin_count",
@@ -96,6 +104,17 @@ __all__ = [
 ]
 
 Status = Literal["pass", "fail", "attention", "skip"]
+
+# The exit codes verify mode answers with, and the whole of what a caller has
+# to know to judge the phase (issue #59). They exist as three rather than "0 or
+# non-zero" because the two non-zero meanings have opposite consequences: `1`
+# is the only one that says anything about the copy, and it is the only one a
+# caller may turn into a `FAILED` verdict. `2` says this script never got as
+# far as a check, which is the caller's input or environment and never
+# evidence against what landed.
+EXIT_OK: int = 0
+EXIT_COPY_DEFECTIVE: int = 1
+EXIT_COULD_NOT_RUN: int = 2
 
 # The three WordPress fatal-error markers the transfer engine has always
 # grepped for (agents/thumbnail-smoke-test.md, both SKILL.md verify sections)
@@ -1146,8 +1165,15 @@ def _quiet_summary(report: Mapping[str, Any], report_path: Path) -> dict[str, An
 
 def _main_verify(args: list[str]) -> int:
     """Verify mode: run every check the given expectations file activates
-    against the given clone directory, print the JSON report, and exit
-    non-zero on any FAIL.
+    against the given clone directory, print the JSON report, and answer with
+    the exit code that classifies what happened.
+
+    :data:`EXIT_COPY_DEFECTIVE` is reserved for the one outcome that is
+    evidence against the copy — the checks ran and the report carries a
+    ``fail``. Everything that stops this script before it can judge anything
+    answers :data:`EXIT_COULD_NOT_RUN`, so a caller reading the exit code can
+    never mistake a step that did not run for a copy that is wrong (issue
+    #59).
 
     With ``--log <path>`` the full report is written there and stdout carries
     only the compact summary — the quiet shape an agent running this step
@@ -1159,38 +1185,48 @@ def _main_verify(args: list[str]) -> int:
         index = args.index("--log")
         if index + 1 >= len(args):
             print(f"smoke_test: {_usage()}", file=sys.stderr)
-            return 2
+            return EXIT_COULD_NOT_RUN
         report_path = Path(args[index + 1])
         args = args[:index] + args[index + 2 :]
 
     if len(args) != 2:
         print(f"smoke_test: {_usage()}", file=sys.stderr)
-        return 2
+        return EXIT_COULD_NOT_RUN
 
     clone_dir = Path(args[0])
     expectations_path = Path(args[1])
 
     if not clone_dir.is_dir():
         print(f"smoke_test: clone directory not found: {clone_dir}", file=sys.stderr)
-        return 1
+        return EXIT_COULD_NOT_RUN
 
     try:
         raw_text = expectations_path.read_text(encoding="utf-8")
     except OSError as error:
         print(f"smoke_test: cannot read expectations file: {error}", file=sys.stderr)
-        return 1
+        return EXIT_COULD_NOT_RUN
 
     try:
         expectations = json.loads(raw_text)
     except json.JSONDecodeError as error:
         print(f"smoke_test: expectations file is not valid JSON: {error}", file=sys.stderr)
-        return 1
+        return EXIT_COULD_NOT_RUN
 
     if not isinstance(expectations, dict):
         print("smoke_test: expectations file must contain a JSON object", file=sys.stderr)
-        return 1
+        return EXIT_COULD_NOT_RUN
 
-    report = run_checks(clone_dir, expectations)
+    # The checks observe live state over DDEV and curl, both under a timeout,
+    # so a probe can raise instead of returning — and a traceback carries no
+    # verdict about the copy at all. Broad on purpose: what makes an exception
+    # here could-not-run is that no report exists, never which exception it
+    # was, and narrowing the catch would let an unanticipated one exit as
+    # though the copy were defective.
+    try:
+        report = run_checks(clone_dir, expectations)
+    except Exception as error:
+        print(f"smoke_test: the checks could not be run: {error!r}", file=sys.stderr)
+        return EXIT_COULD_NOT_RUN
 
     # Quiet mode routes the whole report to disk; the default keeps the
     # long-standing contract of emitting it on stdout.
@@ -1204,29 +1240,34 @@ def _main_verify(args: list[str]) -> int:
         json.dump(report, sys.stdout, indent=2, sort_keys=True)
 
     sys.stdout.write("\n")
-    return 0 if report["ok"] else 1
+    return EXIT_OK if report["ok"] else EXIT_COPY_DEFECTIVE
 
 
 def _main_generate() -> int:
     """Generate mode: read an envelope JSON object on stdin, write the
-    derived expectations JSON to stdout."""
+    derived expectations JSON to stdout.
+
+    A malformed envelope answers :data:`EXIT_COULD_NOT_RUN`: this mode
+    inspects no copy, so nothing it does can ever be evidence that one is
+    defective.
+    """
 
     raw_text = sys.stdin.read()
     try:
         envelope = json.loads(raw_text)
     except json.JSONDecodeError as error:
         print(f"smoke_test: input is not valid JSON: {error}", file=sys.stderr)
-        return 1
+        return EXIT_COULD_NOT_RUN
 
     try:
         expectations = generate_expectations(envelope)
     except GenerateError as error:
         print(f"smoke_test: {error}", file=sys.stderr)
-        return 1
+        return EXIT_COULD_NOT_RUN
 
     json.dump(expectations, sys.stdout, indent=2, sort_keys=True)
     sys.stdout.write("\n")
-    return 0
+    return EXIT_OK
 
 
 def main() -> int:

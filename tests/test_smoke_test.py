@@ -1713,3 +1713,155 @@ def test_cli_log_mode_carries_only_the_anomalies(clone_dir: Path, tmp_path: Path
     assert summary["ok"] is False
     assert [finding["id"] for finding in summary["anomalies"]] == ["saved_plan_present"]
     assert summary["anomalies"][0]["status"] == "fail"
+
+
+# --- The CLI: the verdict bar (issue #59) -----------------------------------
+
+
+def test_exit_codes_name_the_two_meanings_a_non_zero_exit_can_carry():
+    """The script's exit codes are the classification the phase's verdict is
+    read off (issue #59): ``1`` means the checks ran and the copy is
+    demonstrably wrong, ``2`` means the script never got as far as a check.
+    Collapsing the two — as a single non-zero did — is what let a step that
+    could not run condemn a healthy copy."""
+
+    assert smoke_test.EXIT_OK == 0
+    assert smoke_test.EXIT_COPY_DEFECTIVE == 1
+    assert smoke_test.EXIT_COULD_NOT_RUN == 2
+
+
+def test_cli_verify_mode_exits_copy_defective_on_a_fail_finding(clone_dir: Path, tmp_path: Path):
+    """The one exit that may condemn a run: every check the expectations
+    activated ran, and the written report carries a ``fail``."""
+
+    expectations_path = tmp_path / "expectations.json"
+    expectations_path.write_text(
+        json.dumps({"savedPlan": True, "baseline": True}), encoding="utf-8"
+    )
+    (clone_dir / ".kntnt-wp-skills.json").unlink()
+
+    result = subprocess.run(
+        [sys.executable, str(_SCRIPTS_DIR / "smoke_test.py"), str(clone_dir), str(expectations_path)],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == smoke_test.EXIT_COPY_DEFECTIVE
+    assert json.loads(result.stdout)["ok"] is False
+
+
+def test_cli_verify_mode_exits_could_not_run_on_a_missing_clone_dir(tmp_path: Path):
+    """A clone directory that is not there means no check ever observed the
+    copy — a fidelity-neutral failure of the step, never evidence against
+    what landed."""
+
+    expectations_path = tmp_path / "expectations.json"
+    expectations_path.write_text("{}", encoding="utf-8")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(_SCRIPTS_DIR / "smoke_test.py"),
+            str(tmp_path / "does-not-exist"),
+            str(expectations_path),
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == smoke_test.EXIT_COULD_NOT_RUN
+    assert result.stderr.strip()
+
+
+def test_cli_verify_mode_exits_could_not_run_on_an_unreadable_expectations_file(
+    clone_dir: Path, tmp_path: Path
+):
+    """An expectations file that cannot be read is the caller's input, not the
+    copy's fidelity."""
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(_SCRIPTS_DIR / "smoke_test.py"),
+            str(clone_dir),
+            str(tmp_path / "never-written.json"),
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == smoke_test.EXIT_COULD_NOT_RUN
+    assert result.stderr.strip()
+
+
+def test_cli_verify_mode_exits_could_not_run_on_malformed_expectations_json(
+    clone_dir: Path, tmp_path: Path
+):
+    """Malformed JSON stops the script before the first check — the same
+    could-not-run bucket, and the same non-condemning verdict."""
+
+    expectations_path = tmp_path / "expectations.json"
+    expectations_path.write_text("{not json", encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, str(_SCRIPTS_DIR / "smoke_test.py"), str(clone_dir), str(expectations_path)],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == smoke_test.EXIT_COULD_NOT_RUN
+    assert result.stderr.strip()
+
+
+def test_cli_verify_mode_exits_could_not_run_on_a_non_object_expectations_file(
+    clone_dir: Path, tmp_path: Path
+):
+    """Valid JSON of the wrong shape activates no check at all."""
+
+    expectations_path = tmp_path / "expectations.json"
+    expectations_path.write_text("[1, 2, 3]", encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, str(_SCRIPTS_DIR / "smoke_test.py"), str(clone_dir), str(expectations_path)],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == smoke_test.EXIT_COULD_NOT_RUN
+    assert result.stderr.strip()
+
+
+def test_cli_verify_mode_exits_could_not_run_on_a_malformed_invocation(clone_dir: Path):
+    """A usage error is the caller's, and it too must never read as a
+    defective copy."""
+
+    result = subprocess.run(
+        [sys.executable, str(_SCRIPTS_DIR / "smoke_test.py"), str(clone_dir)],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == smoke_test.EXIT_COULD_NOT_RUN
+    assert result.stderr.strip()
+
+
+def test_verify_mode_exits_could_not_run_when_a_check_raises(
+    clone_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    """The checks shell out to DDEV and curl with timeouts, so a probe can
+    raise rather than return. An exception out of the check run is an exit
+    this table cannot classify — reported as could-not-run, never promoted to
+    the verdict that condemns the copy."""
+
+    expectations_path = tmp_path / "expectations.json"
+    expectations_path.write_text(json.dumps({"savedPlan": True}), encoding="utf-8")
+
+    def _raise(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=["ddev", "wp", "core", "version"], timeout=120)
+
+    monkeypatch.setattr(smoke_test, "run_checks", _raise)
+
+    status = smoke_test._main_verify([str(clone_dir), str(expectations_path)])
+
+    assert status == smoke_test.EXIT_COULD_NOT_RUN
+    assert capsys.readouterr().err.strip()
