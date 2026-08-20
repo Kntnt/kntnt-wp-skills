@@ -66,6 +66,16 @@ _CONFIGURATION_FILE: tuple[str, ...] = ("wp-config.php",)
 # named variant such as "wp-config-backup.php". Each carries the complete
 # secret family in clear text exactly like the live file, so each is excluded
 # on every run precisely as the configuration file itself is (issue #36).
+# Emacs leaves two more shapes no other entry here catches: "#wp-config.php#"
+# is its auto-save file, holding that same secret family verbatim, and
+# ".#wp-config.php" its lock file, naming the account and host editing it.
+# "wp-config.bak" / ".old" / ".orig" / ".save", with or without a trailing
+# ".php", are the reordered backup names a manual edit leaves behind — the
+# marker sits ahead of the extension rather than appended to it, so the
+# "wp-config.php.*" catcher above never sees them. They are enumerated one by
+# one rather than caught with a bare "wp-config.*", which would reach every
+# name beginning "wp-config." and is broader than the shape being closed
+# (issue #55).
 # "wp-config-sample.php" is WordPress' own bundled template — placeholder
 # values only, never a real secret — so it is the one name the broad
 # "wp-config-*.php" variant-catcher must not swallow; ``is_excluded`` in
@@ -74,6 +84,16 @@ _CONFIGURATION_FILE_VARIANTS: tuple[str, ...] = (
     "wp-config.php.*",
     "wp-config.php~",
     ".wp-config.php.sw?",
+    "#wp-config.php#",
+    ".#wp-config.php",
+    "wp-config.bak",
+    "wp-config.bak.php",
+    "wp-config.old",
+    "wp-config.old.php",
+    "wp-config.orig",
+    "wp-config.orig.php",
+    "wp-config.save",
+    "wp-config.save.php",
     "wp-config-*.php",
 )
 
@@ -94,11 +114,19 @@ _ROOT_SQL_DUMPS: tuple[str, ...] = (
 )
 
 # Root-level key material an operator dropped beside the install and forgot —
-# a private key or certificate, never content.
+# a private key or certificate, never content. The "id_*" entries are OpenSSH's
+# default key basenames in full, matched as prefixes so the "-sk" hardware-token
+# variants ("id_ecdsa-sk", "id_ed25519-sk") come along with them (issue #55).
+# The prefix deliberately catches the ".pub" sibling too: a public key is not a
+# secret, but a public key at the install root is a strong signal the private
+# one is lying beside it, and neither is site content.
 _ROOT_KEY_MATERIAL: tuple[str, ...] = (
     "*.pem",
     "*.key",
     "id_rsa*",
+    "id_dsa*",
+    "id_ecdsa*",
+    "id_ed25519*",
 )
 
 # The WordPress drop-ins, under wp-content/. Every core-recognised single-site
