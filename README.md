@@ -46,12 +46,24 @@ The plugin assumes you have already put a few things in place. Each note says wh
 
 ## Installation
 
-Add the plugin's marketplace and install it from within Claude Code:
+### As a Claude Code plugin
+
+This is the primary channel, and the only one that carries all four skills. Add the plugin's marketplace and install it from within Claude Code:
 
 ```
 /plugin marketplace add Kntnt/kntnt-wp-skills
 /plugin install kntnt-wp-skills@kntnt-wp-skills
 ```
+
+### As a standalone skill, in any other harness
+
+`build-ollie-site` is self-contained — its references and helper scripts all live inside its own skill directory — so a generic skill installer such as [`npx skills`](https://github.com/vercel-labs/skills), which reaches some seventy-five agent harnesses, can carry it anywhere:
+
+```
+npx skills add Kntnt/kntnt-wp-skills
+```
+
+That command currently installs `build-ollie-site` and nothing else. The transfer engine — `clone`, `pull`, and `mkwp` — is Claude Code-only: it is inseparable from the plugin's bundled subagents and its shared helper scripts, so those three skills are marked internal and a generic installer skips them rather than offering a skill that cannot run. Install the plugin as above to use them. In a standalone install, `build-ollie-site` is invoked as `/build-ollie-site` (there is no plugin namespace to prefix), and its `help` forms print a brief usage summary instead of the full manual page, which the plugin renders.
 
 ## Usage
 

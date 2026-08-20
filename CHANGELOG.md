@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ## [Unreleased]
 
+### Added
+
+- `build-ollie-site` is now installable as a standalone skill in any harness a generic installer reaches — `npx skills add Kntnt/kntnt-wp-skills` — alongside the plugin channel, which stays the primary one. Such an installer copies the `skills/<name>/` directory and nothing else, and everything this skill needs already lived there but one thing: the help gate reached the plugin's manual-page renderer through `${CLAUDE_PLUGIN_ROOT}`, an environment variable that exists only inside a Claude Code plugin install. The gate now names `../../scripts/help.py` relative to the skill's own directory and checks whether it is there — a plugin install echoes the manual page as before, a standalone install falls back to a brief usage summary drawn from the skill document itself — so the one thing the directory cannot carry degrades instead of breaking. A path preamble states the anchor every other relative path in the document is read against (the directory holding `SKILL.md`, wherever it was installed), and the README documents both channels. Nothing about the skill's behaviour under the plugin changes.
+
+### Changed
+
+- `clone`, `pull`, and `mkwp` are marked `metadata.internal: true` and each says, in its own opening prose, that it requires Claude Code with this plugin installed. The three are inseparable from the plugin — the bundled subagents under `agents/`, the shared transfer-engine helpers under `scripts/`, cross-skill delegation — so a generic skill installer that copied one of them alone would offer a skill that cannot run at all. The marker keeps them out of that channel, and the sentence tells anyone who obtained one another way. Claude Code ignores the key, so the plugin channel is unaffected and all four skills load exactly as before; the transfer engine itself is untouched and keeps `${CLAUDE_PLUGIN_ROOT}` throughout.
+
 ## [0.10.0] – 2026-08-16
 
 ### Added

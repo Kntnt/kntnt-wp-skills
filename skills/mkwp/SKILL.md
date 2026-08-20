@@ -1,6 +1,8 @@
 ---
 name: mkwp
 disable-model-invocation: true
+metadata:
+  internal: true
 description: >
   Create a fresh local WordPress site by driving `mkwp`, deriving sensible
   flag values from context and confirming the rest at recommendation gates.
@@ -14,6 +16,8 @@ description: >
 # mkwp
 
 Create a fresh local WordPress site by driving the `mkwp` command. `mkwp` is **not** part of the shared transfer engine `clone` and `pull` run — there is no production site, no control channel, no baseline, nothing to import. It starts from nothing: gather the flags `mkwp` itself needs, confirm the ones context cannot settle, and run `mkwp` once. `--yes` accepts every recommendation, never pauses, and prints a full decided-and-done record.
+
+Requires Claude Code with this plugin installed (`/plugin install kntnt-wp-skills@kntnt-wp-skills`); this skill does not work as a standalone skill install.
 
 Read `docs/spec.md` (the `mkwp` section) and `CONTEXT.md` (the glossary) alongside this file. Where a literal here and the spec diverge, the spec wins.
 

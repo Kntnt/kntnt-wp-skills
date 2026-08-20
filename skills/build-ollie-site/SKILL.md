@@ -12,6 +12,8 @@ description: >
 
 # build-ollie-site
 
+All relative paths in this document are relative to the directory containing this SKILL.md (the skill directory), regardless of where the skill is installed.
+
 Build a WordPress site on **Ollie** the way a design system is meant to be built: **bottom-up**, by **Atomic Design**. The foundation is the theme's design tokens; everything above references them and adds nothing the layer below cannot express.
 
 ```
@@ -39,7 +41,7 @@ Your hands on the install are **WP-CLI** (`ddev wp` locally) for files and verif
 
 ## Help gate
 
-If the arguments are `help`, `--help`, or `-h`, run `uv run "${CLAUDE_PLUGIN_ROOT}/scripts/help.py" build-ollie-site`, emit its output verbatim as Markdown, and stop. Do nothing else.
+If the arguments are `help`, `--help`, or `-h`: if the file `../../scripts/help.py` exists relative to this skill's directory (plugin install), run `uv run` on it with the argument `build-ollie-site` and emit its output verbatim as Markdown, then stop. If it does not exist (standalone skill install), give a brief usage summary based on this document instead, then stop.
 
 ## Procedure
 
