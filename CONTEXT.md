@@ -121,6 +121,10 @@ _Avoid_: download dir
 **Exposure window**:
 The interval a finished extraction is fetchable on production — closed immediately by consuming the job (`POST /extractions/{id}/consume`) once the download unseals, backstopped by the plugin's own TTL cleanup and the next health check's stranded-job sweep.
 
+**Locked consume**:
+A `POST /extractions/{id}/consume` refused `409 kntnt_extractor_locked` because the job's per-job tick lock is held at that instant by a tick or the TTL sweep. Retried on a bounded schedule — five retries, 10 seconds apart — and only an exhausted window is a failure, reported as the `unsealed_consume_locked` failure phase, whose local copy is complete because the download and the unseal both precede the consume.
+_Avoid_: consume conflict
+
 ### Mail and side effects
 
 **Mass-send valve**:
