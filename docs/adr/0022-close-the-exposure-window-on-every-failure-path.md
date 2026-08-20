@@ -8,7 +8,7 @@ The first two leaks leave sealed production data published on a live client site
 
 ## Decision
 
-Every submitted job is accounted for before a run stops — by cancel, by consume, or by an explicit reported decision — never by silence. A new *Closing out a failed phase* subsection in both SKILLs, reached from any `FAILED` subagent return or any orchestrator-initiated abort after a job was submitted, specifies four cases (the fourth added 2026-08-20, see *Amendment*):
+Every submitted job is accounted for before a run stops — by cancel, by consume, or by an explicit reported decision — never by silence. A new *Closing out a failed phase* subsection in both SKILLs, reached from any `FAILED` subagent return or any orchestrator-initiated abort after a job was submitted, specifies four cases (the fourth added 2026-08-20 — see the locked-consume amendment):
 
 1. **Never reached `ready`** — cancel with `DELETE /extractions/{id}`. No artifact exists to preserve, and the job otherwise blocks the next attempt.
 2. **Reached `ready`, downloaded, but the unseal failed** — consume with `POST /extractions/{id}/consume`. The download precedes the unseal, so a complete local copy already exists; consuming destroys nothing not already on this machine.
@@ -30,10 +30,24 @@ Both SKILLs' §1.3 stranded-job sweep additionally calls `GET /extractions?state
 - A close-out failure never becomes the headline: the run's stop reason is always the original cause, with any close-out trouble reported alongside it.
 - §1.3's stranded-job sweep and the plugin's TTL remain the only backstop for a run that dies outright — a crashed session or a killed terminal cannot run a close-out at all. That is inherent, not a gap this decision leaves open.
 - Once the Extractor's plan 013 lands broadly (per-job tick locks on `consume`/`cancel`, sweep reclamation of an orphaned served artifact), leaks 1 and 2 become belt-and-braces rather than the primary mechanism — the same relationship §7's explicit consume already has with TTL. That is a reason to keep this client-side close-out, not to remove it: closing the window in seconds from the client is worth having even once the server would close it eventually.
-- Those same per-job tick locks are what the fourth case exists for: `consume` now answers `409 kntnt_extractor_locked` when the lock is held, and a client that closes the window in seconds is precisely the client that can be refused. See the amendment below.
+- Those same per-job tick locks are what the fourth case exists for: `consume` now answers `409 kntnt_extractor_locked` when the lock is held, and a client that closes the window in seconds is precisely the client that can be refused. See the locked-consume amendment below.
 - No new consistency suite pins the first three cases across all four surfaces the way `tests/test_poll_discipline_consistency.py` pins the poll discipline. That document earned its canonical status only after its wording had drifted across four surfaces in the field; pre-building the same machinery for a rule stated once, not yet observed to drift, would be the premature version of the same idea. Noted as a follow-up candidate if drift is later observed. The fourth case is the exception and has `tests/test_locked_consume_retry_consistency.py` from the start, because its bound is a number stated on three surfaces at once — the shape that has drifted here before.
 
-## Amendment (2026-08-20) — a locked consume is retried, not failed ([#54](https://github.com/Kntnt/kntnt-wp-skills/issues/54))
+## Amendment (2026-08-20): the job's own state outranks the verdict that reached the close-out ([#53](https://github.com/Kntnt/kntnt-wp-skills/issues/53))
+
+Two production runs exercised this decision for real, and both exposed the same defect in it — not in what the close-out cases do, but in how one of them is reached. The close-out is entered from a `FAILED` return, and the engine reads a result that arrives without its evidence block as `FAILED`. Case 1 then maps an exhausted stall window to `DELETE /extractions/{id}`. Chained, those three rules turn a subagent that returned **nothing at all** — no verdict, no evidence, no claim about the job whatsoever — into a cancel of the job it was watching. The least informative return possible was being read as the most specific case.
+
+On 2026-08-19 `extract-transfer` returned with no evidence block after two and a half hours. The job was `running` with `chunks_done` climbing throughout and went on to complete all 48,578 files. The only thing between that run and a `DELETE` was the orchestrator querying the job by hand, on its own initiative and contrary to the written close-out. The same shape occurred on 2026-08-18.
+
+**The ordering is therefore part of this decision.** On any `FAILED` verdict, and equally on any absent or malformed one, the close-out issues a single `GET /extractions/{id}` before selecting a case at all. The job's own reported state outranks the subagent's claim about it: a job reporting `running` with progress advanced since the last observation selects no close-out case — the run resumes polling it instead. An absent verdict is explicitly not evidence of an exhausted stall window. The subagent's own role file now scopes its verdict to match: `FAILED` binds the role's work, never the job's state, and the orchestrator resolves the difference by asking the server.
+
+Nothing about what the close-out cases do changes. The re-query gates the cancelling branch and only that: case 2's `consume` after a failed unseal is reached on a download that already succeeded, and holding it back would widen the very exposure window this decision exists to close. Cases 3 and 4 are report-only either way. The cost is one `GET` before every failure close-out, which is the intended price.
+
+This also revises the last consequence above. `tests/test_close_out_state_precedence.py` now pins the ordering, the absent-verdict coverage, and the two SKILLs' identical wording of the rule — the drift this note said would justify such a suite arrived as a defect rather than as divergent prose. The first three cases still have no consistency suite of their own, and that remains a follow-up candidate rather than a gap.
+
+The general shape, stated once in `docs/spec.md` rather than re-derived per phase: where a local claim and a remote authority disagree about remote state, the remote authority wins.
+
+## Amendment (2026-08-20): a locked consume is retried, not failed ([#54](https://github.com/Kntnt/kntnt-wp-skills/issues/54))
 
 The Extractor makes both purging routes take the per-job tick lock, because either could otherwise delete the directory a live build was still writing into, and answers `409 kntnt_extractor_locked` when it cannot take it — with "the caller simply retries" as the intended handling. This client had no handling for that code, and the rule above that a job never consumed on the happy path is always `FAILED` turned a narrow lock contention into a failed verdict on a finished multi-hour extraction. Observed on a production run, not hypothesised.
 

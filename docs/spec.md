@@ -230,6 +230,8 @@ The sealed container is fetched over HTTPS from the one-time `download_url` with
 
 A run that aborts after submitting a job accounts for that job before stopping — cancelled when it never reached `ready`, consumed when it reached `ready` and downloaded but failed to unseal, reported and left for an accept-or-override gate when it reached `ready` but the download failed or never ran, since the production artifact may then be the only copy of the extraction, or reported complete-but-unconsumed (`unsealed_consume_locked`) when it downloaded and unsealed but every consume was refused while its tick lock was held. A failed discovery reports and clears its cleartext bootstrap dump the same way, unless the operator explicitly chooses to keep it for diagnosis ([ADR-0022](./adr/0022-close-the-exposure-window-on-every-failure-path.md)).
 
+Which of those the run does is decided from the job, never from the role's verdict alone: on any `FAILED` verdict — and on any absent or malformed one — a single `GET /extractions/{id}` precedes the case selection, and a job the server itself reports as `running` with progress advanced since the last observation is not cancelled at all, whatever came back. The absent verdict is the case that matters: it carries no information about the job while presenting as the most specific one, and it is not evidence of an exhausted stall window. This is one instance of the shape that holds everywhere the engine has both a local claim and a remote authority for the same remote state — **the remote authority wins** — and the re-query gates the cancelling branch only, never the consume of a download that already succeeded.
+
 ### Import and localise (local, destructive)
 
 In order:
