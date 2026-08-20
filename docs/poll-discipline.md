@@ -1,10 +1,10 @@
 # The poll discipline — canonical statement
 
-Every loop in this engine that waits on a Kntnt Extractor job follows one discipline: the health check's preflight, the bootstrap in `discovery-classify`, and the main extraction in `extract-transfer`. This file is its **canonical statement**. The decisions themselves are recorded in [ADR-0018](./adr/0018-poll-discipline-and-two-chunk-preflight.md) with the field evidence that produced them; this is where the settled rules live in one piece.
+Every loop in this engine that waits on a Kntnt Extractor job follows one discipline: the health check's preflight, the bootstrap in `discovery-classify`, and the main extraction, which the `clone` and `pull` orchestration runs itself rather than delegating (see *Pinned phrases — who owns the main extraction's poll*, below). This file is its **canonical statement**. The decisions themselves are recorded in [ADR-0018](./adr/0018-poll-discipline-and-two-chunk-preflight.md) with the field evidence that produced them; this is where the settled rules live in one piece.
 
 ## Why the rules are also restated elsewhere
 
-A role is loaded standalone into whatever context executes it. It cannot be trusted to follow a link mid-run, so `skills/clone/SKILL.md` §5, `skills/pull/SKILL.md` §5, and `skills/clone/roles/extract-transfer.md` each restate the discipline **in full**, and `skills/clone/roles/discovery-classify.md` carries a compact form of it. That duplication is deliberate — a surface an agent loads alone must contain the whole rule set — and it is exactly why the wording drifts if nothing holds it together.
+A surface is loaded standalone into whatever context executes it. It cannot be trusted to follow a link mid-run, so `skills/clone/SKILL.md` §5 and `skills/pull/SKILL.md` §5 each restate the discipline **in full**, and `skills/clone/roles/discovery-classify.md` carries a compact form of it for the bootstrap loop it owns. That duplication is deliberate — a surface an agent loads alone must contain the whole rule set — and it is exactly why the wording drifts if nothing holds it together.
 
 What is pinned, and what is not: **headings, hard rules, and the numeric literals are carried verbatim; the narrative around them is each surface's own voice.** A SKILL file explaining the discipline to an orchestrator and a role file instructing whoever executes it legitimately read differently, and forcing them word-for-word identical would make both worse. What may not differ is a rule's own statement — that is what drifts unnoticed.
 
@@ -24,7 +24,7 @@ This file is what holds it together. The phrases pinned below are the ones every
 
 ## Pinned phrases — every surface stating the discipline in full
 
-`skills/clone/SKILL.md`, `skills/pull/SKILL.md`, and `skills/clone/roles/extract-transfer.md` must each carry every phrase below.
+`skills/clone/SKILL.md` and `skills/pull/SKILL.md` must each carry every phrase below.
 
 ### poll cadence
 
@@ -82,7 +82,7 @@ a confirmed-vanished job (`404`, re-confirmed via `GET /extractions` and a secon
 
 ## Pinned phrases — the poll-owning subagents
 
-The `discovery-classify` and `extract-transfer` role files own a poll loop and must each carry the two execution rules below. Both exist because one subagent, having already completed every call its phase needed, returned three times saying it was still waiting — ~55k tokens each, no evidence block — for want of any way to wait out a job taking minutes or to resume polling after a return.
+`skills/clone/roles/discovery-classify.md` is the one role file that still owns a poll loop — the bootstrap's, bounded by its own 15-minute budget — and it must carry the two execution rules below. Both exist because one subagent, having already completed every call its phase needed, returned three times saying it was still waiting — ~55k tokens each, no evidence block — for want of any way to wait out a job taking minutes or to resume polling after a return. The verdict half of that pair binds every role, poll or no poll: a role that returns without one is read as `FAILED` whatever its prose claims.
 
 ### the wait-in-one-loop heading
 
@@ -118,4 +118,46 @@ Never return without a `DONE` or `FAILED` verdict
 
 ```text
 Never spend a poll loop one tool call at a time
+```
+
+## Pinned phrases — who owns the main extraction's poll
+
+The main extraction's poll is the only wait in this engine with no overall budget, so it is the only one that can outlast the thing that started it. It is therefore not a role's to own: `skills/clone/SKILL.md` and `skills/pull/SKILL.md` run it themselves, as their own tracked background job, and must each carry every phrase below. The bootstrap poll in `skills/clone/roles/discovery-classify.md` is bounded by its own 15-minute budget and stays where it is.
+
+Twice in production a subagent given the multi-hour wait returned without a verdict, and the second time it had detached the poll first — `poll-output.json` 0 bytes, no exit code ever written, and a job that went on to 13,459 files with nobody watching. The rule below is what a boundary looks like once instructing an agent not to cross it has failed twice.
+
+### the ownership heading
+
+```text
+The main extraction's poll is the orchestrator's own work
+```
+
+### the never-delegate rule
+
+```text
+never delegated to a subagent and never detached from this session
+```
+
+### the job record written before the poll starts
+
+```text
+extract-job.json
+```
+
+### the file the poll's verdict is captured in
+
+```text
+extract-poll.json
+```
+
+### the file the poll's exit code is captured in
+
+```text
+extract-poll.exit
+```
+
+### the re-attach rule
+
+```text
+polling is read-only, so re-attaching to a job whose id you have costs nothing
 ```

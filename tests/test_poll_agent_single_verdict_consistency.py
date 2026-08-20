@@ -52,9 +52,14 @@ from conftest import pinned_phrases
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 ROLES_DIR: Path = REPO_ROOT / "skills" / "clone" / "roles"
 
-# The two subagents that own a poll loop. Every other phase is synchronous and
-# has nothing to wait on, so the rules below do not apply to them.
-POLLING_AGENTS: tuple[str, ...] = ("discovery-classify", "extract-transfer")
+# The one role that still owns a poll loop: `discovery-classify`, waiting out
+# the bootstrap extraction inside its own 15-minute budget. Every other phase is
+# synchronous and has nothing to wait on, so the poll rules below do not apply
+# to them. `extract-transfer` was the second, until issue #58 took the main
+# extraction's budget-less multi-hour wait off every role and gave it to the
+# orchestrator — a subagent's process tree does not outlive its return, and
+# twice a live poll went down with one.
+POLLING_AGENTS: tuple[str, ...] = ("discovery-classify",)
 
 # Every phrase both poll-owning agents must carry, read from the canonical
 # document rather than restated here. The names are pinned separately below, so a
@@ -163,6 +168,40 @@ def test_discovery_classify_owns_its_working_directory() -> None:
     assert "Never name an artifact in your evidence block" in hard_rules[1], (
         "the discovery-classify role's Hard rules do not forbid claiming an artifact "
         "it did not write itself"
+    )
+
+
+# The roles a live extraction job is in flight across: the one that owns the
+# bootstrap poll, and the two halves the main extraction's poll now sits
+# between. Their verdict is what the close-out acts on while a job exists on
+# production, so the verdict rule binds all three — the other two phases have no
+# job to leave wedged and are deliberately out of this set.
+JOB_BRACKETING_ROLES: tuple[str, ...] = (
+    "discovery-classify",
+    "extract-submit",
+    "extract-transfer",
+)
+
+
+@pytest.mark.parametrize("name", JOB_BRACKETING_ROLES)
+def test_every_job_bracketing_role_carries_the_verdict_hard_rule(name: str) -> None:
+    """The verdict half of the pair binds every role that can leave a job
+    running on production, not only the one that waits on one. A role returns
+    once and returns a verdict; anything else is read as `FAILED` whatever its
+    prose claims, and that reading is what the close-out acts on.
+
+    Enforced across all three rather than only the poll-owning one, because
+    issue #58's split left two halves that own no poll and would otherwise have
+    dropped out of every binding on this rule at once."""
+
+    role = ROLES_DIR / f"{name}.md"
+    body = _body(role)
+    hard_rules = body.split("## Hard rules", 1)
+    assert len(hard_rules) == 2, f"roles/{role.name} has no Hard rules section"
+    assert AGENT_PHRASES["the hard rule forbidding a verdictless return"] in hard_rules[1], (
+        f"roles/{role.name}'s Hard rules do not forbid a verdictless return in "
+        "the canonical wording — a role that can return nothing routes the "
+        "close-out onto its most destructive case on the least information"
     )
 
 

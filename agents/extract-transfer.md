@@ -1,13 +1,14 @@
 ---
 name: extract-transfer
 description: >
-  Submits the main extraction to the Kntnt Extractor plugin, polls it to a
-  terminal state, downloads and unseals the sealed container, and consumes the
-  remote job for the kntnt-wp-skills transfer engine. Invoked only by the
-  `clone` and `pull` skills' own orchestration via the Task tool — never
-  autonomously. Give it the resolved selection and the run's ephemeral key
-  pair; it returns the reassembled dump's and unsealed files' scratchpad paths
-  and its evidence block.
+  Downloads and unseals the sealed container of an extraction the orchestrating
+  skill has already polled to `ready`, and consumes the remote job, for the
+  kntnt-wp-skills transfer engine. It never submits a job and never waits for
+  one. Invoked only by the `clone` and `pull` skills' own orchestration via the
+  Task tool — never autonomously. Give it the job id, the job record
+  `extract-submit` wrote, and the run's ephemeral private key; it returns the
+  reassembled dump's and unsealed files' scratchpad paths and its evidence
+  block.
 model: sonnet
 effort: medium
 ---

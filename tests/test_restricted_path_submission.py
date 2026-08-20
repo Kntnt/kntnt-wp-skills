@@ -22,14 +22,14 @@ import pytest
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 
-EXTRACT_TRANSFER: Path = REPO_ROOT / "skills" / "clone" / "roles" / "extract-transfer.md"
+EXTRACT_SUBMIT: Path = REPO_ROOT / "skills" / "clone" / "roles" / "extract-submit.md"
 SPEC: Path = REPO_ROOT / "docs" / "spec.md"
 CLONE: Path = REPO_ROOT / "skills" / "clone" / "SKILL.md"
 PULL: Path = REPO_ROOT / "skills" / "pull" / "SKILL.md"
 
 ERROR_CODE = "kntnt_extractor_restricted_path"
 
-SURFACES: tuple[Path, ...] = (EXTRACT_TRANSFER, SPEC, CLONE, PULL)
+SURFACES: tuple[Path, ...] = (EXTRACT_SUBMIT, SPEC, CLONE, PULL)
 
 
 @pytest.mark.parametrize("path", SURFACES, ids=lambda p: str(p.relative_to(REPO_ROOT)))
@@ -55,10 +55,10 @@ def test_every_submit_surface_names_the_paths_the_server_refused(path: Path) -> 
     )
 
 
-def test_extract_transfer_drops_the_named_paths_and_resubmits_once() -> None:
+def test_extract_submit_drops_the_named_paths_and_resubmits_once() -> None:
     """The role that POSTs recovers, and the recovery is bounded at one attempt."""
 
-    text = EXTRACT_TRANSFER.read_text(encoding="utf-8")
+    text = EXTRACT_SUBMIT.read_text(encoding="utf-8")
     assert "drop exactly those paths" in text, (
         "the role must drop exactly the paths the server named — dropping more is "
         "a silent hole in the copy, dropping fewer loops"
@@ -72,7 +72,7 @@ def test_extract_transfer_drops_the_named_paths_and_resubmits_once() -> None:
 def test_a_second_restricted_path_refusal_is_a_hard_stop() -> None:
     """A refusal that survives dropping every named path cannot be guessed past."""
 
-    text = EXTRACT_TRANSFER.read_text(encoding="utf-8")
+    text = EXTRACT_SUBMIT.read_text(encoding="utf-8")
     assert "A second `kntnt_extractor_restricted_path`" in text
     assert "hard stop" in text
 
@@ -81,16 +81,16 @@ def test_other_422s_stay_a_hard_stop() -> None:
     """Only the restricted-path code is split out; a malformed or overlapping
     selection is still fatal on the first occurrence."""
 
-    text = EXTRACT_TRANSFER.read_text(encoding="utf-8")
+    text = EXTRACT_SUBMIT.read_text(encoding="utf-8")
     assert "malformed or overlapping selection" in text
     assert "hard stop" in text
 
 
-def test_extract_transfer_reports_the_dropped_paths_in_its_evidence_block() -> None:
+def test_extract_submit_reports_the_dropped_paths_in_its_evidence_block() -> None:
     """The dropped paths ride the evidence block beside the vanished ones, so the
     orchestrator's report can name what the copy does not contain."""
 
-    text = EXTRACT_TRANSFER.read_text(encoding="utf-8")
+    text = EXTRACT_SUBMIT.read_text(encoding="utf-8")
     assert "`restricted_paths`" in text, (
         "the evidence-block contract must carry restricted_paths beside "
         "skipped_files, or the dropped paths reach no report"
