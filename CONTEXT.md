@@ -77,6 +77,10 @@ Local plugins/themes with no production counterpart — dev tools to keep or jun
 **Trash**:
 `.kntnt-wp-skills/trash/<timestamp>/` — where "deleted" local files actually go. Nothing is ever hard-`rm`ed.
 
+**Normalisation collision**:
+Two or more production paths that differ only by Unicode normalisation — the same name with a code point composed or decomposed — and which the local filesystem therefore stores as one file, the last write winning. Detected at unseal by grouping the file list on its NFC form, counted by the distinct files that landed on disk, reported with every spelling named, and never fatal.
+_Avoid_: duplicate file, encoding clash
+
 ### Production-side extraction
 
 **Extraction**:
