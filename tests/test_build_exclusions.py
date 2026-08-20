@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any
 
 import build_exclusions
+import filter_manifest
 
 SCRIPT = Path(__file__).resolve().parent.parent / "skills" / "clone" / "scripts" / "build_exclusions.py"
 
@@ -135,6 +136,15 @@ def test_always_excluded_covers_the_documented_categories() -> None:
     assert "*.key" in always
     assert "id_rsa*" in always
 
+    # Assert — the shapes issue #55 adds to the same family: the editor droppings
+    # beside wp-config.php that are not vim's, the backup names that put the
+    # marker ahead of the extension, and the rest of OpenSSH's default basenames.
+    assert "#wp-config.php#" in always
+    assert ".#wp-config.php" in always
+    assert "wp-config.old" in always
+    assert "wp-config.old.php" in always
+    assert "id_ed25519*" in always
+
     # Assert — the WordPress core tree issue #37 adds: the admin and includes
     # directories, and the root-level core PHP files.
     assert "wp-admin" in always
@@ -154,6 +164,16 @@ def test_always_excluded_pins_its_exact_contents() -> None:
         "wp-config.php.*",
         "wp-config.php~",
         ".wp-config.php.sw?",
+        "#wp-config.php#",
+        ".#wp-config.php",
+        "wp-config.bak",
+        "wp-config.bak.php",
+        "wp-config.old",
+        "wp-config.old.php",
+        "wp-config.orig",
+        "wp-config.orig.php",
+        "wp-config.save",
+        "wp-config.save.php",
         "wp-config-*.php",
         "**/.env",
         "**/.env.*",
@@ -163,6 +183,9 @@ def test_always_excluded_pins_its_exact_contents() -> None:
         "*.pem",
         "*.key",
         "id_rsa*",
+        "id_dsa*",
+        "id_ecdsa*",
+        "id_ed25519*",
         "wp-content/advanced-cache.php",
         "wp-content/object-cache.php",
         "wp-content/db.php",
@@ -214,6 +237,79 @@ def test_always_excluded_is_anchored_and_normalised() -> None:
     for prefix in build_exclusions.ALWAYS_EXCLUDED:
         assert not prefix.startswith("/"), prefix
         assert not prefix.endswith("/"), prefix
+
+
+# --- The credential-bearing shapes, matched ------------------------------------
+
+
+def excluded(path: str) -> bool:
+    """Report whether the always-excluded set drops ``path``, asked of the real
+    matcher rather than of the constant.
+
+    The entries are fnmatch-style globs, so a pattern's presence in the constant
+    proves nothing about the filenames it actually catches — only the matcher can
+    say. ``filter_manifest.is_excluded`` is that matcher, and
+    ``tests/test_exclusion_matching_consistency.py`` pins ``baseline_diff.py``'s
+    copy to it, so one verdict reached here is both consumers' verdict.
+    """
+
+    return filter_manifest.is_excluded(path, tuple(build_exclusions.ALWAYS_EXCLUDED))
+
+
+def test_the_emacs_auto_save_and_lock_files_beside_wp_config_are_excluded() -> None:
+    # Assert — Emacs' auto-save file holds the live file's complete secret family
+    # in clear text, and its lock file names the account editing it; the vim swap
+    # catcher matches neither shape.
+    assert excluded("#wp-config.php#")
+    assert excluded(".#wp-config.php")
+
+
+def test_the_reordered_wp_config_backup_names_are_excluded() -> None:
+    # Assert — the names an operator leaves behind after a manual edit, with the
+    # backup marker ahead of the extension instead of appended to it, which is
+    # exactly what the "wp-config.php.*" catcher cannot see.
+    for name in (
+        "wp-config.bak",
+        "wp-config.bak.php",
+        "wp-config.old",
+        "wp-config.old.php",
+        "wp-config.orig",
+        "wp-config.orig.php",
+        "wp-config.save",
+        "wp-config.save.php",
+    ):
+        assert excluded(name), name
+
+
+def test_every_openssh_default_key_basename_at_the_root_is_excluded() -> None:
+    # Assert — OpenSSH's whole default basename set, the "-sk" hardware-token
+    # variants included, and the ".pub" sibling the same prefix deliberately
+    # catches: a public key at the install root is not content either.
+    for stem in (
+        "id_rsa",
+        "id_dsa",
+        "id_ecdsa",
+        "id_ecdsa-sk",
+        "id_ed25519",
+        "id_ed25519-sk",
+    ):
+        assert excluded(stem), stem
+        assert excluded(f"{stem}.pub"), stem
+
+
+def test_wp_config_sample_survives_the_widened_variant_family() -> None:
+    # Assert — WordPress' own bundled template carries placeholder values only,
+    # and no pattern in the widened family may swallow it; a copy missing it is a
+    # copy missing a core file, and nothing reports that.
+    assert not excluded("wp-config-sample.php")
+
+
+def test_ordinary_content_named_like_a_backup_is_not_excluded() -> None:
+    # Assert — the widened patterns stay root-anchored and wp-config-specific: a
+    # theme's own "config.old" is not the configuration file, and an uploaded
+    # screenshot named after a key type is not key material.
+    assert not excluded("wp-content/themes/x/config.old")
+    assert not excluded("wp-content/uploads/id_ed25519-tutorial.png")
 
 
 # --- The assembled set ---------------------------------------------------------
