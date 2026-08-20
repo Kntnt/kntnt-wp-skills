@@ -91,15 +91,31 @@ DOMAIN_PATH_DEFINES = frozenset(
 INFRASTRUCTURE_DEFINES = frozenset({"WP_CACHE", "DISABLE_WP_CRON"})
 INFRASTRUCTURE_PREFIXES = ("WP_REDIS_", "WP_MEMCACHED_", "MEMCACHED_", "REDIS_")
 
-# The auto-excluded class for a define the Extractor withheld: `null` on the
-# wire from `GET /environment` is the Extractor's masking value for a define it
-# will not disclose, never a signal that the define's real value is null. A
-# define classified this way would otherwise be portable by name, but porting a
-# withheld value would write `define('NAME', null);` into the local
-# wp-config.php, and `defined('NAME')` then reports `true` — suppressing
-# whatever fallback the plugin runs for "not configured". This class is decided
-# by value, unlike the four above, which are decided by name alone.
+# The auto-excluded class for a define whose value is not written into the local
+# wp-config.php even though its name would otherwise make it portable. Writing
+# `define('NAME', null);` makes `defined('NAME')` report `true` — suppressing
+# whatever fallback the owning plugin runs for "not configured" — and that harm
+# is the same whether the `null` is the Extractor's mask or production's own
+# value, which is why one class covers both. This class is decided per record,
+# unlike the four above, which are decided by name alone.
 WITHHELD_CLASS = "withheld"
+
+# The one value of the Extractor's define-disclosure protocol that is not a
+# withholding; the other two it defines are `secret` and `not_allow_listed`. The
+# set is closed, so this client tests for the single non-withholding value and
+# treats everything else — including a value a future Extractor introduces — as
+# a withholding, because a reader that guessed at an unknown state could port a
+# value the server declined to disclose.
+DISCLOSURE_INCLUDED = "included"
+
+# The two reasons this client decides for itself, alongside the server's own
+# `secret` and `not_allow_listed`. `disclosed_null` is a define the server
+# disclosed whose live value really is null; `value_withheld_pre_protocol` is
+# the verdict of the fallback rule, used against an Extractor that sends no
+# discriminator at all, where a null value was the only signal a withholding
+# ever had.
+REASON_DISCLOSED_NULL = "disclosed_null"
+REASON_PRE_PROTOCOL = "value_withheld_pre_protocol"
 
 # The operational-table families whose content is regenerated locally rather than
 # carried: analytics, cookie-consent, email-log, and search-index. Each pattern
@@ -442,6 +458,29 @@ def define_class(name: str) -> str | None:
     return None
 
 
+def disclosure_class(record: dict[str, Any]) -> str | None:
+    """Classify one define by the Extractor's disclosure discriminator, or
+    ``None`` when the record carries no verdict this helper can act on.
+
+    Three outcomes, in the protocol's own terms. A record with no ``disclosure``
+    member at all comes from an Extractor that predates the protocol; the caller
+    falls back to the pre-protocol rule for it, which is the only thing that can
+    be assumed about such a record. A recognised withholding, or any value this
+    client does not recognise, is a withholding — the enum is closed, so an
+    unknown fourth value is treated exactly as ``secret`` is rather than
+    optimistically read as a disclosure. ``included`` is the one verdict that is
+    not a withholding, and it is reported as such even when the value is
+    ``null``: on this protocol that is a fact about the define, not a masking.
+    """
+
+    disclosure = record.get("disclosure")
+    if not isinstance(disclosure, str):
+        return None
+    if disclosure == DISCLOSURE_INCLUDED:
+        return DISCLOSURE_INCLUDED
+    return WITHHELD_CLASS
+
+
 def classify_defines(defines: list[Any]) -> dict[str, list[dict[str, Any]]]:
     """Split production's defines into the portable set offered at the gate and
     the auto-excluded set.
@@ -449,13 +488,25 @@ def classify_defines(defines: list[Any]) -> dict[str, list[dict[str, Any]]]:
     A portable define carries its value, because it is written verbatim into the
     marked block; an auto-excluded define carries only its name and class — its
     value is deliberately dropped, since it is never written and some (a DB
-    password, a salt) are secrets that must not enter model context. A third
-    outcome sits between the two: a define `define_class` would otherwise leave
-    portable, but whose value is `None`, is auto-excluded under
-    :data:`WITHHELD_CLASS` instead — the Extractor's masking value for a define
-    it will not disclose, never the define's real value. The value check runs
-    only once the name-based classes have had their turn, so a name-classified
-    define keeps its own class regardless of its (already-dropped) value.
+    password, a salt) are secrets that must not enter model context.
+
+    The decision is three-way and strictly ordered. The name-based classes go
+    first, so a credential the server chose to disclose is still a credential.
+    Then the Extractor's ``disclosure`` discriminator decides, per
+    :func:`disclosure_class`, and its verdict is the only thing consulted when
+    the server sent one — the protocol forbids reading a define's disclosure
+    state off its value. Only a record with no discriminator at all falls back to
+    the pre-protocol rule, where a ``None`` value is read as a withholding
+    because on such a server nothing better exists to read. A disclosed define
+    whose live value is ``None`` is auto-excluded too, but under its own reason:
+    it is never written (ADR-0023), yet it was never withheld either, and the
+    operator is owed that distinction.
+
+    A withheld record therefore carries a third key, ``reason`` — the server's
+    own discriminator verbatim, or one of this client's two
+    (:data:`REASON_DISCLOSED_NULL`, :data:`REASON_PRE_PROTOCOL`) — which the run
+    report branches on to give a remedy that fits. A name-classified record
+    carries no ``reason`` at all; its class is the whole of the explanation.
     """
 
     portable: list[dict[str, Any]] = []
@@ -465,12 +516,34 @@ def classify_defines(defines: list[Any]) -> dict[str, list[dict[str, Any]]]:
         record = _record(entry, context)
         name = _field(record, "name", str, context)
         classification = define_class(name)
-        if classification is None and record.get("value") is None:
-            classification = WITHHELD_CLASS
+        reason: str | None = None
+
+        # The name-based classes have had their turn; only where they left the
+        # define portable does the Extractor's own verdict get consulted.
+        if classification is None:
+            verdict = disclosure_class(record)
+            if verdict == WITHHELD_CLASS:
+                classification = WITHHELD_CLASS
+                reason = record.get("disclosure")
+            elif verdict is None and record.get("value") is None:
+                # No protocol verdict: a pre-protocol Extractor, where a null
+                # value is the only signal a withholding ever had.
+                classification = WITHHELD_CLASS
+                reason = REASON_PRE_PROTOCOL
+            elif record.get("value") is None:
+                # Disclosed, and the disclosed value is null. Not a
+                # withholding — but still never written; see ADR-0023.
+                classification = WITHHELD_CLASS
+                reason = REASON_DISCLOSED_NULL
+
+        # Route the define, dropping the value from every excluded record.
         if classification is None:
             portable.append({"name": name, "value": record.get("value")})
         else:
-            auto_excluded.append({"name": name, "class": classification})
+            excluded: dict[str, Any] = {"name": name, "class": classification}
+            if reason is not None:
+                excluded["reason"] = reason
+            auto_excluded.append(excluded)
 
     return {"portable": portable, "auto_excluded": auto_excluded}
 

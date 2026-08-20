@@ -18,7 +18,10 @@ JSON object on stdin with an ``api_version`` and four sections:
   (PHP version, server software, WordPress core version, home/site URL, table
   prefix, content/uploads dirs, database server flavour/version/collation), the
   active plugins, the drop-ins present, and the resolved ``wp-config`` defines
-  with the secret family already redacted to ``null`` server-side.
+  with the secret family already redacted to ``null`` server-side and, on an
+  Extractor that implements the define-disclosure protocol, a per-define
+  ``disclosure`` discriminator naming why the value is what it is — which rides
+  along untouched, because only the downstream classifier acts on it.
 - ``tables`` — the ``GET /tables`` response: every table with its row-count and
   byte size, from which the total size, the authoritative table enumeration, and
   the heaviest-N report artifact are derived.
@@ -220,6 +223,15 @@ def build_defines(raw_defines: list[Any]) -> list[dict[str, Any]]:
     model context and independently of the classifier later dropping the whole
     auto-excluded value (safety rail 8). A malformed entry — a non-object, or one
     missing its ``name`` — fails loudly rather than riding in half-built.
+
+    The Extractor's ``disclosure`` discriminator — its statement of *why* a value
+    is what it is — is carried verbatim when the server sent one, and the key is
+    **omitted entirely** when it did not. The omission is the payload: it is how
+    the classifier tells a server that implements the disclosure protocol from one
+    that predates it, so defaulting the key to a string would erase the only
+    signal that distinction has. Any string rides through, including one this
+    client does not recognise, because the closed-set rule is the classifier's to
+    apply and it cannot apply it to a verdict discovery swallowed.
     """
 
     defines: list[dict[str, Any]] = []
@@ -227,7 +239,11 @@ def build_defines(raw_defines: list[Any]) -> list[dict[str, Any]]:
         context = f"environment.defines[{index}]"
         name = _require(entry, "name", str, context)
         value = None if is_secret_define(name) else entry.get("value")
-        defines.append({"name": name, "value": value})
+        record: dict[str, Any] = {"name": name, "value": value}
+        disclosure = entry.get("disclosure")
+        if isinstance(disclosure, str):
+            record["disclosure"] = disclosure
+        defines.append(record)
 
     return defines
 
