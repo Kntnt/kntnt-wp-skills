@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "build_selection.py"
+SCRIPT = Path(__file__).resolve().parent.parent / "skills" / "clone" / "scripts" / "build_selection.py"
 
 
 def run_build(payload: dict[str, Any]) -> subprocess.CompletedProcess[bytes]:

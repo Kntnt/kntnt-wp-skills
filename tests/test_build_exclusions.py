@@ -31,7 +31,7 @@ from typing import Any
 
 import build_exclusions
 
-SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "build_exclusions.py"
+SCRIPT = Path(__file__).resolve().parent.parent / "skills" / "clone" / "scripts" / "build_exclusions.py"
 
 
 def run_build(payload: Any) -> subprocess.CompletedProcess[bytes]:

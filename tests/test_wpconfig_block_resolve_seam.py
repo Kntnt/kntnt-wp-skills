@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SCRIPTS = REPO_ROOT / "scripts"
+SCRIPTS = REPO_ROOT / "skills" / "clone" / "scripts"
 
 # ``classify.py`` is shipped by the portable ``mkwp`` skill, not the shared
 # helper directory (issue #51).

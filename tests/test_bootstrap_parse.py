@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "bootstrap_parse.py"
+SCRIPT = Path(__file__).resolve().parent.parent / "skills" / "clone" / "scripts" / "bootstrap_parse.py"
 
 
 def run_parse(config: dict[str, Any]) -> subprocess.CompletedProcess[bytes]:

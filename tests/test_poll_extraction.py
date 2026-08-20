@@ -635,3 +635,37 @@ def test_literals_are_the_eight_pinned_values() -> None:
     assert pe.PREFLIGHT_BUDGET_SECONDS == 600
     assert pe.BOOTSTRAP_BUDGET_SECONDS == 900
     assert not hasattr(pe, "MAIN_BUDGET_SECONDS")
+
+
+def test_main_diverts_the_progress_log_to_a_file(
+    tmp_path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Issue #52: ``--log`` sends the per-poll progress lines to a file, so an
+    agent running the poll inline gets the verdict on stdout and nothing else.
+    A multi-hour extraction prints one progress line per fifteen seconds; those
+    belong in the run's scratchpad, not in an orchestrator's context."""
+
+    log_path = tmp_path / "logs" / "poll.log"
+    fetcher = ScriptedFetcher(
+        {
+            _job_path(): [
+                _job("running", progress={"tables_done": 1, "tables_total": 2}),
+                _job("ready", download_url="https://example.com/dl"),
+            ]
+        }
+    )
+
+    code = pe.main(
+        [ENDPOINT, JOB_ID, "--user", "thomas", "--log", str(log_path)],
+        environ={pe.PASSWORD_ENV: PASSWORD},
+        fetch=fetcher,
+        clock=FakeClock(),
+        cache_buster=lambda: "cb1",
+    )
+    captured = capsys.readouterr()
+
+    assert code == 0
+    assert json.loads(captured.out)["verdict"] == "ready"
+    assert captured.err == ""
+    assert "tables 1/2" in log_path.read_text(encoding="utf-8")
+    assert PASSWORD not in log_path.read_text(encoding="utf-8")

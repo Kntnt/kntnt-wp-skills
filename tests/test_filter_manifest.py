@@ -27,8 +27,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
-SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "filter_manifest.py"
-BASELINE_DIFF = Path(__file__).resolve().parent.parent / "scripts" / "baseline_diff.py"
+SCRIPT = Path(__file__).resolve().parent.parent / "skills" / "clone" / "scripts" / "filter_manifest.py"
+BASELINE_DIFF = Path(__file__).resolve().parent.parent / "skills" / "clone" / "scripts" / "baseline_diff.py"
 
 
 def run_filter(raw: bytes) -> subprocess.CompletedProcess[bytes]:

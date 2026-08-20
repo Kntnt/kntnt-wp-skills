@@ -50,7 +50,7 @@ from conftest import pinned_phrases
 
 # Repository layout. This test sits at ``tests/``, one level below the root.
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
-AGENTS_DIR: Path = REPO_ROOT / "agents"
+ROLES_DIR: Path = REPO_ROOT / "skills" / "clone" / "roles"
 
 # The two subagents that own a poll loop. Every other phase is synchronous and
 # has nothing to wait on, so the rules below do not apply to them.
@@ -83,13 +83,12 @@ HARD_RULE_NAMES: frozenset[str] = frozenset({
 
 
 def _body(path: Path) -> str:
-    """Return an agent definition's body, with its YAML frontmatter stripped so
-    a phrase in the description can never satisfy a body assertion."""
+    """Return a role file's text. Role files carry no frontmatter — they are
+    instructions any harness can execute, not one harness's agent definition —
+    so there is nothing to strip and no description a body assertion could be
+    satisfied by."""
 
-    text = path.read_text(encoding="utf-8")
-    parts = text.split("---", 2)
-    assert len(parts) == 3, f"{path.name} has no frontmatter block"
-    return parts[2]
+    return path.read_text(encoding="utf-8")
 
 
 def test_the_canonical_document_defines_every_expected_phrase() -> None:
@@ -117,11 +116,11 @@ def test_polling_agent_carries_the_canonical_phrase(
     Verbatim, not merely equivalent — the two agents had already come to state
     the same ban in different words, which is how a rule stops being one rule."""
 
-    body = _body(AGENTS_DIR / f"{name}.md")
+    body = _body(ROLES_DIR / f"{name}.md")
     assert AGENT_PHRASES[phrase_name] in body, (
-        f"{name}.md is missing {phrase_name} as canonically worded "
+        f"roles/{name}.md is missing {phrase_name} as canonically worded "
         f"({AGENT_PHRASES[phrase_name]!r}) — the wording lives in "
-        "docs/poll-discipline.md and every poll-owning agent must carry it"
+        "docs/poll-discipline.md and every poll-owning role must carry it"
     )
 
 
@@ -134,9 +133,9 @@ def test_polling_agent_carries_the_hard_rule_where_refusals_live(
     in narrative prose is guidance; the Hard rules section is where an agent's
     refusals live, and that is where a ban has to be to bind."""
 
-    body = _body(AGENTS_DIR / f"{name}.md")
+    body = _body(ROLES_DIR / f"{name}.md")
     sections = body.split("## Hard rules", 1)
-    assert len(sections) == 2, f"{name}.md has no Hard rules section"
+    assert len(sections) == 2, f"roles/{name}.md has no Hard rules section"
     assert AGENT_PHRASES[phrase_name] in sections[1], (
         f"{name}.md states {phrase_name} outside its Hard rules section, where "
         "it reads as advice rather than a refusal"
@@ -149,20 +148,20 @@ def test_discovery_classify_owns_its_working_directory() -> None:
     is where the orchestrator writes too, and an evidence block that can
     describe someone else's files proves nothing about this agent's run."""
 
-    body = _body(AGENTS_DIR / "discovery-classify.md")
+    body = _body(ROLES_DIR / "discovery-classify.md")
     assert "Create your own working directory under the scratchpad" in body, (
-        "discovery-classify.md no longer tells the agent to create its own "
+        "the discovery-classify role no longer tells the agent to create its own "
         "working directory — without it, a checksum in the evidence block can "
         "describe an artifact the orchestrator produced"
     )
     assert "<work_dir>/" in body, (
-        "discovery-classify.md no longer routes its artifacts through "
+        "the discovery-classify role no longer routes its artifacts through "
         "<work_dir>, so they land in the shared scratchpad again"
     )
     hard_rules = body.split("## Hard rules", 1)
-    assert len(hard_rules) == 2, "discovery-classify.md has no Hard rules section"
+    assert len(hard_rules) == 2, "the discovery-classify role has no Hard rules section"
     assert "Never name an artifact in your evidence block" in hard_rules[1], (
-        "discovery-classify.md's Hard rules do not forbid claiming an artifact "
+        "the discovery-classify role's Hard rules do not forbid claiming an artifact "
         "it did not write itself"
     )
 
@@ -172,7 +171,7 @@ def test_polling_agent_invokes_the_poll_helper(name: str) -> None:
     """Each poll-owning subagent names ``scripts/poll_extraction.py`` as the
     loop it runs, so it cannot fall back to writing a fresh shell loop."""
 
-    body = _body(AGENTS_DIR / f"{name}.md")
+    body = _body(ROLES_DIR / f"{name}.md")
     assert "scripts/poll_extraction.py" in body, (
         f"{name}.md never names scripts/poll_extraction.py — the poll loop "
         "lives in that helper, not in a loop the agent writes"

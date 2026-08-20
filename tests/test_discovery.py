@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
-SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "discovery.py"
+SCRIPT = Path(__file__).resolve().parent.parent / "skills" / "clone" / "scripts" / "discovery.py"
 
 
 def run_discovery(raw: bytes) -> subprocess.CompletedProcess[bytes]:

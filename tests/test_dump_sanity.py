@@ -15,7 +15,7 @@ from pathlib import Path
 
 import dump_sanity
 
-_SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
+_SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "skills" / "clone" / "scripts"
 
 _EMPTY_TABLES = ["wp_independent_analytics_pages", "wp_relevanssi"]
 

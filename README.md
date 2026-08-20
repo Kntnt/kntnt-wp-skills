@@ -15,7 +15,7 @@ The plugin reaches production through a single channel — the [Kntnt Extractor]
 
 ### Key features
 
-- Four skills: `clone` and `pull` over one shared transfer engine, the standalone `mkwp` for scaffolding a brand-new local site, and `build-ollie-site` for building a site out on the Ollie block theme.
+- Four skills: `clone` and `pull` over one shared transfer engine, the standalone `mkwp` for scaffolding a brand-new local site, and `build-ollie-site` for building a site out on the Ollie block theme. All four install as plain skills in any harness, with or without the plugin.
 - Bottom-up, Atomic-Design site building on Ollie: tokens → component patterns → section patterns → pages, derived from your mockups and verified against what the live install actually resolves.
 - One control channel — the Kntnt Extractor REST API — and no SSH.
 - A recommendation with an accept-or-override gate for every decision, so nothing surprising happens silently.
@@ -48,7 +48,7 @@ The plugin assumes you have already put a few things in place. Each note says wh
 
 ### As a Claude Code plugin
 
-This is the primary channel, and the only one that carries all four skills. Add the plugin's marketplace and install it from within Claude Code:
+This is the primary channel, and the one the transfer engine runs fastest in. Add the plugin's marketplace and install it from within Claude Code:
 
 ```
 /plugin marketplace add Kntnt/kntnt-wp-skills
@@ -57,13 +57,17 @@ This is the primary channel, and the only one that carries all four skills. Add 
 
 ### As a standalone skill, in any other harness
 
-`build-ollie-site` and `mkwp` are self-contained — every reference and helper script each one names lives inside its own skill directory — so a generic skill installer such as [`npx skills`](https://github.com/vercel-labs/skills), which reaches some seventy-five agent harnesses, can carry them anywhere:
+All four skills are self-contained — every reference, helper script, and role file each one names lives inside the skill directories themselves — so a generic skill installer such as [`npx skills`](https://github.com/vercel-labs/skills), which reaches some seventy-five agent harnesses, can carry them anywhere:
 
 ```
 npx skills add Kntnt/kntnt-wp-skills
 ```
 
-That command currently installs `build-ollie-site` and `mkwp`. The transfer engine — `clone` and `pull` — is Claude Code-only: it is inseparable from the plugin's bundled subagents and its shared helper scripts, so those two skills are marked internal and a generic installer skips them rather than offering a skill that cannot run. Install the plugin as above to use them. In a standalone install, each portable skill is invoked bare — `/build-ollie-site`, `/mkwp` (there is no plugin namespace to prefix) — and its `help` forms print a brief usage summary instead of the full manual page, which the plugin renders. `mkwp` still needs `ddev`, `mkwp` itself, and the other local command-line tools its dependency check names; what it does not need is the plugin.
+That command installs all four: `clone`, `pull`, `mkwp`, and `build-ollie-site`. Install them together — `pull` runs the engine `clone` ships, and both derive their names with the classifier `mkwp` ships; each one's health check says so plainly if a sibling is missing, before it touches anything.
+
+Two things differ outside the plugin. The `help` forms print a brief usage summary instead of the full manual page, which only the plugin can render, and each skill is invoked bare — `/clone`, `/pull`, `/mkwp`, `/build-ollie-site` — since there is no plugin namespace to prefix. And the transfer engine runs its four heavy phases **sequentially, in the orchestrating agent's own session**, wherever the harness cannot spawn subagents: same steps, same evidence, same deterministic helpers, but slower and one after another rather than delegated. It is not louder — every noisy step writes its full output to a log file under the run's scratchpad and reports a compact summary — but a clone of a large site will take longer than the same clone under Claude Code, which delegates each phase to a pinned subagent with its own context.
+
+What no channel changes is what the engine needs on either side: `uv`, `ddev`, `jq`, and `curl` locally, WP-CLI through DDEV for the localisation steps, and the [Kntnt Extractor](https://github.com/Kntnt/kntnt-extractor) plugin installed and active on the production site it reaches. `mkwp` still needs `ddev` and `mkwp` itself; what none of them needs is the plugin.
 
 ## Usage
 
@@ -103,7 +107,7 @@ Found a bug or want to request a feature? Please [open an issue](https://github.
 
 ## Development
 
-The plugin's logic lives in Python helpers invoked via `uv` — most under `scripts/`, and the two the portable `mkwp` skill ships with it under `skills/mkwp/scripts/`; the heavy production-side work — extraction, per-segment sealing, the one-time download link, and cleanup — is owned by the Kntnt Extractor plugin, not generated here (ADR-0017). Clone the repository, then read the coding standard materialised under [`agents.d/coding-standard/`](agents.d/coding-standard/) — `general.md` plus `python.md` — before changing code.
+The plugin's logic lives in Python helpers invoked via `uv`, each shipped inside the skill that drives it — the transfer engine's under `skills/clone/scripts/`, the version guard and classifier under `skills/mkwp/scripts/`, and only the manual-page renderer at the plugin root under `scripts/`; the heavy production-side work — extraction, per-segment sealing, the one-time download link, and cleanup — is owned by the Kntnt Extractor plugin, not generated here (ADR-0017). Clone the repository, then read the coding standard materialised under [`agents.d/coding-standard/`](agents.d/coding-standard/) — `general.md` plus `python.md` — before changing code.
 
 The helpers are covered by a pytest suite under `tests/`. One command runs the whole suite, provisioning pytest through `uv` (no separate install step):
 

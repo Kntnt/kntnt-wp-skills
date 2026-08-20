@@ -17,8 +17,10 @@ logged. Invoke the process with the variable in that one environment — prefix
 form, not ``export`` — so the secret exists only inside the call that uses it.
 
 Stdout is one JSON object with ``verdict``, ``observed``, and ``inferred``
-separated. Stderr is the progress log, including ``gave up after N minutes``
-when a stall window or a bounded loop's budget expires. Do not pipe stdout
+separated. The progress log — including ``gave up after N minutes`` when a
+stall window or a bounded loop's budget expires — goes to stderr, or to the
+file named by ``--log`` when the caller would rather not have hours of poll
+lines in its own context. Do not pipe stdout
 through ``tee`` without ``set -o pipefail``: the pipeline's exit code must
 be this helper's, not tee's.
 
@@ -38,8 +40,10 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import Any, Protocol, TextIO
 
 # The eight pinned poll-discipline literals (ADR-0018). Move them; do not
@@ -587,7 +591,27 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Overall wall-clock budget in seconds; omit for the main extraction",
     )
     parser.add_argument("--user", required=True, help="WordPress user_login for HTTP basic auth")
+    parser.add_argument(
+        "--log",
+        type=Path,
+        default=None,
+        help="Write the progress log to this file instead of stderr",
+    )
     return parser
+
+
+@contextmanager
+def _progress_log(path: Path | None) -> Iterator[TextIO]:
+    """Yield the stream the progress log is written to: the named file, created
+    with its parents, or stderr when no path was given."""
+
+    if path is None:
+        yield sys.stderr
+        return
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as stream:
+        yield stream
 
 
 def main(
@@ -617,14 +641,21 @@ def main(
         return EXIT_USAGE
 
     do_fetch = fetch if fetch is not None else _real_fetch(args.user, password)
-    result = poll(
-        endpoint=args.endpoint,
-        job_id=args.job_id,
-        budget_seconds=args.budget,
-        fetch=do_fetch,
-        clock=clock if clock is not None else _RealClock(),
-        cache_buster=cache_buster if cache_buster is not None else _new_cache_buster,
-    )
+
+    # A multi-hour extraction prints one progress line per cadence tick. Sent to
+    # a file they stay diagnosable without flooding the context of an agent that
+    # runs this loop inline rather than inside a subagent of its own.
+    with _progress_log(args.log) as log:
+        result = poll(
+            endpoint=args.endpoint,
+            job_id=args.job_id,
+            budget_seconds=args.budget,
+            fetch=do_fetch,
+            clock=clock if clock is not None else _RealClock(),
+            cache_buster=cache_buster if cache_buster is not None else _new_cache_buster,
+            log=log,
+        )
+
     print(json.dumps(result.to_json(), separators=(",", ":")))
     return _EXIT_BY_VERDICT[result.verdict]
 

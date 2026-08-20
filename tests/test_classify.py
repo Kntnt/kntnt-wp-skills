@@ -36,8 +36,8 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures"
 SCRIPT = (
     Path(__file__).resolve().parent.parent / "skills" / "mkwp" / "scripts" / "classify.py"
 )
-DISCOVERY = Path(__file__).resolve().parent.parent / "scripts" / "discovery.py"
-BASELINE_DIFF = Path(__file__).resolve().parent.parent / "scripts" / "baseline_diff.py"
+DISCOVERY = Path(__file__).resolve().parent.parent / "skills" / "clone" / "scripts" / "discovery.py"
+BASELINE_DIFF = Path(__file__).resolve().parent.parent / "skills" / "clone" / "scripts" / "baseline_diff.py"
 
 
 def run_classify(raw: bytes) -> subprocess.CompletedProcess[bytes]:

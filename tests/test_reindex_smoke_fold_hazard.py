@@ -51,12 +51,12 @@ def _verify_smoke_section(text: str) -> str:
 
 
 def _smoke_delegation_sentence(section: str) -> str:
-    """The Verify section's own delegation paragraph — the one that
-    delegates to ``thumbnail-smoke-test``, distinct from the expectations-
-    assembly paragraph above it — so assertions about the fold guidance
-    never accidentally match unrelated prose."""
+    """The Verify section's own handoff paragraph — the one that runs the
+    ``thumbnail-smoke-test`` role, distinct from the expectations-assembly
+    paragraph above it — so assertions about the fold guidance never
+    accidentally match unrelated prose."""
 
-    match = re.search(r"\*\*Delegate this phase to `thumbnail-smoke-test`\*\*.*", section)
+    match = re.search(r"\*\*Run the `thumbnail-smoke-test` role here\*\*.*", section)
     assert match, "no smoke-test delegation sentence found in the Verify (smoke) section"
     return match.group(0)
 

@@ -18,9 +18,9 @@ listing — never on a single 404.
 
 This suite is the anti-drift binding. It holds the three surfaces that spell
 the discipline out in full — ``skills/clone/SKILL.md`` §5,
-``skills/pull/SKILL.md`` §5, and ``agents/extract-transfer.md`` — to the same
+``skills/pull/SKILL.md`` §5, and the ``extract-transfer`` role — to the same
 pinned literals and the same confirmed-vanished wording; holds
-``agents/discovery-classify.md`` to the bootstrap loop's 15-minute budget and
+the ``discovery-classify`` role to the bootstrap loop's 15-minute budget and
 its compact confirmed-vanished reference; and asserts no live surface reverts
 to the bare "up to an explicit maximum wait" poll sentence, nor to an
 unqualified "a vanished job (`404`)" that treats a single 404 as terminal.
@@ -43,8 +43,9 @@ REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 
 CLONE_SKILL: Path = REPO_ROOT / "skills" / "clone" / "SKILL.md"
 PULL_SKILL: Path = REPO_ROOT / "skills" / "pull" / "SKILL.md"
-EXTRACT_TRANSFER: Path = REPO_ROOT / "agents" / "extract-transfer.md"
-DISCOVERY_CLASSIFY: Path = REPO_ROOT / "agents" / "discovery-classify.md"
+ROLES_DIR: Path = REPO_ROOT / "skills" / "clone" / "roles"
+EXTRACT_TRANSFER: Path = ROLES_DIR / "extract-transfer.md"
+DISCOVERY_CLASSIFY: Path = ROLES_DIR / "discovery-classify.md"
 
 # The three surfaces that state the main-extraction poll discipline in full.
 # Each must carry every pinned literal, so a subagent (or the orchestrator)
@@ -52,7 +53,7 @@ DISCOVERY_CLASSIFY: Path = REPO_ROOT / "agents" / "discovery-classify.md"
 FULL_DISCIPLINE_DOCS: tuple[tuple[str, Path], ...] = (
     ("clone SKILL.md", CLONE_SKILL),
     ("pull SKILL.md", PULL_SKILL),
-    ("extract-transfer agent", EXTRACT_TRANSFER),
+    ("extract-transfer role", EXTRACT_TRANSFER),
 )
 
 # The pinned literals of the discipline, read from the canonical document rather
@@ -70,7 +71,7 @@ PINNED_LITERALS: tuple[tuple[str, str], ...] = tuple(
     if name != "confirmed-vanished rule, full form"
 )
 
-# The numeric phrases are bound to ``scripts/poll_extraction.py``, not restated
+# The numeric phrases are bound to the poll helper's own constants, not restated
 # as fresh literals here — the script is the decision, the document is its
 # wording, and this map is the assertion that the two have not drifted.
 SCRIPT_BOUND_PHRASES: tuple[tuple[str, str], ...] = (
@@ -92,6 +93,7 @@ SCRIPT_BOUND_PHRASES: tuple[tuple[str, str], ...] = (
 # one-timeout-is-failure behaviour, so they are out of scope here.
 LIVE_SURFACES: tuple[Path, ...] = (
     *sorted((REPO_ROOT / "skills").glob("*/SKILL.md")),
+    *sorted(ROLES_DIR.glob("*.md")),
     *sorted((REPO_ROOT / "agents").glob("*.md")),
     *sorted((REPO_ROOT / "docs" / "man").glob("*.md")),
     REPO_ROOT / "docs" / "spec.md",
@@ -104,7 +106,7 @@ LIVE_SURFACES: tuple[Path, ...] = (
 CONFIRMED_VANISHED_FULL: str = FULL_FORM_PHRASES["confirmed-vanished rule, full form"]
 
 # The compact form of the same rule, carried by the bootstrap loop's
-# reference in ``agents/discovery-classify.md`` alongside its own budget.
+# reference in the ``discovery-classify`` role alongside its own budget.
 CONFIRMED_VANISHED_COMPACT: str = COMPACT_FORM_PHRASES[
     "confirmed-vanished rule, compact form"
 ]
@@ -117,7 +119,7 @@ def test_canonical_phrases_match_the_script_literals() -> None:
     for name, expected in SCRIPT_BOUND_PHRASES:
         assert FULL_FORM_PHRASES[name] == expected, (
             f"docs/poll-discipline.md's {name!r} is {FULL_FORM_PHRASES[name]!r}, "
-            f"but scripts/poll_extraction.py binds {expected!r}"
+            f"but skills/clone/scripts/poll_extraction.py binds {expected!r}"
         )
     assert COMPACT_FORM_PHRASES["bootstrap budget"] == "15-minute"
     assert pe.BOOTSTRAP_BUDGET_SECONDS == 15 * 60

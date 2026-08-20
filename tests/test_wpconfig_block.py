@@ -24,7 +24,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "wpconfig_block.py"
+SCRIPT = Path(__file__).resolve().parent.parent / "skills" / "clone" / "scripts" / "wpconfig_block.py"
 
 BEGIN = "// BEGIN kntnt-wp-skills"
 END = "// END kntnt-wp-skills"

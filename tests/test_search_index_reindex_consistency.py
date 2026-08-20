@@ -29,7 +29,7 @@ SKILLS: dict[str, Path] = {
     "clone": REPO_ROOT / "skills" / "clone" / "SKILL.md",
     "pull": REPO_ROOT / "skills" / "pull" / "SKILL.md",
 }
-AGENT_FILE: Path = REPO_ROOT / "agents" / "thumbnail-smoke-test.md"
+ROLE_FILE: Path = REPO_ROOT / "skills" / "clone" / "roles" / "thumbnail-smoke-test.md"
 SPEC: Path = REPO_ROOT / "docs" / "spec.md"
 ADR_DIR: Path = REPO_ROOT / "docs" / "adr"
 
@@ -136,7 +136,7 @@ def test_reindex_step_folds_into_the_thumbnail_smoke_test_delegation(skill: str)
     section = _import_and_localise_section(SKILLS[skill].read_text(encoding="utf-8"))
     step = _reindex_step_text(section)
 
-    assert "Delegate this phase to `thumbnail-smoke-test`" in step, (
+    assert "Run the `thumbnail-smoke-test` role here" in step, (
         f"{skill} SKILL.md's reindex step never delegates to thumbnail-smoke-test"
     )
     assert "evidence block" in step.lower()
@@ -183,7 +183,7 @@ def test_thumbnail_smoke_test_agent_documents_the_reindex_subtask() -> None:
     reindex probe/run/report-only contract — otherwise the SKILL.md-level
     delegation prose is a promise the subagent's own body never keeps."""
 
-    body = AGENT_FILE.read_text(encoding="utf-8")
+    body = ROLE_FILE.read_text(encoding="utf-8")
     assert re.search(r"reindex", body, re.IGNORECASE)
     # The agent file templates the probe over its `plugin` input rather than
     # spelling out each family's literal command, so the bound string is the

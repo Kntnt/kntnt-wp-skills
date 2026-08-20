@@ -29,7 +29,7 @@ from typing import Any
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SCRIPTS = REPO_ROOT / "scripts"
+SCRIPTS = REPO_ROOT / "skills" / "clone" / "scripts"
 RESOLVE = SCRIPTS / "resolve_plan.py"
 DISCOVERY = SCRIPTS / "discovery.py"
 

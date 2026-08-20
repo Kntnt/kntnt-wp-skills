@@ -28,7 +28,7 @@ import pytest
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 
-UNSEAL_SCRIPT: Path = REPO_ROOT / "scripts" / "unseal.py"
+UNSEAL_SCRIPT: Path = REPO_ROOT / "skills" / "clone" / "scripts" / "unseal.py"
 IMPLEMENTATION_NOTES: Path = REPO_ROOT / "docs" / "implementation-notes.md"
 
 # The config keys `run_unseal` actually reads from its stdin envelope

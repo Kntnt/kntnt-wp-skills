@@ -4,7 +4,7 @@ A file manifest is a snapshot and a live site is not. Resubmitting a
 hours-old selection used to die as an opaque 404; Extractor now accepts
 ``strict: false``, skips vanished files, and names every missing table and
 every missing file on a remaining 404. This suite binds the caller: the
-agent that actually POSTs, both SKILLs, and the spec all send the member,
+role whose steps actually POST, both SKILLs, and the spec all send the member,
 surface ``skipped_files``, and unseal against the remaining file list.
 """
 
@@ -16,7 +16,7 @@ import pytest
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 
-EXTRACT_TRANSFER: Path = REPO_ROOT / "agents" / "extract-transfer.md"
+EXTRACT_TRANSFER: Path = REPO_ROOT / "skills" / "clone" / "roles" / "extract-transfer.md"
 SPEC: Path = REPO_ROOT / "docs" / "spec.md"
 IMPLEMENTATION_NOTES: Path = REPO_ROOT / "docs" / "implementation-notes.md"
 CLONE: Path = REPO_ROOT / "skills" / "clone" / "SKILL.md"
@@ -44,11 +44,11 @@ def test_every_submit_surface_sends_strict_false(path: Path) -> None:
 
 
 def test_extract_transfer_posts_the_member_on_the_wire() -> None:
-    """The agent that actually POSTs carries the JSON member, not just prose."""
+    """The role whose steps actually POST carries the JSON member, not just prose."""
 
     text = EXTRACT_TRANSFER.read_text(encoding="utf-8")
     assert '"strict": false' in text, (
-        "extract-transfer.md must put \"strict\": false on the POST body — "
+        "the extract-transfer role must put \"strict\": false on the POST body — "
         "a SKILL that only mentions the mode in prose will not change the wire"
     )
 

@@ -212,14 +212,35 @@ def test_clone_dependency_step_checks_mkwp_via_the_shared_guard() -> None:
     )
 
 
-def test_pull_dependency_step_never_mentions_mkwp() -> None:
-    """`pull` never scaffolds, so its dependency step must never check
-    `mkwp` — a copy-pasted clone-only check here would be a false
-    dependency that could block a pull for no reason."""
+def test_pull_dependency_step_never_checks_the_mkwp_command() -> None:
+    """`pull` never scaffolds, so its dependency step must never check the
+    `mkwp` command — a copy-pasted clone-only check here would be a false
+    dependency that could block a pull for no reason.
+
+    The `mkwp` *skill* is a different thing: it owns and ships the classifier
+    both skills drive (issue #51), so naming `../mkwp/scripts/classify.py` as
+    a file that must be installed alongside is not the command check this
+    guards against.
+    """
 
     window = _dependency_window("pull SKILL.md", PULL_SKILL).lower()
-    assert "mkwp" not in window, (
-        "pull SKILL.md's dependency step mentions mkwp, which pull never uses"
+    assert "mkwp_guard.py" not in window, (
+        "pull SKILL.md's dependency step runs the mkwp version guard, which "
+        "verdicts a command pull never invokes"
+    )
+    assert "1.8.1" not in window, (
+        "pull SKILL.md's dependency step pins an mkwp version floor, which "
+        "only the scaffolding skill has any use for"
+    )
+    assert "mkwp --help" not in window, (
+        "pull SKILL.md's dependency step probes the mkwp command itself"
+    )
+    stripped = window.replace("../mkwp/scripts/classify.py", "").replace(
+        "`clone` and `mkwp` skills", ""
+    )
+    assert "mkwp" not in stripped, (
+        "pull SKILL.md's dependency step mentions mkwp beyond the sibling "
+        "skill file it actually depends on"
     )
 
 

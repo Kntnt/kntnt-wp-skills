@@ -43,7 +43,7 @@ SPEC_TEXT: str = SPEC.read_text(encoding="utf-8")
 REQUIRED_HELPERS: tuple[str, ...] = (
     "scripts/discovery.py",
     "scripts/bootstrap_parse.py",
-    "skills/mkwp/scripts/classify.py",
+    "../mkwp/scripts/classify.py",
     "scripts/resolve_plan.py",
     "scripts/build_exclusions.py",
     "scripts/filter_manifest.py",
@@ -67,11 +67,12 @@ STUB_MARKERS: tuple[str, ...] = (
     "planned behaviour (not active)",
 )
 
-# Every ``scripts/<x>`` or ``templates/<x>`` path token, however it is embedded
-# (a bare mention, a backticked path, or inside a ``${CLAUDE_PLUGIN_ROOT}/...``
-# command), so a reference to a helper or template that does not exist is caught.
+# Every ``scripts/<x>``, ``roles/<x>`` or ``templates/<x>`` path token, however
+# it is embedded (a bare mention, a backticked path, or mid-command), including
+# the ``../<sibling-skill>/`` form the engine's own siblings are reached by, so
+# a reference to a helper, role, or template that does not exist is caught.
 _PATH_TOKEN = re.compile(
-    r"(?:skills/[A-Za-z0-9_.\-]+/)?(?:scripts|templates)/[A-Za-z0-9_.\-]+\.[A-Za-z0-9]+"
+    r"(?:\.\./[A-Za-z0-9_.\-]+/)?(?:scripts|roles|templates)/[A-Za-z0-9_.\-]+\.[A-Za-z0-9]+"
 )
 
 
@@ -154,12 +155,13 @@ def test_references_the_local_capture_template(template: str) -> None:
 
 
 def test_no_referenced_helper_or_template_path_dangles() -> None:
-    """Every ``scripts/`` or ``templates/`` path the orchestration cites resolves
-    to a real file — the wiring cannot drift onto a helper or template that does
-    not exist."""
+    """Every ``scripts/``, ``roles/`` or ``templates/`` path the orchestration
+    cites resolves to a real file, read against the skill directory — the wiring
+    cannot drift onto a helper, role, or template that does not exist."""
 
+    skill_dir = REPO_ROOT / "skills" / "clone"
     dangling = sorted(
-        path for path in _referenced_paths() if not (REPO_ROOT / path).is_file()
+        path for path in _referenced_paths() if not (skill_dir / path).is_file()
     )
     assert not dangling, f"clone SKILL.md references non-existent paths: {dangling}"
 
@@ -417,6 +419,6 @@ def test_smoke_test_presence_checks_anchor_at_clone_dir() -> None:
     (the site directory), never the caller's own ``cwd`` — this is the anchor
     the write side above must land inside."""
 
-    smoke_test_text = (REPO_ROOT / "scripts" / "smoke_test.py").read_text(encoding="utf-8")
+    smoke_test_text = (REPO_ROOT / "skills" / "clone" / "scripts" / "smoke_test.py").read_text(encoding="utf-8")
     assert "clone_dir / \".kntnt-wp-skills.json\"" in smoke_test_text
     assert "clone_dir / \".kntnt-wp-skills\" / \"last-sync.json\"" in smoke_test_text

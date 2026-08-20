@@ -30,7 +30,7 @@ MANPAGES: dict[str, Path] = {
     "clone": REPO_ROOT / "docs" / "man" / "clone.md",
     "pull": REPO_ROOT / "docs" / "man" / "pull.md",
 }
-AGENT_FILE: Path = REPO_ROOT / "agents" / "thumbnail-smoke-test.md"
+ROLE_FILE: Path = REPO_ROOT / "skills" / "clone" / "roles" / "thumbnail-smoke-test.md"
 SPEC: Path = REPO_ROOT / "docs" / "spec.md"
 
 
@@ -72,7 +72,7 @@ def test_verify_step_still_delegates_to_the_subagent_with_its_evidence_block(ski
     #13) while wiring in the script — both architectures coexist."""
 
     section = _verify_section(SKILLS[skill].read_text(encoding="utf-8"))
-    assert "Delegate this phase to `thumbnail-smoke-test`" in section
+    assert "Run the `thumbnail-smoke-test` role here" in section
     assert "evidence block" in section.lower()
     assert "done" in section.lower() and "failed" in section.lower()
 
@@ -120,7 +120,7 @@ def test_thumbnail_smoke_test_agent_runs_the_smoke_test_script() -> None:
     — otherwise the SKILL.md-level delegation prose is a promise the
     subagent's own body never keeps."""
 
-    body = AGENT_FILE.read_text(encoding="utf-8")
+    body = ROLE_FILE.read_text(encoding="utf-8")
     assert "scripts/smoke_test.py" in body
     assert "expectations" in body.lower()
 
@@ -130,7 +130,7 @@ def test_thumbnail_smoke_test_agent_still_states_the_never_ask_rule() -> None:
     never ask the operator anything (issue #13's contract, re-bound here
     since this file is exactly what's being rewritten for issue #25)."""
 
-    body = AGENT_FILE.read_text(encoding="utf-8")
+    body = ROLE_FILE.read_text(encoding="utf-8")
     assert re.search(r"never ask the operator", body, re.IGNORECASE)
 
 
@@ -164,7 +164,7 @@ def test_smoke_test_script_is_a_pep723_standalone_script() -> None:
     packaging convention (agents.d/coding-standard/python.md): inline PEP 723
     metadata pinning the Python floor, no third-party dependencies."""
 
-    text = (REPO_ROOT / "scripts" / "smoke_test.py").read_text(encoding="utf-8")
+    text = (REPO_ROOT / "skills" / "clone" / "scripts" / "smoke_test.py").read_text(encoding="utf-8")
     assert text.startswith("# /// script\n")
     assert "requires-python" in text.splitlines()[1]
 

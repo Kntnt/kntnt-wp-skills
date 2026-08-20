@@ -62,6 +62,7 @@ PINNING_SURFACES: tuple[Path, ...] = (
 # surviving on any of them is the regression this suite exists to catch.
 LIVE_SURFACES: tuple[Path, ...] = (
     *sorted((REPO_ROOT / "skills").glob("*/SKILL.md")),
+    *sorted((REPO_ROOT / "skills" / "clone" / "roles").glob("*.md")),
     *sorted((REPO_ROOT / "agents").glob("*.md")),
     *sorted((REPO_ROOT / "docs" / "man").glob("*.md")),
     REPO_ROOT / "docs" / "spec.md",

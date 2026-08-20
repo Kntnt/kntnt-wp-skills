@@ -27,7 +27,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "unseal.py"
+SCRIPT = Path(__file__).resolve().parent.parent / "skills" / "clone" / "scripts" / "unseal.py"
 
 # The connection-safe preamble the helper prepends to the reassembled dump; the
 # plugin's per-table DDL carries no global preamble of its own (ADR-0017).

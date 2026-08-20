@@ -26,11 +26,14 @@ from pathlib import Path
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 
-# The executable surface: the helper scripts an agent runs, the subagent
-# definitions it delegates to, and the two skills' orchestration prose. The
-# narrative/historical docs are deliberately excluded.
+# The executable surface: the helper scripts an agent runs, the role files it
+# works through, the subagent definitions that point at them, and the two
+# skills' orchestration prose. The narrative/historical docs are deliberately
+# excluded.
 EXECUTABLE_SURFACE: list[Path] = [
     *sorted((REPO_ROOT / "scripts").glob("*.py")),
+    *sorted((REPO_ROOT / "skills" / "clone" / "scripts").glob("*.py")),
+    *sorted((REPO_ROOT / "skills" / "clone" / "roles").glob("*.md")),
     *sorted((REPO_ROOT / "agents").glob("*.md")),
     REPO_ROOT / "skills" / "clone" / "SKILL.md",
     REPO_ROOT / "skills" / "pull" / "SKILL.md",

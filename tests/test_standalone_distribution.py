@@ -1,35 +1,29 @@
-"""Standalone-distribution guards — which skills are portable, which are Claude-only.
+"""Standalone-distribution guards — every skill portable, the plugin a superset.
 
 A generic skill installer (`npx skills` and the ~75 harnesses it targets) copies
-only the `skills/<name>/` directory, so a skill that reaches outside its own
-directory cannot work in that channel at all. `build-ollie-site` and `mkwp` are
-this plugin's portable skills: every path each one names lives under its own
-directory, and their one plugin-only reference — the help stanza's
+only the `skills/<name>/` directory, so a skill that reaches outside the set of
+skill directories cannot work in that channel at all. All four skills are now
+portable: everything each one names lives under its own directory or a sibling
+skill's, and their one plugin-only reference — the help stanza's
 `../../scripts/help.py` — is guarded by an existence check with a documented
 standalone fallback, so the help gate degrades instead of breaking.
 
-`mkwp` earns that by owning the two helpers it drives: `classify.py` and
-`mkwp_guard.py` ship inside its own `scripts/` directory (issue #51). The
-direction that dependency runs in is the whole design rule. A portable skill may
+`mkwp` earned that first, by owning the two helpers it drives (issue #51);
+`clone` earns it the same way, by owning the transfer engine's own helpers,
+its role files, and the local-capture mu-plugin template (issue #52). The
+direction a dependency runs in is the whole design rule. A portable skill may
 never depend on a hidden one, because a generic installer never installs a
-hidden skill; a hidden skill may freely depend on a portable sibling, because
-the plugin channel always installs every skill. So `clone`, `pull`, and the
-bundled subagents reach both helpers at their home inside `mkwp`, never the
-other way round.
+hidden skill; between portable siblings the dependency is free, because the
+installer can carry both. So `pull` reaches into `../clone/` and both reach
+`../mkwp/scripts/classify.py`, while nothing under `skills/` reaches back out
+to the plugin root except through a checked, degrading fallback.
 
-`clone` and `pull` are inseparable from the Claude Code plugin: bundled
-subagents under `agents/`, the shared transfer-engine helpers under `scripts/`,
-and cross-skill delegation. They can never work as a standalone skill install,
-so they carry the `metadata.internal` marker that keeps the generic installer
-from offering them, and say so in their own prose for anyone who installs one
-anyway. Claude Code ignores the unknown key, so the plugin channel is unaffected.
-
-These tests pin that split where it is decided — in the skills' own frontmatter
-and prose, and in where the moved helpers live — so a later edit that reaches
-back out of a portable skill's directory, that drops a Claude-only skill's
-marker, or that points a plugin-only surface at a helper's old home reddens here
-rather than shipping a skill that cannot run in the channel it was offered to
-(issues #50 and #51).
+These tests pin that where it is decided — in the skills' own frontmatter and
+prose, in where the moved helpers live, and in what a copied directory can
+still resolve — so a later edit that reaches out of the skill tree, that
+re-hides a skill from the channel it was made portable for, or that points a
+plugin-only surface at a helper's old home reddens here rather than shipping a
+skill that cannot run in the channel it was offered to (issues #50, #51, #52).
 """
 
 from __future__ import annotations
@@ -43,35 +37,57 @@ import pytest
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 SKILLS_DIR: Path = REPO_ROOT / "skills"
 
-# The skills a generic installer may offer: everything each one names ships
-# inside its own directory.
-PORTABLE_SKILLS: tuple[str, ...] = ("build-ollie-site", "mkwp")
+# Every skill a generic installer may offer — which, since issue #52, is all of
+# them. Everything each one names ships inside the skill tree.
+PORTABLE_SKILLS: tuple[str, ...] = ("build-ollie-site", "clone", "mkwp", "pull")
 
-# The skills that are inseparable from the plugin — the transfer engine, with
-# its bundled subagents and its shared helper surface.
-CLAUDE_ONLY_SKILLS: tuple[str, ...] = ("clone", "pull")
+# The transfer-engine helpers `clone` owns and ships, so a standalone install
+# of the engine can run every deterministic step it prescribes.
+CLONE_OWNED_HELPERS: tuple[str, ...] = (
+    "baseline_diff.py",
+    "bootstrap_parse.py",
+    "build_exclusions.py",
+    "build_selection.py",
+    "discovery.py",
+    "dump_sanity.py",
+    "filter_manifest.py",
+    "flags.py",
+    "poll_extraction.py",
+    "resolve_plan.py",
+    "smoke_test.py",
+    "unseal.py",
+    "wp_quiet.py",
+    "wpconfig_block.py",
+)
 
 # The helpers `mkwp` owns and ships, so a standalone install of it can still run
 # its own version guard and its own directory-name derivation.
 MKWP_OWNED_HELPERS: tuple[str, ...] = ("classify.py", "mkwp_guard.py")
 
-# Where those two helpers live now, as a path prefix every reference to them
-# must carry.
-MKWP_HELPER_HOME: str = "skills/mkwp/scripts/"
+# Where each skill's own helpers live now, as the path prefix every reference
+# from outside the skill tree must carry.
+HELPER_HOME: dict[str, str] = {
+    "clone": "skills/clone/scripts/",
+    "mkwp": "skills/mkwp/scripts/",
+}
 
-# The surfaces that drive `mkwp`'s helpers but ship only inside the plugin, so
-# they must reach them at their new home rather than at the repo-root `scripts/`
-# directory the move emptied.
-PLUGIN_ONLY_SURFACES: tuple[str, ...] = (
-    "skills/clone/SKILL.md",
-    "skills/pull/SKILL.md",
-    *sorted(
-        str(path.relative_to(REPO_ROOT)) for path in (REPO_ROOT / "agents").glob("*.md")
-    ),
+# The one helper that stays at the plugin root: the manual-page renderer, which
+# reads `docs/man/` and `.claude-plugin/plugin.json` and so is meaningless
+# outside a plugin install. Every skill reaches it through a checked fallback.
+PLUGIN_ONLY_HELPER: str = "help.py"
+
+# The surfaces that drive the skills' helpers but ship only inside the plugin,
+# so they must reach them at their home inside the owning skill rather than at
+# the repo-root `scripts/` directory the moves emptied.
+PLUGIN_ONLY_SURFACES: tuple[str, ...] = tuple(
+    sorted(
+        str(path.relative_to(REPO_ROOT))
+        for directory in ("agents", "commands", "docs/man")
+        for path in (REPO_ROOT / directory).glob("*.md")
+    )
 )
 
-# The sentence each Claude-only skill states early in its body, so a reader who
-# obtained it outside the plugin learns why it cannot work before running it.
+# The sentence the Claude-only skills used to carry. No skill may claim it now.
 PLUGIN_REQUIREMENT: str = (
     "Requires Claude Code with this plugin installed "
     "(`/plugin install kntnt-wp-skills@kntnt-wp-skills`); this skill does not "
@@ -94,18 +110,18 @@ INTERNAL_MARKER: re.Pattern[str] = re.compile(
     re.MULTILINE,
 )
 
-# A path into the skill's own bundled asset namespace, wherever the prose puts
-# it — on its own inside backticks, or mid-command as in `uv run
-# scripts/classify.py`. The match ends at the file extension, so a token that
-# carries arguments (`scripts/instantiate_patterns.py check <slug>`,
-# `scripts/lint_markup.py --ground-truth ground-truth.json`) still yields just
-# the file. The lookbehind rejects any path this one is only the tail of: a
-# `../`-prefixed one (the plugin-only help fallback, checked by its own test
-# below) and a sibling skill's (`skills/mkwp/scripts/…` as a plugin-only
-# surface writes it) both belong to a different anchor than this skill's own
-# directory.
+# A path into the skill tree's own bundled asset namespace, wherever the prose
+# puts it — on its own inside backticks, or mid-command as in `uv run
+# scripts/classify.py`. The optional leading `../<skill>/` is a sibling
+# reference (`../clone/scripts/unseal.py`), which resolves against the
+# directory the installer copied the skills into rather than against one skill
+# directory. The match ends at the file extension, so a token that carries
+# arguments (`scripts/unseal.py keygen`) still yields just the file. The
+# lookbehind rejects any path this one is only the tail of — notably the
+# plugin-only `../../scripts/help.py`, checked by its own test below.
 SHIPPED_ASSET: re.Pattern[str] = re.compile(
-    r"(?<![\w./-])((?:references|scripts)/[\w./-]*\.[A-Za-z0-9]+)"
+    r"(?<![\w./-])((?:\.\./(?:" + "|".join(PORTABLE_SKILLS) + r")/)?"
+    r"(?:references|roles|scripts|templates)/[\w./-]*\.[A-Za-z0-9]+)"
 )
 
 # A Markdown link target, from which the relative ones are kept.
@@ -128,14 +144,6 @@ def _body(skill: Path) -> str:
     return re.sub(r"^---\n.*?\n---\n", "", text, count=1, flags=re.DOTALL)
 
 
-def _intro(skill: Path) -> str:
-    """Return a SKILL.md's introduction: the body up to its first section
-    heading. What a reader meets before any procedure starts — which is what
-    "early in the body" has to mean for a warning to do its job."""
-
-    return re.split(r"^## ", _body(skill), maxsplit=1, flags=re.MULTILINE)[0]
-
-
 def _is_shipped_source(path: Path) -> bool:
     """Whether a path under a skill directory is source the skill ships, rather
     than the interpreter's own bytecode cache — generated, gitignored, and not
@@ -144,12 +152,21 @@ def _is_shipped_source(path: Path) -> bool:
     return path.is_file() and "__pycache__" not in path.parts
 
 
-def _mentioned_paths(skill_md: Path) -> list[str]:
-    """List every path a SKILL.md names that the skill directory itself ships:
-    the backticked `references/…` and `scripts/…` assets, plus the relative
+def _documents(skill_dir: Path) -> list[Path]:
+    """Every Markdown document a skill ships that names paths to be resolved:
+    its SKILL.md and, where it has them, its role files — the instructions a
+    delegated or inline executor follows step by step."""
+
+    return [skill_dir / "SKILL.md", *sorted((skill_dir / "roles").glob("*.md"))]
+
+
+def _mentioned_paths(document: Path) -> list[str]:
+    """List every path a shipped document names that the skill tree itself
+    ships: the backticked `references/…`, `roles/…`, `scripts/…`, and
+    `templates/…` assets — own-relative or sibling-relative — plus the relative
     targets of its Markdown links."""
 
-    text = skill_md.read_text(encoding="utf-8")
+    text = document.read_text(encoding="utf-8")
     paths = set(SHIPPED_ASSET.findall(text))
     paths.update(
         target
@@ -157,29 +174,6 @@ def _mentioned_paths(skill_md: Path) -> list[str]:
         if "://" not in target and not target.startswith(("#", "mailto:"))
     )
     return sorted(paths)
-
-
-@pytest.mark.parametrize("skill", CLAUDE_ONLY_SKILLS)
-def test_claude_only_skill_carries_the_internal_marker(skill: str) -> None:
-    """Each plugin-bound skill is marked `metadata.internal: true`, so a generic
-    installer leaves it out of the standalone channel it cannot work in."""
-
-    frontmatter = _frontmatter(SKILLS_DIR / skill)
-    assert INTERNAL_MARKER.search(frontmatter), (
-        f"{skill}/SKILL.md frontmatter lacks `metadata.internal: true`; a "
-        "generic skill installer would offer a skill that cannot run"
-    )
-
-
-@pytest.mark.parametrize("skill", CLAUDE_ONLY_SKILLS)
-def test_claude_only_skill_states_the_plugin_requirement(skill: str) -> None:
-    """Each plugin-bound skill says so in its introduction, before any
-    procedure — the marker hides it from the installer, this tells the reader
-    who obtained it some other way."""
-
-    assert PLUGIN_REQUIREMENT in _intro(SKILLS_DIR / skill), (
-        f"{skill}/SKILL.md does not state the plugin requirement in its introduction"
-    )
 
 
 @pytest.mark.parametrize("skill", PORTABLE_SKILLS)
@@ -198,17 +192,30 @@ def test_portable_skill_is_offered_to_the_standalone_channel(skill: str) -> None
     )
 
 
-@pytest.mark.parametrize("skill", PORTABLE_SKILLS)
-def test_portable_skill_depends_on_no_hidden_skill(skill: str) -> None:
-    """The dependency runs one way only. A generic installer never installs a
-    hidden skill, so a portable skill that reached into one would break on first
-    use in the very channel the marker was meant to protect."""
+def test_no_skill_is_hidden_from_the_standalone_channel() -> None:
+    """The roster above is every skill there is: a fifth one added later without
+    a portability pass would otherwise slip past the parametrised guards."""
 
-    body = _body(SKILLS_DIR / skill)
-    offenders = [name for name in CLAUDE_ONLY_SKILLS if f"skills/{name}/" in body]
-    assert not offenders, (
-        f"{skill}/SKILL.md reaches into the hidden skill(s) {offenders}, which a "
-        "standalone install never receives"
+    present = {path.parent.name for path in SKILLS_DIR.glob("*/SKILL.md")}
+    assert present == set(PORTABLE_SKILLS), (
+        f"skills/ carries an unexpected set: {sorted(present)}"
+    )
+
+
+@pytest.mark.parametrize("helper", CLONE_OWNED_HELPERS)
+def test_the_engine_helpers_ship_inside_the_clone_skill(helper: str) -> None:
+    """The transfer engine's helpers live under `skills/clone/scripts/` and
+    nowhere else: a standalone `clone` (or the `pull` that reaches into it)
+    cannot run a single deterministic step without them, and two copies would
+    be two truths."""
+
+    assert (SKILLS_DIR / "clone" / "scripts" / helper).is_file(), (
+        f"{helper} is not shipped inside the clone skill, so a standalone "
+        "install cannot run it"
+    )
+    assert not (REPO_ROOT / "scripts" / helper).exists(), (
+        f"scripts/{helper} still exists beside the copy inside the clone skill "
+        "— the move left a second, drifting copy behind"
     )
 
 
@@ -228,26 +235,44 @@ def test_the_mkwp_helpers_ship_inside_the_skill_that_owns_them(helper: str) -> N
     )
 
 
+def test_the_plugin_root_keeps_only_the_manual_page_renderer() -> None:
+    """What is left at the repo root is exactly the one helper no skill
+    directory could carry: the renderer that reads the plugin's own manual
+    pages and manifest. Anything else there is a helper a skill should own."""
+
+    present = {path.name for path in (REPO_ROOT / "scripts").glob("*.py")}
+    assert present == {PLUGIN_ONLY_HELPER}, (
+        f"the plugin-root scripts/ directory carries {sorted(present)}; only "
+        f"{PLUGIN_ONLY_HELPER} belongs to the plugin rather than to a skill"
+    )
+
+
 @pytest.mark.parametrize("surface", PLUGIN_ONLY_SURFACES)
-@pytest.mark.parametrize("helper", MKWP_OWNED_HELPERS)
-def test_plugin_only_surface_reaches_the_mkwp_helpers_at_their_new_home(
-    surface: str, helper: str
+def test_plugin_only_surface_reaches_the_helpers_at_their_new_home(
+    surface: str,
 ) -> None:
-    """A plugin-only surface may depend on a portable sibling — the plugin
-    channel always installs every skill — but it has to name where the helper
-    actually is, so every `scripts/<helper>` token it carries is anchored at the
-    skill that owns it."""
+    """A plugin-only surface may depend on any skill — the plugin channel always
+    installs every one — but it has to name where the helper actually is, so
+    every `scripts/<helper>` token it carries is anchored at the skill that owns
+    it."""
 
     text = (REPO_ROOT / surface).read_text(encoding="utf-8")
-    token = f"scripts/{helper}"
-    stale = [
-        match.start()
-        for match in re.finditer(re.escape(token), text)
-        if not text[: match.start()].endswith(MKWP_HELPER_HOME[: -len("scripts/")])
-    ]
+    owners = {helper: "clone" for helper in CLONE_OWNED_HELPERS}
+    owners.update({helper: "mkwp" for helper in MKWP_OWNED_HELPERS})
+
+    stale: list[str] = []
+    for helper, owner in owners.items():
+        token = f"scripts/{helper}"
+        prefix = HELPER_HOME[owner][: -len("scripts/")]
+        stale.extend(
+            f"{token}@{match.start()}"
+            for match in re.finditer(re.escape(token), text)
+            if not text[: match.start()].endswith(prefix)
+        )
     assert not stale, (
-        f"{surface} names {token} at its old home (offsets {stale}); it now "
-        f"lives at {MKWP_HELPER_HOME}{helper}"
+        f"{surface} names a helper at its old home ({stale}); the engine's "
+        "helpers now live under skills/clone/scripts/ and mkwp's under "
+        "skills/mkwp/scripts/"
     )
 
 
@@ -273,22 +298,31 @@ def test_the_portable_skill_names_no_plugin_root(skill: str) -> None:
 def test_every_path_the_portable_skill_names_resolves_standalone(
     skill: str, tmp_path: Path
 ) -> None:
-    """Copied alone into an empty directory — exactly what a generic installer
-    does — every path the portable skill's SKILL.md names still resolves."""
+    """Copied into an empty directory — exactly what a generic installer does —
+    every path the skill's SKILL.md and role files name still resolves, whether
+    it points inside the skill's own directory or at a portable sibling's."""
+
+    for name in PORTABLE_SKILLS:
+        shutil.copytree(SKILLS_DIR / name, tmp_path / name)
 
     installed = tmp_path / skill
-    shutil.copytree(SKILLS_DIR / skill, installed)
-
-    mentioned = _mentioned_paths(installed / "SKILL.md")
+    mentioned = {
+        path for document in _documents(installed) for path in _mentioned_paths(document)
+    }
     assert mentioned, (
-        f"no shipped paths were extracted from {skill}'s SKILL.md; the guard "
+        f"no shipped paths were extracted from {skill}'s documents; the guard "
         "would be enforcing nothing"
     )
 
-    unresolved = [path for path in mentioned if not (installed / path).exists()]
-    assert not unresolved, (
-        f"a standalone install of {skill} cannot resolve: {unresolved}"
-    )
+    # A sibling reference is read against the directory the skills were
+    # installed into; everything else against the skill's own directory — the
+    # anchor the path preamble fixes.
+    unresolved = [
+        path
+        for path in sorted(mentioned)
+        if not (tmp_path / path[len("../") :] if path.startswith("../") else installed / path).exists()
+    ]
+    assert not unresolved, f"a standalone install of {skill} cannot resolve: {unresolved}"
 
 
 @pytest.mark.parametrize("skill", PORTABLE_SKILLS)
@@ -338,4 +372,32 @@ def test_the_portable_skill_trigger_needs_no_plugin_namespace(skill: str) -> Non
     )
     assert "never auto-triggers" in frontmatter, (
         f"{skill}'s description lost its explicit-only guard clause"
+    )
+
+
+# The sibling dependencies the engine is allowed to have, and the preflight
+# check each one is guarded by: a standalone install that received only one of
+# the pair fails with a precise remediation rather than mid-run on a missing
+# file (issue #52).
+SIBLING_PREFLIGHT: dict[str, tuple[str, ...]] = {
+    "clone": ("../mkwp/scripts/classify.py",),
+    "pull": ("../clone/roles/thumbnail-smoke-test.md", "../mkwp/scripts/classify.py"),
+}
+
+
+@pytest.mark.parametrize("skill", sorted(SIBLING_PREFLIGHT))
+def test_the_engine_skill_preflights_its_sibling_dependencies(skill: str) -> None:
+    """A portable skill that depends on a portable sibling says so where the run
+    can still stop cheaply: the health check names the sibling files it needs
+    and what to do when they are absent."""
+
+    body = _body(SKILLS_DIR / skill)
+    for path in SIBLING_PREFLIGHT[skill]:
+        assert path in body, (
+            f"{skill}/SKILL.md never preflights the sibling path {path} it "
+            "depends on"
+        )
+    assert re.search(r"install (?:the )?[`/]", body), (
+        f"{skill}/SKILL.md's sibling preflight states no remediation for a "
+        "missing sibling skill"
     )

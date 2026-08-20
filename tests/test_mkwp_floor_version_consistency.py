@@ -26,7 +26,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "scripts"))
+sys.path.insert(0, str(REPO_ROOT / "skills" / "clone" / "scripts"))
 
 import mkwp_guard  # noqa: E402
 

@@ -2,6 +2,8 @@
 
 This file preserves the invocation-level literals from the superseded design-and-build-plan document — exact commands, flags, filenames, permissions, timer values, and illustrative shapes — so that implementation never has to re-derive hard-won specifics. The specification ([`docs/spec.md`](./spec.md)) is authoritative for every decision; this file only pins the literals the spec deliberately abstracts, and where the two diverge the spec (or an ADR) wins. Literals marked *free choice* may be changed during implementation if a better value emerges; everything else was settled the hard way — through the security review or real-world debugging — and should be kept unless a test proves otherwise.
 
+The helper paths below are written as the skills themselves write them: `scripts/<name>.py` means the transfer engine's own helper, which `clone` ships in its `scripts/` directory and `pull` reaches as `../clone/scripts/<name>.py` (issue #52); `../mkwp/scripts/classify.py` is the classifier the `mkwp` skill owns.
+
 ## Shipped templates
 
 - The plugin ships the Mailpit capture mu-plugin template alongside its helper scripts; the engine instantiates it per run. The extraction, sealing, and cleanup the old client-side pack-script template once produced are now owned by the Kntnt Extractor plugin ([ADR-0017](./adr/0017-discovery-over-extractor-rest-two-phase.md)), so no pack template ships.

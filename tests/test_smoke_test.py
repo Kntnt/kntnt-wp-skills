@@ -31,7 +31,7 @@ import pytest
 import classify
 import smoke_test
 
-_SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
+_SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "skills" / "clone" / "scripts"
 
 
 # --- Fakes for the shelling-out edges -------------------------------------
@@ -1641,3 +1641,75 @@ def test_cli_generate_mode_fails_loud_on_missing_discovery():
 
     assert result.returncode != 0
     assert result.stderr.strip()
+
+
+# --- The CLI: quiet mode (issue #52) ----------------------------------------
+
+
+def test_cli_log_mode_writes_the_report_and_prints_a_summary(
+    clone_dir: Path, tmp_path: Path
+):
+    """With ``--log`` the full report lands on disk and stdout carries only the
+    verdict, the counts, and the report's path — the shape an inline executor
+    can afford to read when no subagent context is there to absorb it."""
+
+    expectations_path = tmp_path / "expectations.json"
+    expectations_path.write_text(
+        json.dumps({"savedPlan": True, "baseline": True}), encoding="utf-8"
+    )
+    report_path = tmp_path / "logs" / "smoke-test-report.json"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(_SCRIPTS_DIR / "smoke_test.py"),
+            str(clone_dir),
+            str(expectations_path),
+            "--log",
+            str(report_path),
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    summary = json.loads(result.stdout)
+    assert summary["ok"] is True
+    assert summary["report_path"] == str(report_path)
+    assert summary["summary"]["pass"] >= 1
+    assert summary["anomalies"] == []
+    assert "checks" not in summary
+
+    written = json.loads(report_path.read_text(encoding="utf-8"))
+    assert written["checks"], "the full report must still hold every check"
+
+
+def test_cli_log_mode_carries_only_the_anomalies(clone_dir: Path, tmp_path: Path):
+    """The summary names every ``fail`` and ``attention`` finding — the routine
+    passes stay in the file, the anomalies come back."""
+
+    expectations_path = tmp_path / "expectations.json"
+    expectations_path.write_text(
+        json.dumps({"savedPlan": True, "baseline": True}), encoding="utf-8"
+    )
+    (clone_dir / ".kntnt-wp-skills.json").unlink()
+    report_path = tmp_path / "smoke-test-report.json"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(_SCRIPTS_DIR / "smoke_test.py"),
+            str(clone_dir),
+            str(expectations_path),
+            "--log",
+            str(report_path),
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    summary = json.loads(result.stdout)
+    assert summary["ok"] is False
+    assert [finding["id"] for finding in summary["anomalies"]] == ["saved_plan_present"]
+    assert summary["anomalies"][0]["status"] == "fail"

@@ -43,9 +43,7 @@ def test_pull_skill_helper_seam_bullet_names_both_derived_names() -> None:
     bullet — not only the stale "the derived project name"."""
 
     text = _text(PULL_SKILL)
-    bullet = _seam_bullet_line(
-        text, "- `${CLAUDE_PLUGIN_ROOT}/skills/mkwp/scripts/classify.py`"
-    )
+    bullet = _seam_bullet_line(text, "- `../mkwp/scripts/classify.py`")
     assert "the derived project and directory names" in bullet, (
         f"pull/SKILL.md's classify.py bullet still names only the project name: {bullet!r}"
     )

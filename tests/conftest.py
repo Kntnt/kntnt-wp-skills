@@ -24,8 +24,9 @@ from pathlib import Path
 REPO_ROOT: Path = Path(__file__).resolve().parent.parent
 
 # Make the standalone helper scripts importable without packaging them, from
-# both directories that hold one.
+# each directory that holds one.
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
+sys.path.insert(0, str(REPO_ROOT / "skills" / "clone" / "scripts"))
 sys.path.insert(0, str(REPO_ROOT / "skills" / "mkwp" / "scripts"))
 
 # The canonical statement of the poll discipline. Its pinned-phrase sections are

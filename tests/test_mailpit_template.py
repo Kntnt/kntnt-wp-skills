@@ -11,7 +11,11 @@ from __future__ import annotations
 from pathlib import Path
 
 _TEMPLATE = (
-    Path(__file__).resolve().parent.parent / "templates" / "kntnt-wp-skills-mailpit.php"
+    Path(__file__).resolve().parent.parent
+    / "skills"
+    / "clone"
+    / "templates"
+    / "kntnt-wp-skills-mailpit.php"
 )
 
 

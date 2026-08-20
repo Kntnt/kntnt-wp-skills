@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import Any
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
-SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "baseline_diff.py"
+SCRIPT = Path(__file__).resolve().parent.parent / "skills" / "clone" / "scripts" / "baseline_diff.py"
 
 
 def run_diff(raw: bytes) -> subprocess.CompletedProcess[bytes]:

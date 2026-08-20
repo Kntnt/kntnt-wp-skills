@@ -84,7 +84,7 @@ The Kntnt Extractor plugin's own background job that dumps, archives, seals, and
 _Avoid_: pack, pack job
 
 **Poll helper**:
-`scripts/poll_extraction.py` — the one blocking invocation that waits on an extraction job and exits with a terminal verdict plus the poll telemetry. Agents invoke it; they do not write the loop. The Application Password is `KNTNT_EXTRACTOR_APP_PASSWORD` in that process's environment, never argv. The main extraction omits the budget argv; the stall window is the stop.
+`skills/clone/scripts/poll_extraction.py` — the one blocking invocation that waits on an extraction job and exits with a terminal verdict plus the poll telemetry. Agents invoke it; they do not write the loop, and they give it `--log <path>` so hours of progress lines land in the run's scratchpad rather than in a context. The Application Password is `KNTNT_EXTRACTOR_APP_PASSWORD` in that process's environment, never argv. The main extraction omits the budget argv; the stall window is the stop.
 _Avoid_: poll loop (as something an agent writes)
 
 **Selection**:

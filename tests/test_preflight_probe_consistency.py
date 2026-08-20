@@ -60,9 +60,11 @@ WARNING_DOCS: tuple[tuple[str, Path], ...] = (
 )
 
 # The live surfaces the retired one-table wording must not reappear in — the
-# skills, the subagent definitions, the spec, the notes, and the manpages.
+# skills, the role files, the subagent definitions, the spec, the notes, and
+# the manpages.
 LIVE_SURFACES: tuple[Path, ...] = (
     *sorted((REPO_ROOT / "skills").glob("*/SKILL.md")),
+    *sorted((REPO_ROOT / "skills" / "clone" / "roles").glob("*.md")),
     *sorted((REPO_ROOT / "agents").glob("*.md")),
     *sorted((REPO_ROOT / "docs" / "man").glob("*.md")),
     SPEC,

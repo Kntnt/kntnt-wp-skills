@@ -4,11 +4,11 @@ Every loop in this engine that waits on a Kntnt Extractor job follows one discip
 
 ## Why the rules are also restated elsewhere
 
-A subagent is loaded standalone into its own context. It cannot be trusted to follow a link mid-run, so `skills/clone/SKILL.md` §5, `skills/pull/SKILL.md` §5, and `agents/extract-transfer.md` each restate the discipline **in full**, and `agents/discovery-classify.md` carries a compact form of it. That duplication is deliberate — a surface an agent loads alone must contain the whole rule set — and it is exactly why the wording drifts if nothing holds it together.
+A role is loaded standalone into whatever context executes it. It cannot be trusted to follow a link mid-run, so `skills/clone/SKILL.md` §5, `skills/pull/SKILL.md` §5, and `skills/clone/roles/extract-transfer.md` each restate the discipline **in full**, and `skills/clone/roles/discovery-classify.md` carries a compact form of it. That duplication is deliberate — a surface an agent loads alone must contain the whole rule set — and it is exactly why the wording drifts if nothing holds it together.
 
-What is pinned, and what is not: **headings, hard rules, and the numeric literals are carried verbatim; the narrative around them is each surface's own voice.** A SKILL file explaining the discipline to an orchestrator and an agent definition instructing a subagent legitimately read differently, and forcing them word-for-word identical would make both worse. What may not differ is a rule's own statement — that is what drifts unnoticed.
+What is pinned, and what is not: **headings, hard rules, and the numeric literals are carried verbatim; the narrative around them is each surface's own voice.** A SKILL file explaining the discipline to an orchestrator and a role file instructing whoever executes it legitimately read differently, and forcing them word-for-word identical would make both worse. What may not differ is a rule's own statement — that is what drifts unnoticed.
 
-This file is what holds it together. The phrases pinned below are the ones every restatement must carry verbatim, and `tests/test_poll_discipline_consistency.py` and `tests/test_poll_agent_single_verdict_consistency.py` read them **from here**. The numeric literals themselves live in `scripts/poll_extraction.py` — that is the binding, so an agent cannot re-derive the loop — and the consistency suite asserts these phrases match those constants. Changing a rule is one edit in the script, the matching edit here, and the matching edit in each surface; the tests then refuse the change until every surface has followed. Before this file existed the literals lived inside the test, which made a test file the source of truth for a product decision and left every rule stated only in prose free to drift — as it did: two agents came to state the same new ban in different words, and the binding that was supposed to catch that had to be loosened to accommodate both.
+This file is what holds it together. The phrases pinned below are the ones every restatement must carry verbatim, and `tests/test_poll_discipline_consistency.py` and `tests/test_poll_agent_single_verdict_consistency.py` read them **from here**. The numeric literals themselves live in `skills/clone/scripts/poll_extraction.py` — that is the binding, so an agent cannot re-derive the loop — and the consistency suite asserts these phrases match those constants. Changing a rule is one edit in the script, the matching edit here, and the matching edit in each surface; the tests then refuse the change until every surface has followed. Before this file existed the literals lived inside the test, which made a test file the source of truth for a product decision and left every rule stated only in prose free to drift — as it did: two agents came to state the same new ban in different words, and the binding that was supposed to catch that had to be loosened to accommodate both.
 
 ## The discipline
 
@@ -20,11 +20,11 @@ This file is what holds it together. The phrases pinned below are the ones every
 
 **Terminal conditions.** `state == "failed"`, a confirmed-vanished job, or no advance within the stall window — 10 minutes normally, widened to 40 minutes once `chunks_done` is observed absent. A preflight or bootstrap loop also fails on exhaustion of its own overall budget. Nothing else — any number of individual transport failures keeps the loop polling.
 
-**How the loop is executed.** One blocking invocation of `scripts/poll_extraction.py` that polls until it reaches a terminal verdict and exits, never one tool call per poll and never a loop the agent writes itself, and the agent returns exactly once with a verdict. The Application Password is passed in that one process's environment (`KNTNT_EXTRACTOR_APP_PASSWORD`), never on argv. See *Pinned phrases — the poll-owning subagents*, below.
+**How the loop is executed.** One blocking invocation of `scripts/poll_extraction.py` (`../clone/scripts/poll_extraction.py` from `pull`) that polls until it reaches a terminal verdict and exits, never one tool call per poll and never a loop the agent writes itself, and the agent returns exactly once with a verdict. The Application Password is passed in that one process's environment (`KNTNT_EXTRACTOR_APP_PASSWORD`), never on argv. The per-poll progress lines go to a log file under the run's scratchpad with `--log <path>`, so the loop is as quiet in a harness that runs it inline as it is inside a subagent's own context. See *Pinned phrases — the poll-owning subagents*, below.
 
 ## Pinned phrases — every surface stating the discipline in full
 
-`skills/clone/SKILL.md`, `skills/pull/SKILL.md`, and `agents/extract-transfer.md` must each carry every phrase below.
+`skills/clone/SKILL.md`, `skills/pull/SKILL.md`, and `skills/clone/roles/extract-transfer.md` must each carry every phrase below.
 
 ### poll cadence
 
@@ -66,7 +66,7 @@ a confirmed-vanished job (a `404`, treated as a transport-class fault and retrie
 
 ## Pinned phrases — the compact form
 
-`agents/discovery-classify.md` carries the bootstrap loop's own budget and the compact confirmed-vanished rule rather than the full discipline.
+`skills/clone/roles/discovery-classify.md` carries the bootstrap loop's own budget and the compact confirmed-vanished rule rather than the full discipline.
 
 ### bootstrap budget
 
@@ -82,7 +82,7 @@ a confirmed-vanished job (`404`, re-confirmed via `GET /extractions` and a secon
 
 ## Pinned phrases — the poll-owning subagents
 
-`agents/discovery-classify.md` and `agents/extract-transfer.md` own a poll loop and must each carry the two execution rules below. Both exist because one subagent, having already completed every call its phase needed, returned three times saying it was still waiting — ~55k tokens each, no evidence block — for want of any way to wait out a job taking minutes or to resume polling after a return.
+The `discovery-classify` and `extract-transfer` role files own a poll loop and must each carry the two execution rules below. Both exist because one subagent, having already completed every call its phase needed, returned three times saying it was still waiting — ~55k tokens each, no evidence block — for want of any way to wait out a job taking minutes or to resume polling after a return.
 
 ### the wait-in-one-loop heading
 

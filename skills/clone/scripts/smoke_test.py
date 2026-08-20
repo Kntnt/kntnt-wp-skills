@@ -10,8 +10,8 @@ mechanical check surface: a clone directory and an **expectations file** go
 in, a PASS/FAIL/attention report — one entry per check — comes out, and any
 FAIL trips a non-zero exit. It is the transfer engine's own verify phase
 (``docs/spec.md``, *Verify*), runnable both as the prescribed final step of
-`clone`/`pull`'s orchestration (delegated to the `thumbnail-smoke-test`
-subagent, ``agents/thumbnail-smoke-test.md``) and standalone from a terminal.
+`clone`/`pull`'s orchestration (the `thumbnail-smoke-test` role, whichever
+tier executes it) and standalone from a terminal.
 
 Every check is **individually skippable**: its expectations key absent means
 the check is skipped, never failed — an expectations file is never
@@ -38,10 +38,13 @@ issue a real HTTP request.
 
 Two CLI shapes, because the two modes take fundamentally different inputs:
 
-- **Verify** (default): ``smoke_test.py <clone_dir> <expectations_file>`` —
-  positional arguments, since an expectations *file* is naturally a path, not
-  a JSON blob worth piping. Emits the JSON report to stdout; exits non-zero
-  on any FAIL.
+- **Verify** (default): ``smoke_test.py <clone_dir> <expectations_file>
+  [--log <report_path>]`` — positional arguments, since an expectations *file*
+  is naturally a path, not a JSON blob worth piping. Emits the JSON report to
+  stdout; exits non-zero on any FAIL. With ``--log`` the full report is written
+  to that path instead and stdout carries only the verdict, the pass/fail
+  counts, and the ``fail``/``attention`` findings, so a caller executing this
+  step inline is not handed the whole report to read.
 - **Generate** (``--generate``): reads an envelope JSON object from stdin —
   production's canonical discovery document (``scripts/discovery.py``'s
   output) plus the few supplementary facts that document does not itself
@@ -1114,15 +1117,51 @@ def generate_expectations(envelope: Mapping[str, Any]) -> dict[str, Any]:
 
 def _usage() -> str:
     return (
-        "usage: smoke_test.py <clone_dir> <expectations_file>\n"
+        "usage: smoke_test.py <clone_dir> <expectations_file> [--log <report_path>]\n"
         "       smoke_test.py --generate   (envelope JSON on stdin, expectations JSON on stdout)"
     )
+
+
+def _quiet_summary(report: Mapping[str, Any], report_path: Path) -> dict[str, Any]:
+    """Reduce a full report to what a caller has to act on.
+
+    Every routine ``pass`` and ``skip`` stays in the written report; what comes
+    back is the verdict, the counts, where the report is, and each ``fail`` or
+    ``attention`` finding — the same reduction the delegated path used to get
+    from a subagent's own context, now available to a caller that has none.
+    """
+
+    anomalies = [
+        {"id": check["id"], "status": check["status"], "detail": check["detail"]}
+        for check in report["checks"]
+        if check["status"] in ("fail", "attention")
+    ]
+    return {
+        "ok": report["ok"],
+        "summary": report["summary"],
+        "report_path": str(report_path),
+        "anomalies": anomalies,
+    }
 
 
 def _main_verify(args: list[str]) -> int:
     """Verify mode: run every check the given expectations file activates
     against the given clone directory, print the JSON report, and exit
-    non-zero on any FAIL."""
+    non-zero on any FAIL.
+
+    With ``--log <path>`` the full report is written there and stdout carries
+    only the compact summary — the quiet shape an agent running this step
+    inline can afford to read.
+    """
+
+    report_path: Path | None = None
+    if "--log" in args:
+        index = args.index("--log")
+        if index + 1 >= len(args):
+            print(f"smoke_test: {_usage()}", file=sys.stderr)
+            return 2
+        report_path = Path(args[index + 1])
+        args = args[:index] + args[index + 2 :]
 
     if len(args) != 2:
         print(f"smoke_test: {_usage()}", file=sys.stderr)
@@ -1152,7 +1191,18 @@ def _main_verify(args: list[str]) -> int:
         return 1
 
     report = run_checks(clone_dir, expectations)
-    json.dump(report, sys.stdout, indent=2, sort_keys=True)
+
+    # Quiet mode routes the whole report to disk; the default keeps the
+    # long-standing contract of emitting it on stdout.
+    if report_path is not None:
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(
+            json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        json.dump(_quiet_summary(report, report_path), sys.stdout, sort_keys=True)
+    else:
+        json.dump(report, sys.stdout, indent=2, sort_keys=True)
+
     sys.stdout.write("\n")
     return 0 if report["ok"] else 1
 

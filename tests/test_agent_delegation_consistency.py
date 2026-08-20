@@ -1,21 +1,29 @@
-"""Subagent-delegation consistency test — bind the plugin's pinned subagents to
-the ``clone``/``pull`` orchestration (issue #13).
+"""Role-delegation consistency test — bind the transfer engine's role files to
+the ``clone``/``pull`` orchestration (issues #13 and #52).
 
 A full clone run pushed the orchestrating agent's own context past ~300k
 tokens, almost entirely transport noise (REST round-trips, curl/download
 output, thumbnail-regeneration warning spam) rather than decisions. The fix
-ships four pinned subagents under ``agents/`` — one per heavy phase — and has
-both ``SKILL.md`` files delegate to them explicitly, each with a structured
-**evidence block** (exit codes, artifact paths + SHA256, row/file counts,
-``DONE``/``FAILED`` markers) the orchestrator validates deterministically
-rather than trusting a second LLM's prose.
+gives each heavy phase its own **role** — instructions any competent agent can
+execute — and has both ``SKILL.md`` files hand that phase off to it, with a
+structured **evidence block** (exit codes, artifact paths + SHA256, row/file
+counts, ``DONE``/``FAILED`` markers) the orchestrator validates
+deterministically rather than trusting a second LLM's prose.
+
+Since issue #52 each role is written once, at ``skills/clone/roles/<name>.md``,
+so a harness with no subagents can execute it inline. The definitions under
+``agents/`` remain — Claude Code loads its subagents from there and nowhere
+else — but carry only their pinned frontmatter and a pointer to the role file:
+a subagent and an inline executor must follow the same procedure, which they
+can only be relied on to do while that procedure exists in exactly one place.
 
 This is the same kind of anti-drift binding as
 ``test_help_docs_consistency.py`` and the orchestration-consistency suites: it
-holds the shipped agent definitions and the two ``SKILL.md`` files to the
-architecture the issue describes, so a rewrite that drops the pin, forgets a
-phase's evidence-block contract, or lets a subagent's own instructions permit
-it to ask the operator something reddens here rather than drifting silently.
+holds the role files, the wrapper definitions, and the two ``SKILL.md`` files
+to the architecture the issues describe, so a rewrite that drops the pin,
+forgets a phase's evidence-block contract, lets a role's instructions permit it
+to ask the operator something, or copies procedure back into a wrapper reddens
+here rather than drifting silently.
 """
 
 from __future__ import annotations
@@ -28,6 +36,7 @@ import pytest
 # Repository layout. This test sits at ``tests/``, one level below the root.
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 AGENTS_DIR: Path = REPO_ROOT / "agents"
+ROLES_DIR: Path = REPO_ROOT / "skills" / "clone" / "roles"
 SKILLS: dict[str, Path] = {
     "clone": REPO_ROOT / "skills" / "clone" / "SKILL.md",
     "pull": REPO_ROOT / "skills" / "pull" / "SKILL.md",
@@ -101,11 +110,20 @@ def _body(path: Path) -> str:
     return parts[2]
 
 
-def _delegate_anchor(name: str) -> str:
-    """The literal handoff sentence a ``SKILL.md`` must carry to delegate a
-    phase to the named subagent."""
+def _role_text(name: str) -> str:
+    """A role file's whole text. Role files carry no frontmatter: they are
+    instructions, not a harness's agent definition, and every harness that runs
+    one reads it as plain Markdown."""
 
-    return f"Delegate this phase to `{name}`"
+    return (ROLES_DIR / f"{name}.md").read_text(encoding="utf-8")
+
+
+def _role_anchor(name: str) -> str:
+    """The literal handoff sentence a ``SKILL.md`` must carry to hand a phase
+    to the named role — whichever of the three execution tiers actually runs
+    it."""
+
+    return f"Run the `{name}` role"
 
 
 @pytest.mark.parametrize("name", sorted(ROSTER))
@@ -114,6 +132,27 @@ def test_every_rostered_agent_has_a_definition_file(name: str) -> None:
     ``agents/``."""
 
     assert (AGENTS_DIR / f"{name}.md").is_file(), f"agents/{name}.md is missing"
+
+
+@pytest.mark.parametrize("name", sorted(ROSTER))
+def test_every_rostered_agent_has_a_role_file(name: str) -> None:
+    """Every phase also ships the role itself — the harness-independent
+    instructions a spawned subagent or an inline executor follows (issue
+    #52)."""
+
+    assert (ROLES_DIR / f"{name}.md").is_file(), (
+        f"skills/clone/roles/{name}.md is missing, so only a Claude Code "
+        "subagent could run this phase"
+    )
+
+
+def test_roles_directory_carries_no_stray_files() -> None:
+    """The roster is the complete set of roles too: an orphaned role file would
+    be procedure nothing executes and nothing keeps current."""
+
+    assert ROLES_DIR.is_dir(), "skills/clone/roles/ directory does not exist"
+    present = {path.stem for path in ROLES_DIR.glob("*.md")}
+    assert present == set(ROSTER), f"roles/ carries an unexpected set: {present}"
 
 
 def test_agents_directory_carries_no_stray_definitions() -> None:
@@ -151,17 +190,59 @@ def test_agent_frontmatter_pins_its_name_model_and_effort(
 
 
 @pytest.mark.parametrize("name", sorted(ROSTER))
-def test_agent_body_states_the_evidence_block_and_never_ask_rule(name: str) -> None:
-    """Every subagent's own instructions carry the evidence-block contract
-    (checksums, exit-code-shaped fields, DONE/FAILED markers, a scratchpad
-    routing rule) and the rule that it can never ask the operator anything —
-    subagents run once against a task envelope and return, they do not gate."""
+def test_role_states_the_evidence_block_and_never_ask_rule(name: str) -> None:
+    """Every role's instructions carry the evidence-block contract (checksums,
+    exit-code-shaped fields, DONE/FAILED markers, a scratchpad routing rule)
+    and the rule that whoever runs it can never ask the operator anything — a
+    role runs once against a task envelope and returns, it does not gate."""
 
-    body = _body(AGENTS_DIR / f"{name}.md").lower()
+    body = _role_text(name).lower()
     for term in ("evidence block", "scratchpad", "sha256", "done", "failed"):
-        assert term in body, f"{name}.md body omits {term!r}"
+        assert term in body, f"roles/{name}.md omits {term!r}"
     assert re.search(r"never ask the operator", body), (
-        f"{name}.md does not state the never-ask-the-operator rule"
+        f"roles/{name}.md does not state the never-ask-the-operator rule"
+    )
+
+
+@pytest.mark.parametrize("name", sorted(ROSTER))
+def test_wrapper_agent_points_at_its_role_file(name: str) -> None:
+    """Claude Code loads a subagent from ``agents/`` and nowhere else, so the
+    definition stays — but as a pointer: it names the role file by a path that
+    resolves inside a plugin install, and says to follow it."""
+
+    body = _body(AGENTS_DIR / f"{name}.md")
+    assert f"${{CLAUDE_PLUGIN_ROOT}}/skills/clone/roles/{name}.md" in body, (
+        f"agents/{name}.md does not name its role file at a path that resolves "
+        "inside a plugin install"
+    )
+    assert re.search(r"read .*follow|follow .*exactly", body, re.IGNORECASE), (
+        f"agents/{name}.md does not tell the subagent to follow the role file"
+    )
+
+
+@pytest.mark.parametrize("name", sorted(ROSTER))
+def test_wrapper_agent_duplicates_no_procedure(name: str) -> None:
+    """The procedure exists in exactly one place. A wrapper that grew its own
+    copy of a step would let the subagent path and the inline path drift apart
+    silently — which is the whole failure mode the single-sourcing prevents."""
+
+    wrapper = _body(AGENTS_DIR / f"{name}.md")
+    assert len(wrapper.strip()) < 1200, (
+        f"agents/{name}.md's body is {len(wrapper.strip())} characters — long "
+        "enough to be carrying procedure that belongs in the role file"
+    )
+
+    # Shingled overlap, not an eyeball: any 80-character run of the role's own
+    # prose reappearing in the wrapper is duplication whatever it is called.
+    role = " ".join(_role_text(name).split())
+    flat = " ".join(wrapper.split())
+    duplicated = [
+        role[index : index + 80]
+        for index in range(0, len(role) - 80, 40)
+        if role[index : index + 80] in flat
+    ]
+    assert not duplicated, (
+        f"agents/{name}.md repeats role prose verbatim: {duplicated[:2]}"
     )
 
 
@@ -172,15 +253,15 @@ def test_agent_body_states_the_evidence_block_and_never_ask_rule(name: str) -> N
 def test_skill_delegates_the_phase_with_its_evidence_block_contract(
     skill: str, name: str
 ) -> None:
-    """AC #1 and #2: each SKILL.md names the subagent it delegates a phase to,
-    right where that phase already lives, and states the evidence-block
-    fields the orchestrator checks there — never a bare mention floating apart
-    from the step it belongs to."""
+    """AC #1 and #2: each SKILL.md names the role it hands a phase to, right
+    where that phase already lives, and states the evidence-block fields the
+    orchestrator checks there — never a bare mention floating apart from the
+    step it belongs to."""
 
     text = SKILLS[skill].read_text(encoding="utf-8")
-    anchor = _delegate_anchor(name)
+    anchor = _role_anchor(name)
     pos = text.find(anchor)
-    assert pos != -1, f"{skill} SKILL.md never delegates to `{name}`"
+    assert pos != -1, f"{skill} SKILL.md never hands a phase to the `{name}` role"
 
     # The evidence-block contract must be stated close to the handoff, not
     # merely somewhere in the file — a nearby window catches a delegation
@@ -197,7 +278,7 @@ def test_skill_delegates_the_phase_with_its_evidence_block_contract(
 def _delegation_windows(text: str, anchor: str, size: int = 1200) -> list[str]:
     """Every text window following an occurrence of ``anchor`` in ``text``.
 
-    A subagent may be delegated to more than once per ``SKILL.md``
+    A role may be run more than once per ``SKILL.md``
     (``thumbnail-smoke-test``'s regeneration and verify calls delegate to the
     same subagent from two different steps), and each call carries its own
     evidence-block prose — the union of these windows is what a reader
@@ -243,9 +324,9 @@ def test_skill_delegation_names_its_specific_evidence_fields(
     looser generic check above."""
 
     text = SKILLS[skill].read_text(encoding="utf-8").lower()
-    anchor = _delegate_anchor(name).lower()
+    anchor = _role_anchor(name).lower()
     windows = _delegation_windows(text, anchor)
-    assert windows, f"{skill} SKILL.md never delegates to `{name}`"
+    assert windows, f"{skill} SKILL.md never hands a phase to the `{name}` role"
 
     joined = " ".join(windows)
     for term in EVIDENCE_FIELD_TERMS[name]:
@@ -269,7 +350,7 @@ RECHECK_PATTERN: dict[tuple[str, str], str] = {
         "manifest-baseline-diff",
     ): r"confirm the manifest's row count structurally",
     ("clone", "extract-transfer"): r"re-run `scripts/dump_sanity\.py`",
-    ("pull", "extract-transfer"): r"re-run `scripts/dump_sanity\.py`",
+    ("pull", "extract-transfer"): r"re-run `\.\./clone/scripts/dump_sanity\.py`",
     ("clone", "thumbnail-smoke-test"): r"re-run `wp db check`",
     ("pull", "thumbnail-smoke-test"): r"re-run `wp db check`",
 }
@@ -315,9 +396,9 @@ def test_skill_states_the_delegation_architecture_and_the_fail_closed_rule() -> 
         )
 
 
-def test_manifest_baseline_diff_agent_forwards_the_unreadable_field() -> None:
+def test_manifest_baseline_diff_role_forwards_the_unreadable_field() -> None:
     """The delegated path must not be a hole in issue #18's fail-loud guard:
-    ``agents/manifest-baseline-diff.md`` step 2 constructs the
+    the ``manifest-baseline-diff`` role's step 2 constructs the
     ``scripts/filter_manifest.py`` payload itself (the orchestrator never sees
     it), so if that construction omits ``"unreadable"``, the helper's
     absent-field-means-clean-walk default lets a permission-denied production
@@ -325,14 +406,14 @@ def test_manifest_baseline_diff_agent_forwards_the_unreadable_field() -> None:
     ``SKILL.md`` files' own (non-delegated) payload descriptions already
     include it. This binds the agent definition to the same payload shape."""
 
-    body = _body(AGENTS_DIR / "manifest-baseline-diff.md")
+    body = _role_text("manifest-baseline-diff")
     assert '"unreadable"' in body, (
-        "agents/manifest-baseline-diff.md's filter_manifest.py payload does "
+        "the manifest-baseline-diff role's filter_manifest.py payload does "
         "not forward the manifest's \"unreadable\" field"
     )
 
 
-def test_discovery_classify_deletes_the_unsealed_bootstrap_dump_after_consume() -> None:
+def test_discovery_classify_role_deletes_the_unsealed_bootstrap_dump() -> None:
     """Issue #49: the bootstrap dump holds real user and subscriber rows in
     cleartext, so ``discovery-classify``'s own contract must state — not just
     imply via the generic ``consume`` sentence — that the unsealed dump, its
@@ -341,22 +422,22 @@ def test_discovery_classify_deletes_the_unsealed_bootstrap_dump_after_consume() 
     them, and that the evidence block proves it via
     ``bootstrap_artifacts_deleted`` rather than trusting prose alone."""
 
-    body = _body(AGENTS_DIR / "discovery-classify.md")
+    body = _role_text("discovery-classify")
 
     assert re.search(r"bootstrap_parse\.py.{0,400}delete", body, re.DOTALL) or re.search(
         r"delete.{0,400}bootstrap_parse\.py", body, re.DOTALL
-    ), "discovery-classify.md never ties bootstrap_parse.py to deleting its artifacts"
+    ), "the discovery-classify role never ties bootstrap_parse.py to deleting its artifacts"
     assert "sealed container" in body, (
-        "discovery-classify.md's cleanup step omits the sealed container"
+        "the discovery-classify role's cleanup step omits the sealed container"
     )
     assert "private key" in body, (
-        "discovery-classify.md's cleanup step omits the ephemeral private key"
+        "the discovery-classify role's cleanup step omits the ephemeral private key"
     )
     assert "bootstrap_artifacts_deleted" in body, (
-        "discovery-classify.md's evidence block omits bootstrap_artifacts_deleted"
+        "the discovery-classify role's evidence block omits bootstrap_artifacts_deleted"
     )
     assert re.search(r"never leave.{0,200}bootstrap", body, re.IGNORECASE | re.DOTALL), (
-        "discovery-classify.md's hard rules never state the bootstrap-cleanup rule"
+        "the discovery-classify role's hard rules never state the bootstrap-cleanup rule"
     )
 
 
@@ -392,12 +473,12 @@ def test_agent_input_is_a_credential_reference_not_a_password_value(
     (Keychain service+account, or an env-var name) — never a literal
     ``application_password`` field carrying the secret itself."""
 
-    body = _body(AGENTS_DIR / f"{name}.md")
+    body = _role_text(name)
     assert "`credential`" in body, (
-        f"{name}.md's Inputs section does not name a `credential` reference"
+        f"roles/{name}.md's Inputs section does not name a `credential` reference"
     )
     assert "application_password" not in body, (
-        f"{name}.md still takes `application_password` as a literal input "
+        f"roles/{name}.md still takes `application_password` as a literal input "
         "— the secret's value must never transit the orchestrator's context"
     )
 
@@ -408,22 +489,71 @@ def test_agent_resolves_the_credential_itself_in_a_subshell(name: str) -> None:
     resolves its own ``credential`` reference, inside the authenticated
     call's own subshell, and never prints or logs the resolved secret."""
 
-    body = _body(AGENTS_DIR / f"{name}.md").lower()
+    body = _role_text(name).lower()
     assert "subshell" in body, (
-        f"{name}.md does not state that the credential is resolved inside a subshell"
+        f"roles/{name}.md does not state that the credential is resolved inside "
+        "a subshell"
     )
     assert re.search(r"never print|never log", body), (
-        f"{name}.md does not state the never-print/never-log rule for the "
+        f"roles/{name}.md does not state the never-print/never-log rule for the "
         "resolved secret"
     )
 
 
 def test_no_agent_definition_carries_a_literal_application_password_input() -> None:
-    """Belt-and-braces sweep: no shipped agent definition — rostered or not —
-    still takes the Application Password by value."""
+    """Belt-and-braces sweep: no shipped agent definition or role file —
+    rostered or not — still takes the Application Password by value."""
 
-    for path in AGENTS_DIR.glob("*.md"):
+    for path in (*AGENTS_DIR.glob("*.md"), *ROLES_DIR.glob("*.md")):
         text = path.read_text(encoding="utf-8")
         assert "application_password" not in text, (
             f"{path.name} still carries a literal `application_password` input"
         )
+
+
+# Issue #52's three execution tiers, in the order a document must offer them:
+# the Claude Code subagent, any other harness's spawned task, and — when the
+# harness has neither — the orchestrator running the role file itself. Keyed by
+# the phrase each tier must be recognisable by in both SKILL.md files.
+EXECUTION_TIERS: tuple[tuple[str, str], ...] = (
+    ("claude code subagent", r"task tool"),
+    ("spawned task in another harness", r"spawn"),
+    ("inline execution", r"execute (?:each|the) role file'?s? instructions yourself"),
+)
+
+
+@pytest.mark.parametrize("skill", sorted(SKILLS))
+def test_skill_offers_all_three_execution_tiers(skill: str) -> None:
+    """Issue #52: neither skill may be wired to one harness. Each states the
+    same three-tier rule — delegate to the pinned subagent under Claude Code,
+    else spawn one per role, else run the role file inline — so a harness
+    without subagents degrades to slower rather than to broken."""
+
+    text = SKILLS[skill].read_text(encoding="utf-8").lower()
+    for tier, pattern in EXECUTION_TIERS:
+        assert re.search(pattern, text), (
+            f"{skill} SKILL.md never offers the {tier} tier"
+        )
+    assert "kntnt-wp-skills:" in text, (
+        f"{skill} SKILL.md's first tier does not name the plugin-namespaced "
+        "subagents Claude Code loads"
+    )
+
+
+# Where each skill reaches the role files from: `clone` owns them, `pull`
+# reaches its sibling's copy, which is what keeps the procedure single-sourced
+# across the two skills as well as across the tiers.
+ROLE_PATH_PREFIX: dict[str, str] = {"clone": "roles/", "pull": "../clone/roles/"}
+
+
+@pytest.mark.parametrize("skill,name", sorted((s, n) for s in SKILLS for n in ROSTER))
+def test_skill_names_the_role_file_it_hands_the_phase_to(skill: str, name: str) -> None:
+    """The tier-2 and tier-3 executors need the file, not just the phase name:
+    each handoff names the role file at a path that resolves from the skill
+    directory it is read in."""
+
+    text = SKILLS[skill].read_text(encoding="utf-8")
+    expected = f"{ROLE_PATH_PREFIX[skill]}{name}.md"
+    assert expected in text, (
+        f"{skill} SKILL.md hands a phase to `{name}` without naming {expected}"
+    )
