@@ -631,3 +631,95 @@ def test_selection_mismatch_fails_closed(tmp_path: Path) -> None:
     )
 
     assert result.returncode != 0
+
+
+# The two spellings production keeps apart and macOS does not: 'o' with a
+# diaeresis as one code point (NFC) and as 'o' plus a combining diaeresis
+# (NFD). Written escaped so the distinction survives any editor or tool that
+# normalises this source file — rendered, the two names look identical.
+NFC_NAME = "wp-content/uploads/2024/kamera\u00f6vervakning.png"
+NFD_NAME = "wp-content/uploads/2024/kamerao\u0308vervakning.png"
+
+# The false-positive control: two non-ASCII names that differ by a whole
+# character — the second has no diaeresis at all — so normalising both to NFC
+# leaves them distinct, however eagerly a lossier fold would merge them.
+ANGSTROM_DECOMPOSED = "wp-content/uploads/2024/\u00e5ngstro\u0308m.txt"
+ANGSTROM_WITHOUT_DIAERESIS = "wp-content/uploads/2024/\u00e5ngstrom.txt"
+
+
+def _unseal_files(tmp_path: Path, names: list[str]) -> tuple[dict[str, Any], Path]:
+    """Seal one distinct file segment per name, unseal it, and return the report.
+
+    Each file carries different bytes, so a destination that merges two names
+    really does lose one variant rather than overwriting like with like.
+    """
+
+    public_key, private_key_path = _keygen(tmp_path)
+    container = tmp_path / "artifact.kntntext"
+    _seal(
+        container,
+        public_key,
+        [{"name": name, "data": _b64(f"payload-{index}")} for index, name in enumerate(names)],
+    )
+
+    files_root = tmp_path / "out" / "files"
+    result = _run(
+        "unseal",
+        {
+            "container_path": str(container),
+            "private_key_path": str(private_key_path),
+            "sql_path": str(tmp_path / "out" / "dump.sql"),
+            "files_root": str(files_root),
+            "tables": [],
+            "structure_only": [],
+            "files": names,
+        },
+    )
+
+    assert result.returncode == 0, result.stderr.decode()
+    return json.loads(result.stdout), files_root
+
+
+def test_paths_differing_only_by_normalisation_are_reported_as_one_collision(tmp_path: Path) -> None:
+    """Two names a normalising destination cannot keep apart are reported as one
+    group naming both spellings, so the operator sees which file was merged."""
+
+    report, _ = _unseal_files(tmp_path, [NFD_NAME, NFC_NAME])
+
+    assert report["normalisation_collisions"] == [[NFD_NAME, NFC_NAME]]
+
+
+def test_paths_differing_by_more_than_normalisation_are_not_grouped(tmp_path: Path) -> None:
+    """The false-positive control: two non-ASCII names whose difference survives
+    normalisation are ordinary distinct files, not a collision."""
+
+    report, _ = _unseal_files(tmp_path, [ANGSTROM_DECOMPOSED, ANGSTROM_WITHOUT_DIAERESIS])
+
+    assert report["normalisation_collisions"] == []
+    assert report["files_landed"] == report["files_written"] == 2
+
+
+def test_ascii_only_selection_reports_no_collisions(tmp_path: Path) -> None:
+    """The common case is unchanged: no non-ASCII name can collide, the member is
+    empty, and the two counts agree."""
+
+    report, _ = _unseal_files(tmp_path, ["wp-content/uploads/one.txt", "wp-content/uploads/two.txt"])
+
+    assert report["normalisation_collisions"] == []
+    assert report["files_landed"] == report["files_written"] == 2
+
+
+def test_files_landed_counts_what_the_destination_kept(tmp_path: Path) -> None:
+    """The count is measured on disk, not derived from what was written: a
+    destination that merged two names reports fewer files landed than written."""
+
+    report, files_root = _unseal_files(tmp_path, [NFD_NAME, NFC_NAME])
+    on_disk = sum(1 for path in files_root.rglob("*") if path.is_file())
+
+    assert report["files_written"] == 2
+    assert report["files_landed"] == on_disk
+    # On APFS — the destination this engine actually targets — the two names are
+    # one file, and the report must say so rather than claim both survived. A
+    # filesystem that keeps them apart makes 2 == 2 the truthful answer there.
+    if on_disk < 2:
+        assert report["files_landed"] < report["files_written"]

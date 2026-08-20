@@ -76,10 +76,20 @@ def test_implementation_notes_names_every_required_unseal_key(key: str) -> None:
 def test_implementation_notes_pins_the_unseal_stdout_shape() -> None:
     """The reciprocal half of the contract — what `unseal` prints on
     success — is pinned alongside the stdin shape, so the docs describe the
-    whole round trip, not just the input."""
+    whole round trip, not just the input. `files_landed` and
+    `normalisation_collisions` are part of that shape since issue #57: a
+    reader who never learns of them cannot tell a complete copy from one the
+    local filesystem quietly merged."""
 
     text = IMPLEMENTATION_NOTES.read_text(encoding="utf-8")
-    for key in ("tables_written", "structure_only_written", "files_written", "bytes_sql"):
+    for key in (
+        "tables_written",
+        "structure_only_written",
+        "files_written",
+        "files_landed",
+        "normalisation_collisions",
+        "bytes_sql",
+    ):
         assert key in text, (
             f"docs/implementation-notes.md never names the unseal stdout "
             f"key '{key}' (issue #43)"
