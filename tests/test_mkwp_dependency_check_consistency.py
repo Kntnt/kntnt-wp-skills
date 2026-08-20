@@ -84,7 +84,7 @@ def test_mkwp_section_1_checks_the_same_required_cli_tools_clone_checks() -> Non
 
 
 def test_mkwp_section_1_still_runs_the_existing_mkwp_version_guard() -> None:
-    """The pre-existing `mkwp`-itself version guard (`scripts/mkwp_guard.py`)
+    """The pre-existing `mkwp`-itself version guard (`skills/mkwp/scripts/mkwp_guard.py`)
     must survive the rewrite — the new local-dependency checks are additive,
     never a replacement for the guard `clone`'s own dependency step also
     reads."""

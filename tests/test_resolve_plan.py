@@ -28,10 +28,14 @@ from pathlib import Path
 from typing import Any
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
-SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+SCRIPTS = REPO_ROOT / "scripts"
 RESOLVE = SCRIPTS / "resolve_plan.py"
 DISCOVERY = SCRIPTS / "discovery.py"
-CLASSIFY = SCRIPTS / "classify.py"
+
+# ``classify.py`` is shipped by the portable ``mkwp`` skill, not the shared
+# helper directory (issue #51).
+CLASSIFY = REPO_ROOT / "skills" / "mkwp" / "scripts" / "classify.py"
 
 # The ordered decision lists each skill walks — the behavioural contract the gate
 # list and the skill-specific bookends are asserted against.

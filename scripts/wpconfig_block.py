@@ -25,7 +25,7 @@ A define record whose ``value`` is ``None`` is rejected rather than written:
 ``null`` on the wire from ``GET /environment`` is the Extractor's masking value
 for a define it will not disclose, and ``defined('NAME')`` reports ``true``
 regardless of the value written, so a ported ``null`` would suppress the
-plugin's own "not configured" fallback. ``scripts/classify.py`` already routes
+plugin's own "not configured" fallback. ``skills/mkwp/scripts/classify.py`` already routes
 such a define out of the portable set it offers, so this is defence in depth —
 it exists for a caller that hand-built its ``defines`` list, which the SKILLs
 forbid but cannot prevent.

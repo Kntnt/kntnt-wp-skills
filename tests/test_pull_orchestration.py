@@ -48,7 +48,7 @@ SPEC_TEXT: str = SPEC.read_text(encoding="utf-8")
 REQUIRED_HELPERS: tuple[str, ...] = (
     "scripts/discovery.py",
     "scripts/bootstrap_parse.py",
-    "scripts/classify.py",
+    "skills/mkwp/scripts/classify.py",
     "scripts/resolve_plan.py",
     "scripts/build_exclusions.py",
     "scripts/filter_manifest.py",
@@ -76,7 +76,9 @@ STUB_MARKERS: tuple[str, ...] = (
 # Every ``scripts/<x>`` or ``templates/<x>`` path token, however it is embedded
 # (a bare mention, a backticked path, or inside a ``${CLAUDE_PLUGIN_ROOT}/...``
 # command), so a reference to a helper or template that does not exist is caught.
-_PATH_TOKEN = re.compile(r"(?:scripts|templates)/[A-Za-z0-9_.\-]+\.[A-Za-z0-9]+")
+_PATH_TOKEN = re.compile(
+    r"(?:skills/[A-Za-z0-9_.\-]+/)?(?:scripts|templates)/[A-Za-z0-9_.\-]+\.[A-Za-z0-9]+"
+)
 
 
 def _pos(pattern: str) -> int:

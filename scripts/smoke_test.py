@@ -843,7 +843,7 @@ def generate_expectations(envelope: Mapping[str, Any]) -> dict[str, Any]:
     ``envelope`` shape:
 
     - ``discovery`` (required) — the canonical discovery document.
-    - ``classifications`` (optional) — ``scripts/classify.py``'s output; its
+    - ``classifications`` (optional) — ``skills/mkwp/scripts/classify.py``'s output; its
       table split derives ``tables.operationalEmpty`` in full, and
       ``tables.contentNonEmpty`` restricted to the always-populated core
       tables in :data:`_ALWAYS_POPULATED_CORE_TABLES` — never the whole

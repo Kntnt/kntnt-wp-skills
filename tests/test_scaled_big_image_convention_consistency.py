@@ -14,7 +14,7 @@ accepted.
 This is the same kind of anti-drift binding as
 ``test_mkwp_floor_version_consistency.py`` and
 ``test_search_index_reindex_consistency.py``: the exclusion rule
-(``scripts/classify.py``) and the pull-side delta rule
+(``skills/mkwp/scripts/classify.py``) and the pull-side delta rule
 (``skills/pull/SKILL.md``) must state the same convention, grounded to the
 single source of truth (``classify.SCALED_BIG_IMAGE_SUFFIX``) rather than a
 hand-typed literal repeated in each test, so a rewrite that drops the

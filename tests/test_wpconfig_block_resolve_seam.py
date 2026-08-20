@@ -30,8 +30,12 @@ import sys
 from pathlib import Path
 from typing import Any
 
-SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
-CLASSIFY = SCRIPTS / "classify.py"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+SCRIPTS = REPO_ROOT / "scripts"
+
+# ``classify.py`` is shipped by the portable ``mkwp`` skill, not the shared
+# helper directory (issue #51).
+CLASSIFY = REPO_ROOT / "skills" / "mkwp" / "scripts" / "classify.py"
 RESOLVE = SCRIPTS / "resolve_plan.py"
 WPCONFIG_BLOCK = SCRIPTS / "wpconfig_block.py"
 

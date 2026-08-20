@@ -1,7 +1,7 @@
 """Project- and directory-name wording consistency (doc-drift residual from
 the integration review).
 
-``scripts/classify.py`` derives two names from production's URL — `name`
+``skills/mkwp/scripts/classify.py`` derives two names from production's URL — `name`
 (the DDEV project slug) and `directory_name` (the clone's directory name,
 issue #11) — but two prose spots lagged behind the two-name reality:
 ``skills/pull/SKILL.md``'s helper-seam bullet still named only "the derived
@@ -38,12 +38,14 @@ def _seam_bullet_line(text: str, prefix: str) -> str:
 
 
 def test_pull_skill_helper_seam_bullet_names_both_derived_names() -> None:
-    """AC: ``skills/pull/SKILL.md``'s `scripts/classify.py` helper-seam bullet
+    """AC: ``skills/pull/SKILL.md``'s `classify.py` helper-seam bullet
     names both derived names, matching ``skills/clone/SKILL.md``'s equivalent
     bullet — not only the stale "the derived project name"."""
 
     text = _text(PULL_SKILL)
-    bullet = _seam_bullet_line(text, "- `scripts/classify.py`")
+    bullet = _seam_bullet_line(
+        text, "- `${CLAUDE_PLUGIN_ROOT}/skills/mkwp/scripts/classify.py`"
+    )
     assert "the derived project and directory names" in bullet, (
         f"pull/SKILL.md's classify.py bullet still names only the project name: {bullet!r}"
     )

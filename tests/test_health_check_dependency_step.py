@@ -30,7 +30,9 @@ REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 CLONE_SKILL: Path = REPO_ROOT / "skills" / "clone" / "SKILL.md"
 PULL_SKILL: Path = REPO_ROOT / "skills" / "pull" / "SKILL.md"
 MKWP_SKILL: Path = REPO_ROOT / "skills" / "mkwp" / "SKILL.md"
-MKWP_GUARD: Path = REPO_ROOT / "scripts" / "mkwp_guard.py"
+# The version guard is shipped by the portable ``mkwp`` skill, not the shared
+# helper directory (issue #51).
+MKWP_GUARD: Path = REPO_ROOT / "skills" / "mkwp" / "scripts" / "mkwp_guard.py"
 SPEC: Path = REPO_ROOT / "docs" / "spec.md"
 
 SKILL_FILES: dict[str, Path] = {"clone": CLONE_SKILL, "pull": PULL_SKILL}
@@ -203,7 +205,7 @@ def test_clone_dependency_step_checks_mkwp_via_the_shared_guard() -> None:
     window = _dependency_window("clone SKILL.md", CLONE_SKILL).lower()
     assert "mkwp_guard.py" in window, (
         "clone SKILL.md's dependency step never reads the shared "
-        "scripts/mkwp_guard.py guard"
+        "skills/mkwp/scripts/mkwp_guard.py guard"
     )
     assert "1.8.1" in window, (
         "clone SKILL.md's dependency step never states the mkwp floor version"
@@ -236,7 +238,7 @@ def test_clone_health_check_no_longer_carries_a_separate_mkwp_step() -> None:
         "'Verify the mkwp capability' step alongside the new dependency step"
     )
     assert section.lower().count("mkwp_guard.py") == 1, (
-        "clone SKILL.md's health check references scripts/mkwp_guard.py "
+        "clone SKILL.md's health check references skills/mkwp/scripts/mkwp_guard.py "
         f"{section.lower().count('mkwp_guard.py')} times — it must be read "
         "exactly once, from the dependency step, never duplicated"
     )
@@ -299,7 +301,7 @@ def test_spec_clone_bookends_no_longer_duplicates_the_mkwp_version_check() -> No
 
 
 def test_mkwp_guard_module_no_longer_hedges_that_the_health_check_has_not_landed() -> None:
-    """Cross-issue #22 x #23: `scripts/mkwp_guard.py`'s own module docstring
+    """Cross-issue #22 x #23: `skills/mkwp/scripts/mkwp_guard.py`'s own module docstring
     described `clone`'s dependency health-check step as a caller that would
     read this guard "once it lands" — issue #23 has since landed that step,
     and its commit e1d9def fixed the identical hedge in `skills/mkwp/
@@ -309,10 +311,10 @@ def test_mkwp_guard_module_no_longer_hedges_that_the_health_check_has_not_landed
 
     text = MKWP_GUARD.read_text(encoding="utf-8")
     assert "once it lands" not in text.lower(), (
-        "scripts/mkwp_guard.py still hedges that the shared dependency "
+        "skills/mkwp/scripts/mkwp_guard.py still hedges that the shared dependency "
         "health check has not landed"
     )
     assert re.search(r"clone.{0,80}health.check", text, re.IGNORECASE), (
-        "scripts/mkwp_guard.py no longer cross-references clone's own "
+        "skills/mkwp/scripts/mkwp_guard.py no longer cross-references clone's own "
         "dependency health-check step as a caller"
     )

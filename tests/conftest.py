@@ -3,9 +3,11 @@
 The single automated seam for this plugin is the deterministic helper CLI, so
 these tests never reach a live site, a real DDEV instance, or the Kntnt
 Extractor REST API. This module's only job is to make the standalone helper
-scripts under ``scripts/`` importable by the tests that exercise them at that
-seam (``import flags``, ``import smoke_test``, ``import classify``, …), without
-packaging them.
+scripts importable by the tests that exercise them at that seam (``import
+flags``, ``import smoke_test``, ``import classify``, …), without packaging
+them. They live in two places: the shared transfer-engine helpers under
+``scripts/``, and the two the portable ``mkwp`` skill owns and ships inside its
+own directory (``skills/mkwp/scripts/``, issue #51).
 
 It also parses the canonical poll-discipline document, so the suites that
 enforce that discipline read their pinned phrases from the document rather
@@ -19,10 +21,12 @@ import re
 import sys
 from pathlib import Path
 
-# Make the standalone helper scripts importable without packaging them.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-
 REPO_ROOT: Path = Path(__file__).resolve().parent.parent
+
+# Make the standalone helper scripts importable without packaging them, from
+# both directories that hold one.
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
+sys.path.insert(0, str(REPO_ROOT / "skills" / "mkwp" / "scripts"))
 
 # The canonical statement of the poll discipline. Its pinned-phrase sections are
 # what ``test_poll_discipline_consistency.py`` and

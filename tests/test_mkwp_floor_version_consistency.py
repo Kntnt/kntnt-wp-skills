@@ -3,7 +3,7 @@
 `Kntnt/mkwp` v1.8.1 fixes [Kntnt/mkwp#3](https://github.com/Kntnt/mkwp/issues/3)
 (`ddev config` omitting `--project-name`, so any `--dirname` diverging from
 `NAME` broke the scaffold outright with a database-connection error) — the
-defect `scripts/mkwp_guard.py` and this plugin's own docs used to warn about
+defect `skills/mkwp/scripts/mkwp_guard.py` and this plugin's own docs used to warn about
 at the pre-fix floor, 1.5.0 (the release that merely added the `--dirname`
 flag itself, [Kntnt/mkwp#2](https://github.com/Kntnt/mkwp/issues/2)). Every
 document that states the floor must now read 1.8.1, and none may still tell

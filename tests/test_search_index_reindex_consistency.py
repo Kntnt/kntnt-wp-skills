@@ -3,7 +3,7 @@
 
 After a clone or pull of a Relevanssi/SearchWP-backed site, the imported
 search-index tables are empty until something rebuilds them — the classifier
-carries them empty by design (``scripts/classify.py``'s
+carries them empty by design (``skills/mkwp/scripts/classify.py``'s
 ``OPERATIONAL_TABLE_PATTERNS["search_index"]``), exactly like the thumbnail
 sizes it excludes from transfer. Both ``SKILL.md`` files already regenerate
 thumbnails after import (ADR-0011); issue #10 adds the analogous local rebuild

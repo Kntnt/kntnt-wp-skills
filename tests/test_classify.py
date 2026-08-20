@@ -31,7 +31,11 @@ from pathlib import Path
 from typing import Any
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
-SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "classify.py"
+# ``classify.py`` is shipped by the portable ``mkwp`` skill, not the shared
+# helper directory (issue #51).
+SCRIPT = (
+    Path(__file__).resolve().parent.parent / "skills" / "mkwp" / "scripts" / "classify.py"
+)
 DISCOVERY = Path(__file__).resolve().parent.parent / "scripts" / "discovery.py"
 BASELINE_DIFF = Path(__file__).resolve().parent.parent / "scripts" / "baseline_diff.py"
 

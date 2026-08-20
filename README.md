@@ -57,13 +57,13 @@ This is the primary channel, and the only one that carries all four skills. Add 
 
 ### As a standalone skill, in any other harness
 
-`build-ollie-site` is self-contained — its references and helper scripts all live inside its own skill directory — so a generic skill installer such as [`npx skills`](https://github.com/vercel-labs/skills), which reaches some seventy-five agent harnesses, can carry it anywhere:
+`build-ollie-site` and `mkwp` are self-contained — every reference and helper script each one names lives inside its own skill directory — so a generic skill installer such as [`npx skills`](https://github.com/vercel-labs/skills), which reaches some seventy-five agent harnesses, can carry them anywhere:
 
 ```
 npx skills add Kntnt/kntnt-wp-skills
 ```
 
-That command currently installs `build-ollie-site` and nothing else. The transfer engine — `clone`, `pull`, and `mkwp` — is Claude Code-only: it is inseparable from the plugin's bundled subagents and its shared helper scripts, so those three skills are marked internal and a generic installer skips them rather than offering a skill that cannot run. Install the plugin as above to use them. In a standalone install, `build-ollie-site` is invoked as `/build-ollie-site` (there is no plugin namespace to prefix), and its `help` forms print a brief usage summary instead of the full manual page, which the plugin renders.
+That command currently installs `build-ollie-site` and `mkwp`. The transfer engine — `clone` and `pull` — is Claude Code-only: it is inseparable from the plugin's bundled subagents and its shared helper scripts, so those two skills are marked internal and a generic installer skips them rather than offering a skill that cannot run. Install the plugin as above to use them. In a standalone install, each portable skill is invoked bare — `/build-ollie-site`, `/mkwp` (there is no plugin namespace to prefix) — and its `help` forms print a brief usage summary instead of the full manual page, which the plugin renders. `mkwp` still needs `ddev`, `mkwp` itself, and the other local command-line tools its dependency check names; what it does not need is the plugin.
 
 ## Usage
 
@@ -103,7 +103,7 @@ Found a bug or want to request a feature? Please [open an issue](https://github.
 
 ## Development
 
-The plugin's logic lives in Python helpers under `scripts/`, invoked via `uv`; the heavy production-side work — extraction, per-segment sealing, the one-time download link, and cleanup — is owned by the Kntnt Extractor plugin, not generated here (ADR-0017). Clone the repository, then read the coding standard materialised under [`agents.d/coding-standard/`](agents.d/coding-standard/) — `general.md` plus `python.md` — before changing code.
+The plugin's logic lives in Python helpers invoked via `uv` — most under `scripts/`, and the two the portable `mkwp` skill ships with it under `skills/mkwp/scripts/`; the heavy production-side work — extraction, per-segment sealing, the one-time download link, and cleanup — is owned by the Kntnt Extractor plugin, not generated here (ADR-0017). Clone the repository, then read the coding standard materialised under [`agents.d/coding-standard/`](agents.d/coding-standard/) — `general.md` plus `python.md` — before changing code.
 
 The helpers are covered by a pytest suite under `tests/`. One command runs the whole suite, provisioning pytest through `uv` (no separate install step):
 
