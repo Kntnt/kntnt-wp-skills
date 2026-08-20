@@ -17,7 +17,7 @@ The findings behind these plans, and the answers to the two questions this run w
 | 007 | Mirror the Extractor's widened restricted-path family, and handle its refusal | P1 | M | — | TODO — tracked as #55 |
 | 008 | Retry a locked `consume` instead of failing a finished run | P1 | S | — | TODO — tracked as #54 |
 | 009 | Give the long poll to the orchestrator, so it cannot be orphaned | P1 | M | — | TODO — tracked as #58 |
-| 010 | Let the job's own state outrank a subagent's verdict | P1 | S | — | TODO — tracked as #53 |
+| 010 | Let the job's own state outrank a subagent's verdict | P1 | S | — | DONE (#53) — 1093 passed, ADR-0022 amended rather than superseded, and `tests/test_close_out_state_precedence.py` added. Rebased onto #52: the rule went into `skills/clone/roles/extract-transfer.md`, since the agent definition the plan named is now a pointer to it. The plan's step 1 says re-query "before choosing a close-out case" while its STOP conditions forbid delaying case 2's `consume`; both are honoured by gating the *cancelling* branch only, and the rule says so in as many words |
 | 011 | Detect the files macOS silently merges | P2 | S | — | TODO — tracked as #57 |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale).
