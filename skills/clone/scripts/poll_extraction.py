@@ -431,7 +431,10 @@ def poll(
                     listing = fetch(listing_url, timeout=PER_REQUEST_TIMEOUT_SECONDS)
                 except (TimeoutError, ConnectionError, OSError, urllib.error.URLError):
                     listing = None
-                else:
+
+                # A listing that never arrived confirms nothing; only a listing
+                # in hand can show the job absent.
+                if listing is not None:
                     listing_hit = _cache_hit_header(listing.headers)
                     if listing_hit is not None:
                         return _result(

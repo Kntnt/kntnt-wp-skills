@@ -29,6 +29,14 @@ Be respectful and constructive in issues, pull requests, and discussions. Assume
    uv run --with pytest pytest
    ```
 
+5. **Run the type check.** The helpers are checked in mypy's strict mode, and a type error is a change that does not land. One command runs it, in the same shape, from the repository root:
+
+   ```
+   uv run --with mypy --with pynacl==1.5.0 mypy
+   ```
+
+   Strict mode and the checked directories come from `pyproject.toml`, so the command carries no flags of its own. The `pynacl` pin is the one `skills/clone/scripts/unseal.py` declares in its own inline metadata: mypy cannot read a PEP 723 header, so the dependency is provisioned here instead of being ignored — ignoring it would invent a finding that is not there. A lint run is a different matter: ruff is the project's chosen linter but nothing pins a ruleset yet, so what it reports is advice rather than a verdict on your change.
+
 ## Questions
 
 Open an issue or start a discussion. Conversation happens in the open.
