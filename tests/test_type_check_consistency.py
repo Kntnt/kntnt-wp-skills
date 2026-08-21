@@ -63,8 +63,8 @@ EXCLUDED_HELPER_HOME: str = "skills/build-ollie-site/scripts"
 PYTHON_FLOOR: str = ">=3.12"
 DEPENDENT_HELPER: str = "skills/clone/scripts/unseal.py"
 
-# Every document that quotes a verification command, and so has to quote the
-# type-check one at the pin the dependent helper's own header declares.
+# The three verification surfaces that quote the type-check command, and so
+# have to quote it at the pin the dependent helper's own header declares.
 COMMAND_SURFACES: tuple[str, ...] = (
     "CONTRIBUTING.md",
     "agents.d/coding-standard/python.md",
