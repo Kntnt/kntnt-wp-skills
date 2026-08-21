@@ -816,3 +816,20 @@ def test_a_field_declared_bool_still_accepts_a_boolean() -> None:
     # CLI by the four int fields above.
     assert discovery._require(payload, "strict", bool, "input") is True
     assert discovery._optional(payload, "verbose", bool, True, "input") is False
+
+
+def test_the_tolerant_size_read_falls_back_for_everything_that_is_not_an_integer() -> None:
+    # Arrange — the manifest's size read is tolerant by contract: a malformed
+    # entry weighs its fallback rather than aborting a document built from
+    # hundreds of thousands of records. The accessor that carries that contract
+    # consults `_has_type`, so a bool is malformed too; it is driven directly
+    # because no fixture can reach a fallback that is not 0, and because the
+    # accessor exists to hand the type checker what the predicate has already
+    # decided.
+    malformed = [True, False, None, "512", 512.0, [512], {"size": 512}]
+
+    # Act & Assert — a well-typed size is returned as it stands, and everything
+    # else takes the fallback.
+    assert discovery._boundary_int(512, 0) == 512
+    assert discovery._boundary_int(0, 7) == 0
+    assert all(discovery._boundary_int(value, 7) == 7 for value in malformed)

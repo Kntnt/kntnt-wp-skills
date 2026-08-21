@@ -1858,6 +1858,22 @@ def test_derive_sample_urls_never_samples_the_front_page_twice():
     ]
 
 
+def test_derive_sample_urls_names_a_shape_the_front_page_already_covers():
+    """A shape whose only candidate is the front page is covered rather than
+    missing, and says so: the site did answer, with nothing the front-page
+    shape does not already fetch. This pins the branch the sampling reason is
+    absent on — the one an optional reason shares with a real diagnostic."""
+
+    run = fake_run_command(
+        sample_url_derivation_responses(pages="https://smoltek.ddev.site/")
+    )
+
+    derivation = smoke_test.derive_sample_urls(run)
+
+    assert derivation.coverage["page"] == "only the front page"
+    assert "https://smoltek.ddev.site/" not in derivation.urls
+
+
 def test_derive_sample_urls_reports_a_site_it_could_not_ask():
     """When the copy cannot even be asked for its front page, that is an input
     problem to name, not a URL list to guess at."""
