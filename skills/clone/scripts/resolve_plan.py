@@ -37,7 +37,11 @@ Two operations share the seam:
 
 Malformed input fails loudly — a wrong top-level shape or a malformed upstream
 document (a missing nested key, a wrong-typed section) alike: a non-zero exit and
-a ``resolve_plan:`` diagnostic on stderr, never a half-built plan on stdout.
+a ``resolve_plan:`` diagnostic on stderr, never a half-built plan on stdout. So
+does a resolved value production would refuse: the file-part budget the main
+extraction is packaged at goes on the wire as a number the Extractor validates,
+so an out-of-range one is refused here, naming it, rather than hours later as a
+``422`` (issue #77).
 """
 
 from __future__ import annotations
@@ -78,6 +82,7 @@ SAVED_KEYS: dict[str, str] = {
     "directory_name": "directory",
     "media_originals": "media",
     "heavy_blobs": "blobs",
+    "chunk_size": "chunk_size",
     "wp_config_defines": "ported_defines",
     "plugins_deactivate": "plugin_preservation",
     "object_cache": "object_cache",
@@ -129,6 +134,20 @@ PRIVACY_GATES: tuple[tuple[str, str], ...] = (
     ("user_submissions", USER_SUBMISSIONS_CATEGORY),
     ("crm_subscribers", CRM_SUBSCRIBERS_CATEGORY),
 )
+
+
+# The file-part budget the main extraction asks for, in bytes. 256 KB is the one
+# value measured to complete a real production clone — the sole deliberate
+# difference between a run that died at 97.8 % after six hours and one that
+# finished in 3.56 h — and the curve it rests on is monotonic, smaller having been
+# better at every measured point up to 2 MiB. Sending it rather than omitting the
+# member is the decision: an Extractor resolves the budget itself through a
+# constant-then-filter config seam no endpoint reports, so a pin nobody can see
+# would otherwise decide the run. The consequence is stated rather than hidden — a
+# site deliberately tuned below this must record its number in the saved plan
+# (issue #77).
+CHUNK_SIZE_DECISION = "chunk_size"
+CHUNK_SIZE_DEFAULT = 262144
 
 
 class ResolveError(Exception):
@@ -270,6 +289,7 @@ DECISIONS: tuple[Decision, ...] = (
     Decision("generated_thumbnails", BOTH, const("exclude")),
     Decision("sideloaded_files", BOTH, const("include")),
     Decision("heavy_blobs", BOTH, const("exclude")),
+    Decision(CHUNK_SIZE_DECISION, BOTH, const(CHUNK_SIZE_DEFAULT)),
     Decision("wp_config_defines", BOTH, const([]), live_portable_defines),
     Decision("plugins_deactivate", frozenset({PULL}), const("preserve")),
     Decision("object_cache", frozenset({PULL}), const("derive")),
@@ -365,6 +385,28 @@ def resolve_layers(
     return recommendation, recommendation_source, value, source
 
 
+def validate_chunk_size(entry: dict[str, Any]) -> None:
+    """Refuse a file-part budget the Extractor would refuse — anything that is not
+    an integer of at least 1 byte.
+
+    The value never leaves the client unvalidated: a bad number in a committed
+    plan, or a slip at the gate, is a loud local refusal naming the offending
+    value rather than a ``422 kntnt_extractor_malformed_body`` from production
+    hours into a run. Both the recommendation and the resolved value are checked,
+    because a corrupt saved budget is presented at the gate even when a this-run
+    answer overrides it. A ``bool`` is never an integer here, for the reason
+    ADR-0026 settles at the discovery boundary: Python's ``True`` would otherwise
+    pass as a budget of one byte."""
+
+    for field in ("recommendation", "value"):
+        value = entry[field]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise ResolveError(
+                f"decision {CHUNK_SIZE_DECISION!r}: the file-part budget must be "
+                f"an integer of at least 1 byte, got {value!r}"
+            )
+
+
 def resolve_decision(decision: Decision, context: Context) -> dict[str, Any]:
     """Resolve one decision to its gate recommendation, resolved value, and source
     layer. The mail decision additionally carries the mass-send findings so its
@@ -402,6 +444,11 @@ def resolve_decision(decision: Decision, context: Context) -> dict[str, Any]:
     # leads with when the valve flips, and the informational note otherwise.
     if findings is not MISSING:
         entry["findings"] = findings
+
+    # The file-part budget is the one decision whose value goes on the wire as a
+    # number production validates, so it is validated here instead.
+    if decision.id == CHUNK_SIZE_DECISION:
+        validate_chunk_size(entry)
 
     return entry
 

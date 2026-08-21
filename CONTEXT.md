@@ -102,6 +102,14 @@ _Avoid_: poll loop (as something an agent writes), poll agent (nothing owns the 
 The explicit lists submitted to an extraction — full-data `tables`, structure-only `tables_structure_only`, and `files` — all computed client-side, so only what survives every exclusion is ever named. The main extraction is submitted with `strict: false`, so a file that vanishes between the manifest walk and the POST is dropped by the plugin rather than failing the job.
 _Avoid_: pack list
 
+**File-part budget**:
+The number of bytes the Extractor packages each file part to, sent on the main extraction's create as `chunk_size` and resolved like every other decision (built-in `262144` — 256 KB, the one value measured to complete a real clone — over an optional saved-plan `chunk_size` key). Only the main extraction carries it: the preflight and the bootstrap submit no files, so neither packages a file part. It is sent whether or not the health check's `honours` list names it; an Extractor that does not know the member resolves the budget itself through a config seam no endpoint reports, which is what the client is taking the decision back from. A site deliberately tuned to a different number records it in the saved plan, or a run overrides it.
+_Avoid_: chunk size (as the operator-facing term), slice budget (that is the table-side knob, which nothing here moves)
+
+**Honours list**:
+The `honours` member the **authenticated** `GET /status` reports: the additive request members this host actually acts on. Read once in the health check's identity step and carried through the run the way the API version is — passed through, never re-fetched. It never decides what a run sends; it decides only what the run's report can tell the operator was ignored.
+_Avoid_: capability list, feature flags
+
 **Skipped file**:
 A file named in a `strict: false` submission that no longer existed on production at job creation. The plugin drops it from the packaged selection, records it on the job, and returns it on the create and the poll. The skills surface those paths to the operator and unseal against the remaining file list, because the container does not contain them. A missing table is never skipped.
 _Avoid_: ignored file, optional file

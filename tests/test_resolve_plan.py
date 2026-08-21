@@ -27,6 +27,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = REPO_ROOT / "skills" / "clone" / "scripts"
@@ -50,6 +52,7 @@ PULL_DECISIONS = [
     "generated_thumbnails",
     "sideloaded_files",
     "heavy_blobs",
+    "chunk_size",
     "wp_config_defines",
     "plugins_deactivate",
     "object_cache",
@@ -71,6 +74,7 @@ CLONE_DECISIONS = [
     "generated_thumbnails",
     "sideloaded_files",
     "heavy_blobs",
+    "chunk_size",
     "wp_config_defines",
     "thumbnail_regeneration",
     "mail",
@@ -1218,3 +1222,149 @@ def test_invalid_json_input_fails_loudly() -> None:
     assert result.returncode != 0
     assert b"json" in result.stderr.lower()
     assert result.stdout == b""
+
+
+# --- The file-part budget: an ordinary decision behind an ordinary gate -------
+
+
+def test_the_file_part_budget_defaults_to_the_measured_good_256_kb() -> None:
+    """AC: the resolved value is 262144 when no saved plan supplies one.
+
+    256 KB is the one file-part budget measured to complete a real production
+    clone, and sending it rather than omitting the member is what stops an
+    invisible host-side pin from deciding the run (issue #77)."""
+
+    # Arrange & Act: a plain pull with no saved plan and no answer.
+    plan = resolve(envelope())
+
+    # Assert.
+    budget = decision(plan, "chunk_size")
+    assert budget["value"] == 262144
+    assert budget["source"] == "built_in"
+
+
+def test_a_saved_file_part_budget_overrides_the_built_in_default() -> None:
+    """AC: the saved plan's value is the resolved one when it supplies one — the
+    per-site tuning lives in the committed plan, not in a host-side filter."""
+
+    # Arrange & Act.
+    plan = resolve(envelope(saved_plan={"chunk_size": 131072}))
+
+    # Assert.
+    budget = decision(plan, "chunk_size")
+    assert budget["value"] == 131072
+    assert budget["source"] == "saved"
+
+
+def test_the_file_part_budget_round_trips_through_the_saved_plan() -> None:
+    """AC: a saved plan round-trips through resolution without the key being
+    invented or dropped."""
+
+    # Arrange: resolve against a saved budget, then persist the accepted plan.
+    plan = resolve(envelope(saved_plan={"chunk_size": 131072}))
+
+    # Act.
+    saved = save(plan, saved_plan={"chunk_size": 131072})
+
+    # Assert: the key survives the round trip with its value intact.
+    assert saved["chunk_size"] == 131072
+    assert decision(resolve(envelope(saved_plan=saved)), "chunk_size")["value"] == 131072
+
+
+def test_a_run_with_no_saved_budget_persists_the_built_in_one() -> None:
+    """The built-in default is a decision, not a placeholder: accepting it writes
+    the number into the committed plan, where it is visible rather than implied."""
+
+    # Arrange & Act.
+    saved = save(resolve(envelope()))
+
+    # Assert.
+    assert saved["chunk_size"] == 262144
+
+
+def test_the_file_part_budget_is_an_ordinary_gate_in_the_interactive_walk() -> None:
+    """AC (as settled on the issue): the gate list gains exactly one entry and
+    both skills walk one more gate — the budget joins the backbone like every
+    other decision (ADR-0005), with no new seam and no new flag."""
+
+    # Arrange & Act.
+    pull_plan = resolve(envelope(skill="pull"))
+    clone_plan = resolve(envelope(skill="clone"))
+
+    # Assert: the gate list is the decision list, chunk_size included.
+    assert pull_plan["gates"] == PULL_DECISIONS
+    assert clone_plan["gates"] == CLONE_DECISIONS
+    assert "chunk_size" in pull_plan["gates"]
+    assert "chunk_size" in clone_plan["gates"]
+
+
+def test_an_answered_gate_overrides_the_budget_for_this_run_only() -> None:
+    """`n` at the gate reveals the alternatives and takes the operator's value —
+    the ordinary answer layer, with nothing special about this decision."""
+
+    # Arrange & Act.
+    plan = resolve(envelope(answers={"chunk_size": 65536}))
+
+    # Assert.
+    budget = decision(plan, "chunk_size")
+    assert budget["value"] == 65536
+    assert budget["source"] == "answer"
+    assert budget["recommendation"] == 262144
+
+
+def test_yes_mode_stops_at_the_saved_budget_and_needs_no_flag() -> None:
+    """`--yes` walks no gates and takes the resolved layered value, so an
+    unattended run needs nothing added to the closed flag surface (ADR-0013)."""
+
+    # Arrange & Act.
+    plan = resolve(envelope(flags=["--yes"], saved_plan={"chunk_size": 131072}))
+
+    # Assert.
+    assert plan["gates"] == []
+    assert decision(plan, "chunk_size")["value"] == 131072
+
+
+def test_no_flag_pins_the_file_part_budget() -> None:
+    """AC: no new flag is accepted — the budget is a per-site setting that
+    belongs in the committed plan, not a per-run question (ADR-0013)."""
+
+    import resolve_plan
+
+    assert "chunk_size" not in {pinned for pinned, _ in resolve_plan.FLAG_PINS.values()}
+
+
+@pytest.mark.parametrize(
+    "bad_value",
+    [0, -1, 262144.0, "262144", None, True, [262144]],
+    ids=["zero", "negative", "float", "string", "null", "boolean", "list"],
+)
+def test_a_file_part_budget_that_is_not_a_positive_integer_is_refused_locally(
+    bad_value: Any,
+) -> None:
+    """AC: a value that is not an integer of at least 1 is refused locally, with
+    a diagnostic naming the offending value — production is never asked to
+    reject it with a 422 kntnt_extractor_malformed_body."""
+
+    # Arrange & Act: a committed plan carrying a budget the Extractor would
+    # refuse.
+    result = run_resolve(envelope(saved_plan={"chunk_size": bad_value}))
+
+    # Assert: a loud local refusal naming the value, and never a partial plan.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    stderr = result.stderr.decode()
+    assert "chunk_size" in stderr
+    assert repr(bad_value) in stderr
+
+
+def test_a_this_run_answer_is_validated_the_same_way_as_a_saved_value() -> None:
+    """The refusal is on the resolved value, whatever layer produced it, so an
+    operator's answer at the gate cannot smuggle a 422 to production either."""
+
+    # Arrange & Act.
+    result = run_resolve(envelope(answers={"chunk_size": 0}))
+
+    # Assert.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert "chunk_size" in result.stderr.decode()

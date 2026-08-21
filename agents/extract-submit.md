@@ -5,8 +5,8 @@ description: >
   it created to the run's scratchpad, for the kntnt-wp-skills transfer engine.
   It never waits for the job — the orchestrating skill owns that poll. Invoked
   only by the `clone` and `pull` skills' own orchestration via the Task tool —
-  never autonomously. Give it the resolved selection and the run's ephemeral
-  public key; it returns the job id, the job record's scratchpad path, and its
+  never autonomously. Give it the resolved selection, the resolved `chunk_size`
+  file-part budget, and the run's ephemeral public key; it returns the job id, the job record's scratchpad path, and its
   evidence block.
 model: sonnet
 effort: low
