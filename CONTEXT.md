@@ -136,6 +136,10 @@ The interval a finished extraction is fetchable on production — closed immedia
 A `POST /extractions/{id}/consume` refused `409 kntnt_extractor_locked` because the job's per-job tick lock is held at that instant by a tick or the TTL sweep. Retried on a bounded schedule — five retries, 10 seconds apart — and only an exhausted window is a failure, reported as the `unsealed_consume_locked` failure phase, whose local copy is complete because the download and the unseal both precede the consume.
 _Avoid_: consume conflict
 
+**Locked cancel**:
+A `DELETE /extractions/{id}` refused `409 kntnt_extractor_locked` because the job's per-job tick lock is held at that instant by a tick or the TTL sweep. The close-out's case 1 retries it on the same bounded schedule as a locked consume — five retries, 10 seconds apart, off the same `tick_budget` — but with weaker cover, since a cancel reaches `queued` and `running` jobs whose ticks keep retaking the lock. An exhausted window is reported, never run-ending: the job is left standing for the plugin's TTL, and for the next run's stranded-job sweep where it is still non-terminal.
+_Avoid_: cancel conflict
+
 **Close-out**:
 What a run does with a submitted job before it stops on a failure — the *Closing out a failed phase* subsection both SKILLs carry. It is entered on any `FAILED`, absent or malformed verdict from the three roles that can produce one, on any terminal poll verdict other than `ready`, and on any orchestrator abort after a submission, and it ends in exactly one of four cases (cancel, consume, report-only, report-complete-but-unconsumed) or in an explicit *no case*. A run may never end with a job it submitted left unaccounted for ([ADR-0022](docs/adr/0022-close-the-exposure-window-on-every-failure-path.md)).
 _Avoid_: cleanup, teardown
