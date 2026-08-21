@@ -125,7 +125,8 @@ def test_always_excluded_covers_the_documented_categories() -> None:
     # SQL dumps, and root-level key material.
     assert "wp-config.php.*" in always
     assert "wp-config.php~" in always
-    assert ".wp-config.php.sw?" in always
+    assert ".wp-config.php" in always
+    assert ".wp-config.php.*" in always
     assert "wp-config-*.php" in always
     assert "**/.env" in always
     assert "**/.env.*" in always
@@ -163,7 +164,8 @@ def test_always_excluded_pins_its_exact_contents() -> None:
         "wp-config.php",
         "wp-config.php.*",
         "wp-config.php~",
-        ".wp-config.php.sw?",
+        ".wp-config.php",
+        ".wp-config.php.*",
         "#wp-config.php#",
         ".#wp-config.php",
         "wp-config.bak",
@@ -262,6 +264,23 @@ def test_the_emacs_auto_save_and_lock_files_beside_wp_config_are_excluded() -> N
     # catcher matches neither shape.
     assert excluded("#wp-config.php#")
     assert excluded(".#wp-config.php")
+
+
+def test_the_dot_prefixed_wp_config_with_any_suffix_is_excluded() -> None:
+    # Assert — the dot-prefixed configuration file itself and every suffix an
+    # editor or a manual copy leaves after it, not only vim's swap family: each
+    # carries the live file's complete secret family, and the Extractor refuses
+    # the whole create when a selection names one (issue #67).
+    for name in (
+        ".wp-config.php",
+        ".wp-config.php.swp",
+        ".wp-config.php.swo",
+        ".wp-config.php.bak",
+        ".wp-config.php.save",
+        ".wp-config.php.1",
+        ".wp-config.php.orig",
+    ):
+        assert excluded(name), name
 
 
 def test_the_reordered_wp_config_backup_names_are_excluded() -> None:

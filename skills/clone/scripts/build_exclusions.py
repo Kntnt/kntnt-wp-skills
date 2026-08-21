@@ -69,6 +69,14 @@ _CONFIGURATION_FILE: tuple[str, ...] = ("wp-config.php",)
 # Emacs leaves two more shapes no other entry here catches: "#wp-config.php#"
 # is its auto-save file, holding that same secret family verbatim, and
 # ".#wp-config.php" its lock file, naming the account and host editing it.
+# The dot-prefixed configuration file is covered whole — ".wp-config.php"
+# itself and whatever suffix follows it — rather than only vim's swap family
+# (".wp-config.php.swp", ".wp-config.php.swo"), which is all the retired
+# ".wp-config.php.sw?" entry ever reached: a ".bak", ".save", ".orig" or bare
+# ".1" sits beside the config just as readily and holds the same secrets. It
+# is two entries rather than one ".wp-config.php*" glob so the shape is
+# exactly the Extractor's own /^\.wp-config\.php(\..+)?$/i and no wider,
+# following the enumerate-rather-than-broaden reasoning below (issue #67).
 # "wp-config.bak" / ".old" / ".orig" / ".save", with or without a trailing
 # ".php", are the reordered backup names a manual edit leaves behind — the
 # marker sits ahead of the extension rather than appended to it, so the
@@ -83,7 +91,8 @@ _CONFIGURATION_FILE: tuple[str, ...] = ("wp-config.php",)
 _CONFIGURATION_FILE_VARIANTS: tuple[str, ...] = (
     "wp-config.php.*",
     "wp-config.php~",
-    ".wp-config.php.sw?",
+    ".wp-config.php",
+    ".wp-config.php.*",
     "#wp-config.php#",
     ".#wp-config.php",
     "wp-config.bak",

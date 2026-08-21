@@ -332,7 +332,15 @@ def test_a_wp_config_tilde_backup_is_dropped() -> None:
 def test_a_wp_config_vim_swap_file_is_dropped() -> None:
     result = filter_on({
         "entries": [entry(".wp-config.php.swp")],
-        "exclusions": [".wp-config.php.sw?"],
+        "exclusions": [".wp-config.php.*"],
+    })
+    assert result["entries"] == []
+
+
+def test_the_bare_dot_prefixed_wp_config_is_dropped() -> None:
+    result = filter_on({
+        "entries": [entry(".wp-config.php")],
+        "exclusions": [".wp-config.php"],
     })
     assert result["entries"] == []
 
