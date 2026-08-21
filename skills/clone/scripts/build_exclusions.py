@@ -56,16 +56,22 @@ import json
 import sys
 from typing import Any
 
-# The configuration file, at the install root — production's belongs to
-# production's server, and the local copy carries its own.
-_CONFIGURATION_FILE: tuple[str, ...] = ("wp-config.php",)
+# The configuration file, anywhere in the tree — production's belongs to
+# production's server, and the local copy carries its own. A file named
+# "wp-config.php" is a copy of the configuration file wherever it sits: a backup
+# tool's staging copy, a duplicated install under a subdirectory, a developer's
+# snapshot. None of them is content, and each carries the complete secret family
+# in clear text, so none is ever asked for (issue #75, ADR-0031).
+_CONFIGURATION_FILE: tuple[str, ...] = ("**/wp-config.php",)
 
-# Every credential-bearing sibling an operator can leave beside wp-config.php:
-# a dated or suffixed backup (".bak-20260717-212309", ".save", ".orig",
-# ".old", ...), an editor's tilde backup or vim swap file, or a differently
-# named variant such as "wp-config-backup.php". Each carries the complete
-# secret family in clear text exactly like the live file, so each is excluded
-# on every run precisely as the configuration file itself is (issue #36).
+# The credential-bearing siblings an operator can leave beside wp-config.php
+# whose names admit no other reading: a dated or suffixed backup
+# (".bak-20260717-212309", ".save", ".orig", ".old", ...) and an editor's tilde
+# backup or swap file. Each carries the complete secret family in clear text
+# exactly like the live file, so each is excluded on every run precisely as the
+# configuration file itself is (issue #36). The differently-named variants
+# ("wp-config-backup.php" and its kind) are the separate catcher below, because
+# that shape alone can name something other than a configuration copy.
 # Emacs leaves two more shapes no other entry here catches: "#wp-config.php#"
 # is its auto-save file, holding that same secret family verbatim, and
 # ".#wp-config.php" its lock file, naming the account and host editing it.
@@ -84,27 +90,42 @@ _CONFIGURATION_FILE: tuple[str, ...] = ("wp-config.php",)
 # one rather than caught with a bare "wp-config.*", which would reach every
 # name beginning "wp-config." and is broader than the shape being closed
 # (issue #55).
-# "wp-config-sample.php" is WordPress' own bundled template — placeholder
-# values only, never a real secret — so it is the one name the broad
-# "wp-config-*.php" variant-catcher must not swallow; ``is_excluded`` in
-# ``filter_manifest.py`` and ``baseline_diff.py`` carves it back out.
+# Every one of these basenames can *only* ever name a copy of the configuration
+# file, so each is matched anywhere in the tree with the "**/" marker, exactly
+# as the configuration file itself is and exactly as the Extractor matches the
+# whole family against basename() at any depth (issue #75, ADR-0031).
 _CONFIGURATION_FILE_VARIANTS: tuple[str, ...] = (
-    "wp-config.php.*",
-    "wp-config.php~",
-    ".wp-config.php",
-    ".wp-config.php.*",
-    "#wp-config.php#",
-    ".#wp-config.php",
-    "wp-config.bak",
-    "wp-config.bak.php",
-    "wp-config.old",
-    "wp-config.old.php",
-    "wp-config.orig",
-    "wp-config.orig.php",
-    "wp-config.save",
-    "wp-config.save.php",
-    "wp-config-*.php",
+    "**/wp-config.php.*",
+    "**/wp-config.php~",
+    "**/.wp-config.php",
+    "**/.wp-config.php.*",
+    "**/#wp-config.php#",
+    "**/.#wp-config.php",
+    "**/wp-config.bak",
+    "**/wp-config.bak.php",
+    "**/wp-config.old",
+    "**/wp-config.old.php",
+    "**/wp-config.orig",
+    "**/wp-config.orig.php",
+    "**/wp-config.save",
+    "**/wp-config.save.php",
 )
+
+# The one entry of the family that stays anchored at the install root. Unlike
+# every shape above, "wp-config-<something>.php" is a basename an ordinary file
+# can legitimately carry without being a copy of the configuration file at all —
+# a plugin's "wp-config-loader.php", a theme's "wp-config-local.php" — so a
+# nested one is read as content and kept, and the resulting divergence from the
+# Extractor (which matches this entry by basename too) is accepted: it costs a
+# resubmission under ADR-0024, where widening it would cost a legitimate file.
+# It is also the only entry the "wp-config-sample.php" exception has to defend
+# against, and leaving it root-anchored is what keeps that exception correct as
+# an exact whole-path comparison: WordPress' own bundled template — placeholder
+# values only, never a real secret — is sent at the install root because
+# ``is_excluded`` in ``filter_manifest.py`` and ``baseline_diff.py`` carves it
+# back out there, and anywhere else because no pattern in the family reaches it
+# (issue #36, ADR-0031).
+_CONFIGURATION_FILE_VARIANT_CATCHER: tuple[str, ...] = ("wp-config-*.php",)
 
 # Environment-variable files, wherever they sit in the tree — never only at
 # the install root, since a bundled toolchain (a Composer package, a Node
@@ -257,6 +278,7 @@ _CORE_ROOT_FILES: tuple[str, ...] = (
 ALWAYS_EXCLUDED: tuple[str, ...] = (
     *_CONFIGURATION_FILE,
     *_CONFIGURATION_FILE_VARIANTS,
+    *_CONFIGURATION_FILE_VARIANT_CATCHER,
     *_ENV_FILES,
     *_ROOT_SQL_DUMPS,
     *_ROOT_KEY_MATERIAL,

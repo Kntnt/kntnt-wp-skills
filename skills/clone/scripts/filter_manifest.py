@@ -26,14 +26,16 @@ no ``/`` of its own, such as the core directories ``wp-admin`` and
 ``wp-includes`` (issue #37), still matches this way — itself or any
 descendant — rather than through the root-anchored file-pattern path below.
 The credential-bearing pattern family (issue #36) and the root-level core PHP
-files (issue #37) are install-root-relative and matched case-insensitively
-instead: a ``**/``-prefixed entry matches the path's final segment at any
-depth (``.env`` anywhere in the tree), any other *file* entry with no ``/`` of
-its own — literal or glob alike — matches only a path that also sits at the
-install root (the whole ``wp-config.php`` family, root SQL dumps, root key
-material, root core PHP files) — with ``wp-config-sample.php`` carved back out
-of the broad ``wp-config-*.php`` variant glob, since it is WordPress' own
-bundled template and never carries a real secret.
+files (issue #37) are matched case-insensitively instead, with the anchoring
+carried by the pattern itself: a ``**/``-prefixed entry matches the path's
+final segment at any depth (the ``.env`` family; the configuration file and
+every sibling whose basename can only ever be a copy of it — issue #75), while
+any other *file* entry with no ``/`` of its own — literal or glob alike —
+matches only a path that also sits at the install root (the broad
+``wp-config-*.php`` variant catcher, root SQL dumps, root key material, root
+core PHP files) — with ``wp-config-sample.php`` carved back out of that variant
+glob, since it is WordPress' own bundled template and never carries a real
+secret.
 
 Malformed input fails loudly: a non-zero exit and a diagnostic on stderr,
 never a half-built document on stdout. The same holds for two shapes that are
@@ -71,10 +73,15 @@ class FilterError(Exception):
 # WordPress' own bundled sample config — placeholder values only, never a real
 # secret — the one name the broad "wp-config-*.php" credential-variant glob
 # (``build_exclusions.py``'s ``ALWAYS_EXCLUDED``) must not swallow (issue #36).
+# The comparison is on the whole path rather than the basename, and stays
+# correct because that glob is the one family entry left anchored at the
+# install root: no ``**/``-marked pattern can reach a nested sample, so a
+# theme's or plugin's bundled copy is kept without the carve-out being asked
+# (issue #75, ADR-0031).
 _ALWAYS_ALLOWED = frozenset({"wp-config-sample.php"})
 
 # Marks a pattern that matches its remainder as a basename at any depth in the
-# tree (``.env``, ``.env.*``), rather than anchored at the install root.
+# tree (``.env``, ``wp-config.php``), rather than anchored at the install root.
 _ANYWHERE_PREFIX = "**/"
 
 
@@ -82,7 +89,8 @@ def _matches_anywhere(path: str, pattern: str) -> bool:
     """Match a ``**/``-prefixed pattern against ``path``'s final segment at any
     depth, case-insensitively — ``.env`` files are not only ever at the install
     root, since a bundled toolchain under a plugin or theme can carry its own
-    (issue #36)."""
+    (issue #36), and a file named like the configuration file is a copy of it
+    wherever it sits (issue #75)."""
 
     basename = path.rsplit("/", 1)[-1]
     return fnmatch.fnmatchcase(basename.lower(), pattern[len(_ANYWHERE_PREFIX):].lower())
@@ -91,12 +99,14 @@ def _matches_anywhere(path: str, pattern: str) -> bool:
 def _matches_at_root(path: str, pattern: str) -> bool:
     """Match a root-anchored pattern — literal or glob alike — against
     ``path``, case-insensitively, matching only a path with no ``/`` of its
-    own. Covers the whole configuration-file family (``wp-config.php`` and its
-    backup/swap/variant siblings), root-level SQL dumps, root-level key
-    material (issue #36's "install-root-relative and case-insensitive"
-    credential-bearing pattern family), and the root-level core PHP files
-    (issue #37) — a same-named file nested deeper in the tree is ordinary
-    content, not the configuration file, a leaked secret, or core."""
+    own. Covers the configuration family's broad ``wp-config-*.php`` variant
+    catcher, root-level SQL dumps, root-level key material (issue #36's
+    "install-root-relative and case-insensitive" credential-bearing pattern
+    family), and the root-level core PHP files (issue #37) — for these shapes a
+    same-named file nested deeper in the tree is ordinary content, not a leaked
+    secret or core. The configuration file itself and every sibling whose name
+    can only ever be a copy of it are *not* here: they carry the ``**/`` marker
+    and are matched at any depth (issue #75, ADR-0031)."""
 
     return "/" not in path and fnmatch.fnmatchcase(path.lower(), pattern.lower())
 
@@ -126,10 +136,12 @@ def is_excluded(path: str, exclusions: tuple[str, ...]) -> bool:
     exact match or descendant of an excluded directory (including a top-level
     core directory such as ``wp-admin`` or ``wp-includes``, issue #37), a
     glob-bearing directory prefix such as ``wp-content/w3tc-*``, a
-    root-anchored credential-bearing or core-file pattern, or a ``.env``-style
-    pattern matched anywhere in the tree (issue #36) — except
-    ``wp-config-sample.php``, which the broad ``wp-config-*.php`` variant
-    pattern must not swallow. Mirrors ``scripts/baseline_diff.py``'s
+    root-anchored credential-bearing or core-file pattern, or a ``**/``-marked
+    pattern matched against the basename anywhere in the tree (the ``.env``
+    family, issue #36; the configuration file and every sibling whose name can
+    only ever be a copy of it, issue #75) — except ``wp-config-sample.php``,
+    which the root-anchored ``wp-config-*.php`` variant pattern must not
+    swallow. Mirrors ``scripts/baseline_diff.py``'s
     ``is_excluded`` exactly, so a path this helper drops here is a path the
     diff would have dropped too."""
 

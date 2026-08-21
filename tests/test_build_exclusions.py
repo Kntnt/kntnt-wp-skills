@@ -103,7 +103,7 @@ def test_always_excluded_covers_the_documented_categories() -> None:
     # Assert — the configuration file, the drop-ins under wp-content/, the debug
     # log, the cache dir, and the upgrade dirs the §5 prose enumerates, each
     # anchored at the WordPress root.
-    assert "wp-config.php" in always
+    assert "**/wp-config.php" in always
     assert "wp-content/object-cache.php" in always
     assert "wp-content/advanced-cache.php" in always
     assert "wp-content/db.php" in always
@@ -122,11 +122,14 @@ def test_always_excluded_covers_the_documented_categories() -> None:
 
     # Assert — the credential-bearing pattern family issue #36 adds: the
     # wp-config backup/swap/variant globs, .env anywhere in the tree, root-level
-    # SQL dumps, and root-level key material.
-    assert "wp-config.php.*" in always
-    assert "wp-config.php~" in always
-    assert ".wp-config.php" in always
-    assert ".wp-config.php.*" in always
+    # SQL dumps, and root-level key material. The unambiguous configuration-file
+    # shapes carry the "**/" marker (issue #75) — a basename that can only ever
+    # name a config copy is one at any depth — while the broad variant-catcher
+    # stays root-anchored, since its basename can belong to something else.
+    assert "**/wp-config.php.*" in always
+    assert "**/wp-config.php~" in always
+    assert "**/.wp-config.php" in always
+    assert "**/.wp-config.php.*" in always
     assert "wp-config-*.php" in always
     assert "**/.env" in always
     assert "**/.env.*" in always
@@ -140,10 +143,10 @@ def test_always_excluded_covers_the_documented_categories() -> None:
     # Assert — the shapes issue #55 adds to the same family: the editor droppings
     # beside wp-config.php that are not vim's, the backup names that put the
     # marker ahead of the extension, and the rest of OpenSSH's default basenames.
-    assert "#wp-config.php#" in always
-    assert ".#wp-config.php" in always
-    assert "wp-config.old" in always
-    assert "wp-config.old.php" in always
+    assert "**/#wp-config.php#" in always
+    assert "**/.#wp-config.php" in always
+    assert "**/wp-config.old" in always
+    assert "**/wp-config.old.php" in always
     assert "id_ed25519*" in always
 
     # Assert — the WordPress core tree issue #37 adds: the admin and includes
@@ -161,21 +164,21 @@ def test_always_excluded_pins_its_exact_contents() -> None:
     # Assert — the exact always-excluded set, so a stray, typo'd, or dropped entry
     # reddens here rather than silently changing what every run excludes.
     assert set(build_exclusions.ALWAYS_EXCLUDED) == {
-        "wp-config.php",
-        "wp-config.php.*",
-        "wp-config.php~",
-        ".wp-config.php",
-        ".wp-config.php.*",
-        "#wp-config.php#",
-        ".#wp-config.php",
-        "wp-config.bak",
-        "wp-config.bak.php",
-        "wp-config.old",
-        "wp-config.old.php",
-        "wp-config.orig",
-        "wp-config.orig.php",
-        "wp-config.save",
-        "wp-config.save.php",
+        "**/wp-config.php",
+        "**/wp-config.php.*",
+        "**/wp-config.php~",
+        "**/.wp-config.php",
+        "**/.wp-config.php.*",
+        "**/#wp-config.php#",
+        "**/.#wp-config.php",
+        "**/wp-config.bak",
+        "**/wp-config.bak.php",
+        "**/wp-config.old",
+        "**/wp-config.old.php",
+        "**/wp-config.orig",
+        "**/wp-config.orig.php",
+        "**/wp-config.save",
+        "**/wp-config.save.php",
         "wp-config-*.php",
         "**/.env",
         "**/.env.*",
@@ -324,11 +327,82 @@ def test_wp_config_sample_survives_the_widened_variant_family() -> None:
 
 
 def test_ordinary_content_named_like_a_backup_is_not_excluded() -> None:
-    # Assert — the widened patterns stay root-anchored and wp-config-specific: a
-    # theme's own "config.old" is not the configuration file, and an uploaded
-    # screenshot named after a key type is not key material.
+    # Assert — the widened patterns stay wp-config-specific: a theme's own
+    # "config.old" is not the configuration file, and an uploaded screenshot
+    # named after a key type is not key material — the root-anchored key family
+    # never reaches it.
     assert not excluded("wp-content/themes/x/config.old")
     assert not excluded("wp-content/uploads/id_ed25519-tutorial.png")
+
+
+# --- The configuration family's anchoring (issue #75) --------------------------
+
+
+# Every basename in the family that can *only* ever name a copy of the
+# configuration file — the plain name, the appended and tilde backups, the
+# editor droppings, and the reordered backup names. Each carries the live file's
+# complete secret family in clear text wherever it sits.
+_UNAMBIGUOUS_CONFIGURATION_SHAPES = (
+    "wp-config.php",
+    "wp-config.php.bak-20260717-212309",
+    "wp-config.php~",
+    ".wp-config.php",
+    ".wp-config.php.swp",
+    ".wp-config.php.bak",
+    "#wp-config.php#",
+    ".#wp-config.php",
+    "wp-config.bak",
+    "wp-config.bak.php",
+    "wp-config.old",
+    "wp-config.old.php",
+    "wp-config.orig",
+    "wp-config.orig.php",
+    "wp-config.save",
+    "wp-config.save.php",
+)
+
+
+def test_an_unambiguous_configuration_copy_is_excluded_at_any_depth() -> None:
+    # Assert — a backup plugin's staging copy, a duplicated install, a
+    # developer's snapshot: a file named like the configuration file is a
+    # configuration copy wherever it sits, never content, and this client never
+    # asks for one. The Extractor matches the whole family against basename() at
+    # any depth and refuses the whole create when a selection names one, so a
+    # nested copy that survived this pre-filter cost a live run a round trip.
+    for name in _UNAMBIGUOUS_CONFIGURATION_SHAPES:
+        for path in (
+            name,
+            f"wp-content/{name}",
+            f"wp-content/uploads/backups/2026/{name}",
+        ):
+            assert excluded(path), path
+
+
+def test_wp_config_sample_is_sent_at_the_root_and_nested() -> None:
+    # Assert — WordPress' own bundled template, at the install root and wherever
+    # a theme or plugin ships a copy of it. The Extractor excepts it by basename
+    # too, so dropping a nested one would make this client stricter than the
+    # server on the very file the server explicitly protects.
+    assert not excluded("wp-config-sample.php")
+    assert not excluded("wp-content/themes/acme/wp-config-sample.php")
+    assert not excluded("wp-content/plugins/acme/vendor/wp/wp-config-sample.php")
+
+
+def test_a_nested_name_that_merely_resembles_a_variant_is_still_sent() -> None:
+    # Assert — the broad "wp-config-*.php" catcher stays root-anchored: its
+    # basename can legitimately belong to something that is not a config copy at
+    # all, so a nested one is content and the divergence from the server is
+    # accepted here rather than paid for by dropping a legitimate file.
+    assert excluded("wp-config-backup.php")
+    assert not excluded("wp-content/plugins/acme/wp-config-local.php")
+
+
+def test_ordinary_content_survives_the_anywhere_matching() -> None:
+    # Assert — the anywhere-matched half is basename-exact against the family's
+    # own shapes, so ordinary nested content is untouched.
+    assert not excluded("wp-content/themes/acme/config.php")
+    assert not excluded("wp-content/uploads/2024/05/banner.jpg")
+    assert not excluded("wp-content/plugins/acme/wp-config-loader.php")
 
 
 # --- The assembled set ---------------------------------------------------------
