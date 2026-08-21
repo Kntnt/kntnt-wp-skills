@@ -136,6 +136,18 @@ The interval a finished extraction is fetchable on production — closed immedia
 A `POST /extractions/{id}/consume` refused `409 kntnt_extractor_locked` because the job's per-job tick lock is held at that instant by a tick or the TTL sweep. Retried on a bounded schedule — five retries, 10 seconds apart — and only an exhausted window is a failure, reported as the `unsealed_consume_locked` failure phase, whose local copy is complete because the download and the unseal both precede the consume.
 _Avoid_: consume conflict
 
+**Close-out**:
+What a run does with a submitted job before it stops on a failure — the *Closing out a failed phase* subsection both SKILLs carry. It is entered on any `FAILED`, absent or malformed verdict from the three roles that can produce one, on any terminal poll verdict other than `ready`, and on any orchestrator abort after a submission, and it ends in exactly one of four cases (cancel, consume, report-only, report-complete-but-unconsumed) or in an explicit *no case*. A run may never end with a job it submitted left unaccounted for ([ADR-0022](docs/adr/0022-close-the-exposure-window-on-every-failure-path.md)).
+_Avoid_: cleanup, teardown
+
+**Derived case**:
+How the close-out picks among those four: from the job's own state (one `GET /extractions/{id}`) and this machine's own state (the close-out probe), never from a claim a session made. A reported `failure_phase` is a **hint** — corroboration for the report and the run record — and where hint and derivation disagree, the derivation wins. Only one of the three roles reports the field at all, and an absent verdict reports none by definition, so a case selected from it is undefined on most of the routes that reach the close-out.
+_Avoid_: reported phase (as the selector), failure phase (as the selector)
+
+**Close-out probe**:
+The close-out's read of the run's scratchpad, answering *was a sealed container downloaded?* and *was it unsealed?* from fixed names: `<scratchpad>/extract.container` — reached only by renaming `<scratchpad>/extract.container.part` after a clean transfer, so a truncated download can never answer for a whole one — plus `<scratchpad>/extract.sql` and `<scratchpad>/extract-files/`, and the same shape for the bootstrap job inside `discovery-classify`'s own per-run working directory. It reads only; it creates, moves and deletes nothing.
+_Avoid_: disk check, scratchpad scan
+
 ### Mail and side effects
 
 **Mass-send valve**:
