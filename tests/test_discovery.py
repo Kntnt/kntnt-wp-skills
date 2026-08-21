@@ -833,3 +833,74 @@ def test_the_tolerant_size_read_falls_back_for_everything_that_is_not_an_integer
     assert discovery._boundary_int(512, 0) == 512
     assert discovery._boundary_int(0, 7) == 0
     assert all(discovery._boundary_int(value, 7) == 7 for value in malformed)
+
+
+# --- The honours list: the capability report, optional at this boundary -------
+
+
+def test_the_document_carries_the_honours_list_the_health_check_observed() -> None:
+    # Arrange — the authenticated GET /status names the additive members this
+    # host actually honours; the health check reads it once and passes it
+    # through, exactly the way it passes api_version through.
+    payload = load_fixture("representative-site.json")
+    payload["honours"] = ["chunk_size", "strict"]
+
+    # Act.
+    result = run_on(payload)
+
+    # Assert — it rides through to the top-level document verbatim, so the run
+    # can tell the operator the truth afterwards about what was ignored.
+    assert result.returncode == 0, result.stderr.decode()
+    document = json.loads(result.stdout)
+    assert document["honours"] == ["chunk_size", "strict"]
+
+
+def test_an_absent_honours_list_is_an_empty_list_not_a_failure() -> None:
+    # Arrange — unlike api_version, honours is a member older Extractor builds
+    # never send, so its absence is ordinary rather than malformed input.
+    document = document_for("representative-site.json")
+
+    # Assert — the field's shape stays stable, and nothing downstream has to
+    # distinguish "absent" from "names nothing".
+    assert document["honours"] == []
+
+
+def test_honours_is_a_sibling_of_environment_not_a_member() -> None:
+    # Arrange & Act — a later reader must look for it in exactly one place, the
+    # same place api_version lives: the control channel's facts are siblings of
+    # the WordPress install's, never members of them.
+    document = document_for("representative-site.json")
+
+    # Assert.
+    assert "honours" in document
+    assert "honours" not in document["environment"]
+
+
+def test_a_malformed_honours_list_fails_loudly() -> None:
+    # Arrange — optionality is about presence, never about shape: a member the
+    # status call does send must still be well-typed.
+    payload = load_fixture("representative-site.json")
+    payload["honours"] = "chunk_size"
+
+    # Act.
+    result = run_on(payload)
+
+    # Assert.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert b"honours" in result.stderr
+
+
+def test_a_non_string_honours_member_fails_loudly() -> None:
+    # Arrange — a stray non-string would crash the downstream membership test
+    # with an uncaught traceback instead of a diagnostic.
+    payload = load_fixture("representative-site.json")
+    payload["honours"] = ["chunk_size", 7]
+
+    # Act.
+    result = run_on(payload)
+
+    # Assert.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert b"honours" in result.stderr

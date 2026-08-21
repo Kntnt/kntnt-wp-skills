@@ -14,6 +14,10 @@ JSON object on stdin with an ``api_version`` and four sections:
   /status`` observed before the subagent was ever dispatched, passed through
   verbatim so later phases can know which of their behaviours are degraded on
   this host.
+- ``honours`` — the optional list of additive request members this host reports
+  it honours, read off the health check's *authenticated* ``GET /status`` and
+  passed through the same way. Absent on any Extractor whose build predates the
+  report, which is why it is optional here and defaults to the empty list.
 - ``environment`` — the ``GET /environment`` response: the runtime/config scalars
   (PHP version, server software, WordPress core version, home/site URL, table
   prefix, content/uploads dirs, database server flavour/version/collation), the
@@ -550,7 +554,8 @@ def build_document(raw: Any) -> dict[str, Any]:
 
     The ``environment`` section is required — it anchors the site, the runtime,
     and the database facts; ``tables``, ``files``, and ``bootstrap`` are optional
-    at this boundary and enrich the document when present. ``api_version`` is
+    at this boundary and enrich the document when present, as is ``honours`` —
+    a member older Extractor builds never send. ``api_version`` is
     required too: it is a fact the health check already knows, and an optional
     field that can be silently absent would reproduce the exact defect this
     document exists to close — something the client is supposed to know, that
@@ -560,6 +565,7 @@ def build_document(raw: Any) -> dict[str, Any]:
     """
 
     api_version = _require(raw, "api_version", int, "input")
+    honours = _string_list(raw, "honours", "input")
     environment = _require(raw, "environment", dict, "input")
     tables_source = _optional(raw, "tables", dict, {}, "input")
     files = _optional(raw, "files", list, [], "input")
@@ -586,6 +592,17 @@ def build_document(raw: Any) -> dict[str, Any]:
         # fact that lived only in the orchestrator's transcript could not be
         # reported, tested, or reasoned about after the fact.
         "api_version": api_version,
+        # The authenticated GET /status's `honours` list, carried through by the
+        # same plumbing and for the same reason as the version above — but read
+        # off a different call, since the anonymous handshake reports only the
+        # version. Unlike the version it is genuinely optional: it is a member
+        # older Extractor builds never send, so its absence is an older host
+        # rather than malformed input, and the empty list keeps the field's shape
+        # stable. Nothing the run *sends* is ever made conditional on it — the
+        # additive members are sent regardless, and an Extractor that does not
+        # know one ignores it; the list exists only so the report can tell the
+        # operator afterwards which of them were ignored (issue #77).
+        "honours": honours,
         "site": {
             "home_url": _require(wordpress, "home_url", str, "environment.wordpress"),
             "site_url": _optional(wordpress, "site_url", str, "", "environment.wordpress"),
