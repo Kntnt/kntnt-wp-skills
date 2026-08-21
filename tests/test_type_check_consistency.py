@@ -23,8 +23,8 @@ from one another:
 - **What the command provisions.** ``mypy`` cannot read a PEP 723 header, so
   the one third-party dependency any checked helper declares has to be named a
   second time in the documented command. A second copy of a pinned version is
-  a drift hazard, so the helper's own header is the source of truth and every
-  document that quotes the command is checked against it.
+  a drift hazard, so the helper's own header is the source of truth and the
+  three verification surfaces that quote the command are checked against it.
 - **What the standard claims.** Strict type checking is enforced; ruff is the
   chosen linter but is unconfigured and advisory until a ruleset is pinned, so
   the result of a bare ruff run is not a verdict on a change. The standard has
@@ -213,7 +213,7 @@ def test_only_the_unseal_helper_declares_a_dependency(helper: Path) -> None:
 
 @pytest.mark.parametrize("surface", COMMAND_SURFACES)
 def test_every_verification_surface_names_the_type_check_command(surface: str) -> None:
-    """A verification step four documents describe differently is one nobody
+    """A verification step three documents describe differently is one nobody
     runs the same way twice."""
 
     command = documented_command()
