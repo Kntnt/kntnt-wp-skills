@@ -15,7 +15,7 @@ the exit code, the log's path, and any line that looks like a genuine failure.
 
 The two steps live here together because they are one shape — run a WP-CLI
 command through DDEV, keep everything, report almost nothing — and because the
-reindex probe-then-run pair ([ADR-0015](../../../docs/adr/0015-search-index-excluded-and-rebuilt-locally.md))
+reindex probe-then-run pair ([ADR-0015](https://github.com/Kntnt/kntnt-wp-skills/blob/main/docs/adr/0015-search-index-excluded-and-rebuilt-locally.md))
 is a decision an agent should never have to re-derive from prose. The command
 runner is injectable, so the suite exercises the argv assembly and the
 summarising without a DDEV project anywhere near it.
