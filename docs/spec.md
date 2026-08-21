@@ -176,7 +176,7 @@ The mass-send risk scan, computed from the bootstrap extraction's parsed rows: f
 | Generated thumbnails | Excluded, regenerated locally | Only the regenerable-named DB-known sizes ([ADR-0011](./adr/0011-metadata-driven-thumbnail-regeneration.md)) |
 | Side-loaded / orphan files | Pulled whole | Cannot be regenerated, so they are carried |
 | Heavy blobs | Excluded, behind a gate | Deterministic heuristic flags outliers; the gate is the authority |
-| File-part budget | 262144 bytes (256 KB) | The `chunk_size` the main extraction is packaged at; the one value measured to complete a real clone. No live derivation and no flag — a per-site setting recorded in the saved plan, not a per-run question ([ADR-0013](./adr/0013-minimal-flag-surface.md)) |
+| File-part budget | 262144 bytes (256 KB) | The `chunk_size` the main extraction is packaged at; the one value measured to complete a real clone. No live derivation and no flag — a per-site setting recorded in the saved plan, overridden at its gate like every other decision ([ADR-0013](./adr/0013-minimal-flag-surface.md)) |
 | wp-config defines | Copy the plugin/behaviour class; auto-exclude the infra/secret class | See below |
 | Plugins to deactivate (pull) | Preserve the local inactive set | Derived from live local state each run |
 | Object-cache drop-in (pull) | Derive from the ownership rule, then verify | keep-local / take-prod / none; auto-remove on failure |

@@ -1326,7 +1326,8 @@ def test_yes_mode_stops_at_the_saved_budget_and_needs_no_flag() -> None:
 
 def test_no_flag_pins_the_file_part_budget() -> None:
     """AC: no new flag is accepted — the budget is a per-site setting that
-    belongs in the committed plan, not a per-run question (ADR-0013)."""
+    belongs in the committed plan, and its gate is where a run overrides it
+    (ADR-0013)."""
 
     import resolve_plan
 
