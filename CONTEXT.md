@@ -25,13 +25,13 @@ _Avoid_: theme generator, page builder
 The shared machinery `clone` and `pull` run — discovery, extraction on production, download, verification, remote cleanup, import, localisation. Clone and pull differ only at the bookends; `mkwp` and `build-ollie-site` are not part of it.
 
 **Control channel**:
-The [Kntnt Extractor](https://github.com/Kntnt/kntnt-extractor) plugin's REST API on the production site — the sole way the skills reach production. There is no SSH ([ADR-0016](./adr/0016-kntnt-extractor-replaces-novamira-as-control-channel.md), superseding [ADR-0001](./adr/0001-novamira-mcp-sole-control-channel.md)).
+The [Kntnt Extractor](https://github.com/Kntnt/kntnt-extractor) plugin's REST API on the production site — the sole way the skills reach production. There is no SSH ([ADR-0016](docs/adr/0016-kntnt-extractor-replaces-novamira-as-control-channel.md), superseding [ADR-0001](docs/adr/0001-novamira-mcp-sole-control-channel.md)).
 
 **Health check**:
 Mandatory step 0 of every run: verify every local and production dependency the run needs, that the Extractor endpoint is live and at API ≥ 2 (`status` handshake), authorised and targeting production (its `environment` `home_url`), that any stranded earlier job is swept, and that the download path serves — before any heavy work, with guided remediation on anything missing.
 
 **Discovery**:
-The read-only, two-phase production scan — reconstructed client-side from Kntnt Extractor's `environment`, `tables`, and `files` calls plus a bootstrap extraction parsed locally (small only where `wp_postmeta` is small — a premise, [ADR-0017](./adr/0017-discovery-over-extractor-rest-two-phase.md)) — that feeds every live-derived recommendation: sizes, versions, prefix, drop-ins, the mass-send risk scan, the thumbnail exclude-list.
+The read-only, two-phase production scan — reconstructed client-side from Kntnt Extractor's `environment`, `tables`, and `files` calls plus a bootstrap extraction parsed locally (small only where `wp_postmeta` is small — a premise, [ADR-0017](docs/adr/0017-discovery-over-extractor-rest-two-phase.md)) — that feeds every live-derived recommendation: sizes, versions, prefix, drop-ins, the mass-send risk scan, the thumbnail exclude-list.
 
 ### Decisions and run modes
 
