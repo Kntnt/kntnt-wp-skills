@@ -72,6 +72,60 @@ def fake_fetch_url(responses: dict[str, tuple[int, str]]):
     return _fetch
 
 
+def sample_url_derivation_responses(
+    *,
+    home: str = "https://smoltek.ddev.site",
+    post: str = "https://smoltek.ddev.site/news/hello-world/",
+    pages: str = "https://smoltek.ddev.site/technology/",
+    archive: str = "https://smoltek.ddev.site/category/news/",
+) -> dict[tuple[str, ...], FakeCompleted]:
+    """The four commands the sample-URL derivation asks the copy under test,
+    wired to a plausible answer each — the block almost every ``run_checks``
+    scenario now needs, since an expectations document that pins no
+    ``sampleUrls`` derives them rather than skipping the check (issue #60).
+    An empty string stands for "the site has none of this kind"."""
+
+    return {
+        ("ddev", "wp", "option", "get", "home"): FakeCompleted(stdout=f"{home}\n"),
+        (
+            "ddev",
+            "wp",
+            "post",
+            "list",
+            "--post_type=post",
+            "--post_status=publish",
+            "--posts_per_page=1",
+            "--field=url",
+        ): FakeCompleted(stdout=f"{post}\n"),
+        (
+            "ddev",
+            "wp",
+            "post",
+            "list",
+            "--post_type=page",
+            "--post_status=publish",
+            "--posts_per_page=2",
+            "--field=url",
+        ): FakeCompleted(stdout=f"{pages}\n"),
+        (
+            "ddev",
+            "wp",
+            "term",
+            "list",
+            "category",
+            "--field=url",
+            "--number=1",
+            "--hide_empty=1",
+        ): FakeCompleted(stdout=f"{archive}\n"),
+    }
+
+
+def sample_url_fetch_responses(*urls: str) -> dict[str, tuple[int, str]]:
+    """A clean 200 with no fatal-error marker for each derived URL."""
+
+    return {url: (200, "<html>ok</html>") for url in urls}
+
+
 # --- Pure comparison logic --------------------------------------------------
 
 
@@ -798,7 +852,9 @@ def test_run_checks_reports_ok_true_when_everything_passes(clone_dir: Path):
         }
     )
 
-    report = smoke_test.run_checks(clone_dir, {"coreVersion": "7.0.2"}, run_command=run)
+    report = smoke_test.run_checks(
+        clone_dir, {"coreVersion": "7.0.2", "sampleUrls": []}, run_command=run
+    )
 
     assert report["ok"] is True
     assert report["summary"]["fail"] == 0
@@ -813,27 +869,52 @@ def test_run_checks_reports_ok_false_on_any_fail(clone_dir: Path):
         }
     )
 
-    report = smoke_test.run_checks(clone_dir, {"coreVersion": "7.0.2"}, run_command=run)
+    report = smoke_test.run_checks(
+        clone_dir, {"coreVersion": "7.0.2", "sampleUrls": []}, run_command=run
+    )
 
     assert report["ok"] is False
     assert report["summary"]["fail"] == 1
 
 
-def test_run_checks_skips_every_check_with_no_expectation(clone_dir: Path):
-    run = fake_run_command({})
+def test_run_checks_skips_every_check_but_the_derived_sample_urls_with_no_expectation(
+    clone_dir: Path,
+):
+    """An expectations document that pins nothing skips every check it pins
+    nothing for — with the sample URLs as the single deliberate exception,
+    since pinning nothing is exactly the case the copy derives them for
+    (issue #60)."""
 
-    report = smoke_test.run_checks(clone_dir, {}, run_command=run)
+    run = fake_run_command(sample_url_derivation_responses())
+    fetch = fake_fetch_url(
+        sample_url_fetch_responses(
+            "https://smoltek.ddev.site",
+            "https://smoltek.ddev.site/news/hello-world/",
+            "https://smoltek.ddev.site/technology/",
+            "https://smoltek.ddev.site/category/news/",
+        )
+    )
+
+    report = smoke_test.run_checks(clone_dir, {}, run_command=run, fetch_url=fetch)
 
     assert report["ok"] is True
-    assert report["summary"]["pass"] == 0
     assert report["summary"]["fail"] == 0
     assert report["summary"]["skip"] > 0
+    passed = {check["id"] for check in report["checks"] if check["status"] == "pass"}
+    assert passed == {
+        "sample_urls_source",
+        "sample_url:https://smoltek.ddev.site",
+        "sample_url:https://smoltek.ddev.site/news/hello-world/",
+        "sample_url:https://smoltek.ddev.site/technology/",
+        "sample_url:https://smoltek.ddev.site/category/news/",
+    }
 
 
 def test_run_checks_covers_pure_filesystem_expectations_without_shelling_out(clone_dir: Path):
     """An expectations file limited to the pure-file checks never has to call
     the injected runner at all — an empty fake proves nothing unexpected was
-    shelled out."""
+    shelled out. The empty ``sampleUrls`` is what keeps that true: pinning no
+    URL list at all would have the copy derive one, which is a live check."""
 
     run = fake_run_command({})
 
@@ -844,6 +925,7 @@ def test_run_checks_covers_pure_filesystem_expectations_without_shelling_out(clo
             "excludedDropins": ["wp-content/object-cache.php"],
             "savedPlan": True,
             "baseline": True,
+            "sampleUrls": [],
         },
         run_command=run,
     )
@@ -867,7 +949,7 @@ def test_run_checks_wires_table_prefix_and_local_urls_end_to_end(clone_dir: Path
 
     report = smoke_test.run_checks(
         clone_dir,
-        {"tablePrefix": "wp_", "localUrl": "https://smoltek.ddev.site"},
+        {"tablePrefix": "wp_", "localUrl": "https://smoltek.ddev.site", "sampleUrls": []},
         run_command=run,
     )
 
@@ -887,7 +969,7 @@ def test_run_checks_fails_when_local_url_still_points_at_production(clone_dir: P
     )
 
     report = smoke_test.run_checks(
-        clone_dir, {"localUrl": "https://smoltek.ddev.site"}, run_command=run
+        clone_dir, {"localUrl": "https://smoltek.ddev.site", "sampleUrls": []}, run_command=run
     )
 
     assert report["ok"] is False
@@ -901,7 +983,7 @@ def test_run_checks_fails_when_local_url_still_points_at_production(clone_dir: P
 def test_cli_verify_mode_exits_nonzero_on_fail(clone_dir: Path, tmp_path: Path):
     expectations_path = tmp_path / "expectations.json"
     expectations_path.write_text(
-        json.dumps({"savedPlan": True, "baseline": True}), encoding="utf-8"
+        json.dumps({"savedPlan": True, "baseline": True, "sampleUrls": []}), encoding="utf-8"
     )
     (clone_dir / ".kntnt-wp-skills.json").unlink()
 
@@ -924,6 +1006,7 @@ def test_cli_verify_mode_exits_zero_on_pass(clone_dir: Path, tmp_path: Path):
                 "ddev": {"phpVersion": "8.4", "database": {"type": "mariadb", "version": "11.4"}},
                 "savedPlan": True,
                 "baseline": True,
+                "sampleUrls": [],
             }
         ),
         encoding="utf-8",
@@ -1655,7 +1738,7 @@ def test_cli_log_mode_writes_the_report_and_prints_a_summary(
 
     expectations_path = tmp_path / "expectations.json"
     expectations_path.write_text(
-        json.dumps({"savedPlan": True, "baseline": True}), encoding="utf-8"
+        json.dumps({"savedPlan": True, "baseline": True, "sampleUrls": []}), encoding="utf-8"
     )
     report_path = tmp_path / "logs" / "smoke-test-report.json"
 
@@ -1690,7 +1773,7 @@ def test_cli_log_mode_carries_only_the_anomalies(clone_dir: Path, tmp_path: Path
 
     expectations_path = tmp_path / "expectations.json"
     expectations_path.write_text(
-        json.dumps({"savedPlan": True, "baseline": True}), encoding="utf-8"
+        json.dumps({"savedPlan": True, "baseline": True, "sampleUrls": []}), encoding="utf-8"
     )
     (clone_dir / ".kntnt-wp-skills.json").unlink()
     report_path = tmp_path / "smoke-test-report.json"
@@ -1713,6 +1796,365 @@ def test_cli_log_mode_carries_only_the_anomalies(clone_dir: Path, tmp_path: Path
     assert summary["ok"] is False
     assert [finding["id"] for finding in summary["anomalies"]] == ["saved_plan_present"]
     assert summary["anomalies"][0]["status"] == "fail"
+
+
+# --- Sample URLs derived from the site under test (issue #60) ---------------
+
+
+def test_derive_sample_urls_asks_the_copy_for_all_four_shapes():
+    """The site knows its own permalinks better than a caller assembling
+    strings: the front page, a published post, a page, and an archive all
+    come from the copy under test."""
+
+    run = fake_run_command(sample_url_derivation_responses())
+
+    derivation = smoke_test.derive_sample_urls(run)
+
+    assert derivation.error is None
+    assert list(derivation.urls) == [
+        "https://smoltek.ddev.site",
+        "https://smoltek.ddev.site/news/hello-world/",
+        "https://smoltek.ddev.site/technology/",
+        "https://smoltek.ddev.site/category/news/",
+    ]
+
+
+def test_derive_sample_urls_degrades_on_a_site_that_has_none_of_a_kind():
+    """A site with no published post and no non-empty category still yields
+    the shapes it does have — having none of a kind is a fact about the site,
+    never a failure to produce an expectation."""
+
+    run = fake_run_command(sample_url_derivation_responses(post="", archive=""))
+
+    derivation = smoke_test.derive_sample_urls(run)
+
+    assert list(derivation.urls) == [
+        "https://smoltek.ddev.site",
+        "https://smoltek.ddev.site/technology/",
+    ]
+    assert derivation.coverage["post"] == "none found"
+    assert derivation.coverage["archive"] == "none found"
+
+
+def test_derive_sample_urls_never_samples_the_front_page_twice():
+    """On a site whose front page is a page, the page sample must be a real
+    subpage: fetching the same URL twice tests the same request twice, and the
+    front-page shape is already covered."""
+
+    run = fake_run_command(
+        sample_url_derivation_responses(
+            pages="https://smoltek.ddev.site/\nhttps://smoltek.ddev.site/about/"
+        )
+    )
+
+    derivation = smoke_test.derive_sample_urls(run)
+
+    assert derivation.coverage["page"] == "https://smoltek.ddev.site/about/"
+    assert list(derivation.urls) == [
+        "https://smoltek.ddev.site",
+        "https://smoltek.ddev.site/news/hello-world/",
+        "https://smoltek.ddev.site/about/",
+        "https://smoltek.ddev.site/category/news/",
+    ]
+
+
+def test_derive_sample_urls_reports_a_site_it_could_not_ask():
+    """When the copy cannot even be asked for its front page, that is an input
+    problem to name, not a URL list to guess at."""
+
+    run = fake_run_command(
+        {
+            ("ddev", "wp", "option", "get", "home"): FakeCompleted(
+                returncode=1, stderr="Error: no DDEV project here"
+            )
+        }
+    )
+
+    derivation = smoke_test.derive_sample_urls(run)
+
+    assert derivation.urls == ()
+    assert derivation.error is not None
+    assert "no DDEV project here" in derivation.error
+
+
+def test_resolve_sample_urls_derives_them_when_the_caller_supplies_none():
+    run = fake_run_command(sample_url_derivation_responses())
+
+    resolution = smoke_test.resolve_sample_urls(None, run)
+
+    assert resolution.origin == "derived"
+    assert len(resolution.urls) == 4
+    by_id = {result.id: result for result in resolution.checks}
+    assert by_id["sample_urls_source"].status == "pass"
+    assert "derived from the copy" in by_id["sample_urls_source"].detail
+
+
+def test_resolve_sample_urls_lets_a_caller_supplied_list_win_without_asking_the_site():
+    """A supplied list wins — and nothing is derived, which the empty command
+    fake proves: an argv it was never told about is an assertion error."""
+
+    run = fake_run_command({})
+
+    resolution = smoke_test.resolve_sample_urls(["https://smoltek.ddev.site/sv/"], run)
+
+    assert resolution.origin == "supplied"
+    assert list(resolution.urls) == ["https://smoltek.ddev.site/sv/"]
+
+
+def test_resolve_sample_urls_records_a_supplied_list_as_supplied():
+    """An override that is not marked as one reproduces the very bug this
+    change closes, one step further from the reader — so the resolution says
+    where its URLs came from."""
+
+    run = fake_run_command({})
+
+    resolution = smoke_test.resolve_sample_urls(["https://smoltek.ddev.site/sv/"], run)
+
+    assert resolution.to_dict() == {
+        "origin": "supplied",
+        "urls": ["https://smoltek.ddev.site/sv/"],
+    }
+    by_id = {result.id: result for result in resolution.checks}
+    assert by_id["sample_urls_source"].status == "skip"
+    assert "supplied by the caller" in by_id["sample_urls_source"].detail
+
+
+def test_resolve_sample_urls_treats_an_underivable_site_as_attention_not_fail():
+    """A site that cannot be asked is a bad input, not a bad copy — and this
+    test's whole point is that it never reddens a clone that is fine."""
+
+    run = fake_run_command(
+        {
+            ("ddev", "wp", "option", "get", "home"): FakeCompleted(
+                returncode=1, stderr="Error: no DDEV project here"
+            )
+        }
+    )
+
+    resolution = smoke_test.resolve_sample_urls(None, run)
+
+    by_id = {result.id: result for result in resolution.checks}
+    assert by_id["sample_urls_source"].status == "attention"
+    assert resolution.expectation is None
+
+
+def test_resolve_sample_urls_skips_on_an_explicitly_empty_list():
+    run = fake_run_command({})
+
+    resolution = smoke_test.resolve_sample_urls([], run)
+
+    assert resolution.origin == "none"
+    assert resolution.expectation is None
+    by_id = {result.id: result for result in resolution.checks}
+    assert by_id["sample_urls_source"].status == "skip"
+
+
+def test_resolve_sample_urls_fails_loud_on_a_sample_urls_value_that_is_not_a_list():
+    run = fake_run_command({})
+
+    resolution = smoke_test.resolve_sample_urls("https://smoltek.ddev.site/", run)
+
+    by_id = {result.id: result for result in resolution.checks}
+    assert by_id["sample_urls_source"].status == "fail"
+    assert resolution.expectation is None
+
+
+def test_read_site_shape_asks_the_three_settings_that_decide_a_url():
+    run = fake_run_command(
+        {
+            ("ddev", "wp", "option", "get", "permalink_structure"): FakeCompleted(stdout="/%postname%/\n"),
+            ("ddev", "wp", "option", "get", "show_on_front"): FakeCompleted(stdout="page\n"),
+            ("ddev", "wp", "option", "get", "page_on_front"): FakeCompleted(stdout="12\n"),
+        }
+    )
+
+    assert smoke_test.read_site_shape(run) == {
+        "permalinkStructure": "/%postname%/",
+        "showOnFront": "page",
+        "pageOnFront": "12",
+    }
+
+
+def test_check_sample_url_source_parity_passes_when_source_and_clone_agree():
+    result = smoke_test.check_sample_url_source_parity(
+        {"permalinkStructure": "/%postname%/", "showOnFront": "page", "pageOnFront": 12},
+        {"permalinkStructure": "/%postname%/", "showOnFront": "page", "pageOnFront": "12"},
+    )
+
+    assert result.status == "pass"
+
+
+def test_check_sample_url_source_parity_reports_a_disagreement_as_attention_naming_both():
+    """A permalink structure that did not survive the transfer is exactly the
+    class of defect a fidelity test exists to catch — but the subject under
+    test is the copy, and a source that has moved on since discovery is not a
+    broken copy, so this is an anomaly and never a FAIL."""
+
+    result = smoke_test.check_sample_url_source_parity(
+        {"permalinkStructure": "/%postname%/", "showOnFront": "page"},
+        {"permalinkStructure": "/?p=%post_id%", "showOnFront": "page"},
+    )
+
+    assert result.status == "attention"
+    assert "/%postname%/" in result.detail
+    assert "/?p=%post_id%" in result.detail
+
+
+def test_check_sample_url_source_parity_skips_without_a_source_shape():
+    assert smoke_test.check_sample_url_source_parity(None, {}).status == "skip"
+
+
+def test_run_checks_derives_sample_urls_when_the_expectations_document_pins_none(clone_dir: Path):
+    """The acceptance path: an expectations document with no ``sampleUrls`` at
+    all still fetches four real URLs off the copy, and the report says where
+    they came from."""
+
+    run = fake_run_command(sample_url_derivation_responses())
+    fetch = fake_fetch_url(
+        sample_url_fetch_responses(
+            "https://smoltek.ddev.site",
+            "https://smoltek.ddev.site/news/hello-world/",
+            "https://smoltek.ddev.site/technology/",
+            "https://smoltek.ddev.site/category/news/",
+        )
+    )
+
+    report = smoke_test.run_checks(clone_dir, {}, run_command=run, fetch_url=fetch)
+
+    assert report["sampleUrls"]["origin"] == "derived"
+    assert len(report["sampleUrls"]["urls"]) == 4
+    statuses = {check["id"]: check["status"] for check in report["checks"]}
+    assert statuses["sample_url:https://smoltek.ddev.site/category/news/"] == "pass"
+    assert report["ok"] is True
+
+
+def test_run_checks_records_a_caller_supplied_sample_url_list_as_supplied(clone_dir: Path):
+    run = fake_run_command({})
+    fetch = fake_fetch_url(sample_url_fetch_responses("https://smoltek.ddev.site/sv/om-oss/"))
+
+    report = smoke_test.run_checks(
+        clone_dir,
+        {"sampleUrls": ["https://smoltek.ddev.site/sv/om-oss/"]},
+        run_command=run,
+        fetch_url=fetch,
+    )
+
+    assert report["sampleUrls"] == {
+        "origin": "supplied",
+        "urls": ["https://smoltek.ddev.site/sv/om-oss/"],
+    }
+
+
+def test_run_checks_reports_a_source_clone_disagreement_as_an_anomaly_not_a_failure(clone_dir: Path):
+    """The seeded disagreement: production's permalink structure and the
+    copy's differ. Both values are named, the report stays ``ok``, and the
+    finding rides in as ``attention``."""
+
+    run = fake_run_command(
+        {
+            ("ddev", "wp", "option", "get", "permalink_structure"): FakeCompleted(stdout="/?p=%post_id%\n"),
+            ("ddev", "wp", "option", "get", "show_on_front"): FakeCompleted(stdout="page\n"),
+            ("ddev", "wp", "option", "get", "page_on_front"): FakeCompleted(stdout="12\n"),
+        }
+    )
+
+    report = smoke_test.run_checks(
+        clone_dir,
+        {
+            "sampleUrls": [],
+            "sourceSiteShape": {
+                "permalinkStructure": "/%postname%/",
+                "showOnFront": "page",
+                "pageOnFront": 12,
+            },
+        },
+        run_command=run,
+    )
+
+    parity = next(check for check in report["checks"] if check["id"] == "sample_url_source_parity")
+    assert parity["status"] == "attention"
+    assert "/%postname%/" in parity["detail"] and "/?p=%post_id%" in parity["detail"]
+    assert report["ok"] is True
+
+
+def test_run_checks_never_asks_the_site_for_a_shape_no_source_value_can_be_compared_to(clone_dir: Path):
+    """No source shape means no parity to check, and the empty command fake
+    proves the three option reads never happen."""
+
+    run = fake_run_command({})
+
+    report = smoke_test.run_checks(clone_dir, {"sampleUrls": []}, run_command=run)
+
+    parity = next(check for check in report["checks"] if check["id"] == "sample_url_source_parity")
+    assert parity["status"] == "skip"
+
+
+def test_quiet_summary_names_where_the_sample_urls_came_from(clone_dir: Path):
+    """The compact stdout an inline executor reads is the only part of the
+    report that reaches a caller with no context to spare — so the supplied/
+    derived distinction has to survive the reduction."""
+
+    run = fake_run_command({})
+    fetch = fake_fetch_url(sample_url_fetch_responses("https://smoltek.ddev.site/sv/"))
+    report = smoke_test.run_checks(
+        clone_dir,
+        {"sampleUrls": ["https://smoltek.ddev.site/sv/"]},
+        run_command=run,
+        fetch_url=fetch,
+    )
+
+    summary = smoke_test._quiet_summary(report, Path("/tmp/report.json"))
+
+    assert summary["sample_urls"] == {
+        "origin": "supplied",
+        "urls": ["https://smoltek.ddev.site/sv/"],
+    }
+
+
+def test_generate_expectations_carries_the_source_site_shape_for_the_parity_check():
+    """Whatever discovery already records about the source site's permalinks
+    is what the parity check compares against — normalised to strings, since
+    the clone's side of the comparison comes back from `wp option get` as
+    text and ``12`` must never disagree with ``"12"``."""
+
+    envelope = {
+        "discovery": {
+            "site": {
+                "permalink_structure": "/%postname%/",
+                "show_on_front": "page",
+                "page_on_front": 12,
+            }
+        }
+    }
+
+    expectations = smoke_test.generate_expectations(envelope)
+
+    assert expectations["sourceSiteShape"] == {
+        "permalinkStructure": "/%postname%/",
+        "showOnFront": "page",
+        "pageOnFront": "12",
+    }
+
+
+def test_generate_expectations_lets_a_supplied_source_site_shape_override_per_key():
+    envelope = {
+        "discovery": {"site": {"permalink_structure": "/%postname%/", "show_on_front": "page"}},
+        "sourceSiteShape": {"showOnFront": "posts"},
+    }
+
+    expectations = smoke_test.generate_expectations(envelope)
+
+    assert expectations["sourceSiteShape"] == {
+        "permalinkStructure": "/%postname%/",
+        "showOnFront": "posts",
+    }
+
+
+def test_generate_expectations_omits_the_source_site_shape_when_nothing_reports_one():
+    expectations = smoke_test.generate_expectations({"discovery": {}})
+
+    assert "sourceSiteShape" not in expectations
+    assert "sampleUrls" not in expectations
 
 
 # --- The CLI: the verdict bar (issue #59) -----------------------------------

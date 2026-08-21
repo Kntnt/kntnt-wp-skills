@@ -113,6 +113,25 @@ class DiscoveryError(Exception):
     loud non-zero exit rather than emitting a partial document."""
 
 
+def _has_type(value: Any, expected: type) -> bool:
+    """Report whether ``value`` satisfies an ``expected`` boundary type.
+
+    This is ``isinstance`` with a single narrowing: ``bool`` subclasses ``int``
+    in Python, so a bare check accepts ``True`` wherever an integer is required
+    — an ``api_version`` of ``true`` would pass the very check written to reject
+    it, and be compared numerically downstream as a 1. A field declared ``int``
+    therefore refuses both booleans; a field declared ``bool`` is unaffected and
+    every other type keeps plain ``isinstance`` semantics.
+
+    Both boundary helpers and the module's two hand-rolled integer checks go
+    through here, so what counts as an integer is decided in exactly one place
+    rather than per call site (issue #64)."""
+
+    if expected is int and isinstance(value, bool):
+        return False
+    return isinstance(value, expected)
+
+
 def _require(mapping: Any, key: str, expected: type, context: str) -> Any:
     """Fetch ``mapping[key]``, asserting the mapping is an object and the value
     has the expected type; raise :class:`DiscoveryError` with a precise message
@@ -125,7 +144,7 @@ def _require(mapping: Any, key: str, expected: type, context: str) -> Any:
     if key not in mapping:
         raise DiscoveryError(f"{context}: missing required field {key!r}")
     value = mapping[key]
-    if not isinstance(value, expected):
+    if not _has_type(value, expected):
         raise DiscoveryError(
             f"{context}: field {key!r} must be {expected.__name__}, "
             f"got {type(value).__name__}"
@@ -147,7 +166,7 @@ def _optional(
     if key not in mapping:
         return default
     value = mapping[key]
-    if not isinstance(value, expected):
+    if not _has_type(value, expected):
         raise DiscoveryError(
             f"{context}: field {key!r} must be {expected.__name__}, "
             f"got {type(value).__name__}"
@@ -311,7 +330,7 @@ def _relative_children(
         segment = remainder.split("/", 1)[0]
         size = entry.get("size")
         children.append(
-            (segment, size if isinstance(size, int) else 0, "/" in remainder)
+            (segment, size if _has_type(size, int) else 0, "/" in remainder)
         )
     return children
 
@@ -422,7 +441,7 @@ def build_entity_counts(raw: dict[str, Any]) -> dict[str, int]:
         if key not in raw:
             continue
         value = raw[key]
-        if not isinstance(value, int):
+        if not _has_type(value, int):
             raise DiscoveryError(
                 f"entity_counts: field {key!r} must be int, got {type(value).__name__}"
             )

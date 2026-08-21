@@ -292,7 +292,7 @@ def main(argv: list[str] | None = None) -> int:
     reports what the command did and never judges the copy: both steps rebuild
     local artifacts that were deliberately never transferred, so the phase
     driving this wrapper classifies a non-zero exit here as an anomaly, never a
-    failure (issue #59, ADR-0026).
+    failure (issue #59, ADR-0028).
     """
 
     parser = _build_parser()

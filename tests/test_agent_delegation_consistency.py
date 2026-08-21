@@ -47,9 +47,17 @@ SKILLS: dict[str, Path] = {
 # "manifest + baseline diff" phase runs the same subagent in manifest-only
 # mode (it has no baseline to diff against), and its "thumbnail regen + smoke
 # test" phase is delegated twice (regeneration, then the verify step) to the
-# same definition.
+# same definition. Issue #58 split the old ``extract-transfer`` phase in two:
+# the multi-hour poll between the halves is the orchestrator's own background
+# job, because a subagent's process tree does not outlive its return and twice
+# took a live poll down with it.
 ROSTER: dict[str, dict[str, object]] = {
     "discovery-classify": {
+        "model": "sonnet",
+        "effort": "low",
+        "skills": ("clone", "pull"),
+    },
+    "extract-submit": {
         "model": "sonnet",
         "effort": "low",
         "skills": ("clone", "pull"),
@@ -303,6 +311,7 @@ def _delegation_windows(text: str, anchor: str, size: int = 1200) -> list[str]:
 # committed SKILL.md prose so the assertions are never vacuous.
 EVIDENCE_FIELD_TERMS: dict[str, tuple[str, ...]] = {
     "discovery-classify": ("sha256", "exit code", "counts"),
+    "extract-submit": ("sha256", "counts"),
     "extract-transfer": ("sha256", "byte size"),
     "manifest-baseline-diff": ("sha256", "exit code", "row count"),
     "thumbnail-smoke-test": ("exit code", "count"),
@@ -349,6 +358,8 @@ RECHECK_PATTERN: dict[tuple[str, str], str] = {
         "pull",
         "manifest-baseline-diff",
     ): r"confirm the manifest's row count structurally",
+    ("clone", "extract-submit"): r"re-read the written job record yourself",
+    ("pull", "extract-submit"): r"re-read the written job record yourself",
     ("clone", "extract-transfer"): r"re-run `scripts/dump_sanity\.py`",
     ("pull", "extract-transfer"): r"re-run `\.\./clone/scripts/dump_sanity\.py`",
     ("clone", "thumbnail-smoke-test"): r"re-run `wp db check`",
@@ -458,6 +469,7 @@ def test_spec_notes_the_delegation_architecture() -> None:
 # ``application_password`` by literal value.
 CREDENTIAL_BEARING_AGENTS: tuple[str, ...] = (
     "discovery-classify",
+    "extract-submit",
     "extract-transfer",
     "manifest-baseline-diff",
 )

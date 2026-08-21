@@ -16,6 +16,7 @@ import pytest
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 
+EXTRACT_SUBMIT: Path = REPO_ROOT / "skills" / "clone" / "roles" / "extract-submit.md"
 EXTRACT_TRANSFER: Path = REPO_ROOT / "skills" / "clone" / "roles" / "extract-transfer.md"
 SPEC: Path = REPO_ROOT / "docs" / "spec.md"
 IMPLEMENTATION_NOTES: Path = REPO_ROOT / "docs" / "implementation-notes.md"
@@ -23,7 +24,7 @@ CLONE: Path = REPO_ROOT / "skills" / "clone" / "SKILL.md"
 PULL: Path = REPO_ROOT / "skills" / "pull" / "SKILL.md"
 
 SURFACES: tuple[Path, ...] = (
-    EXTRACT_TRANSFER,
+    EXTRACT_SUBMIT,
     SPEC,
     IMPLEMENTATION_NOTES,
     CLONE,
@@ -43,31 +44,40 @@ def test_every_submit_surface_sends_strict_false(path: Path) -> None:
     )
 
 
-def test_extract_transfer_posts_the_member_on_the_wire() -> None:
+def test_extract_submit_posts_the_member_on_the_wire() -> None:
     """The role whose steps actually POST carries the JSON member, not just prose."""
 
-    text = EXTRACT_TRANSFER.read_text(encoding="utf-8")
+    text = EXTRACT_SUBMIT.read_text(encoding="utf-8")
     assert '"strict": false' in text, (
-        "the extract-transfer role must put \"strict\": false on the POST body — "
+        "the extract-submit role must put \"strict\": false on the POST body — "
         "a SKILL that only mentions the mode in prose will not change the wire"
     )
 
 
-def test_extract_transfer_surfaces_skipped_files() -> None:
+def test_extract_submit_surfaces_skipped_files() -> None:
     """Skipped names are operator-visible and recorded in the evidence block."""
 
-    text = EXTRACT_TRANSFER.read_text(encoding="utf-8")
+    text = EXTRACT_SUBMIT.read_text(encoding="utf-8")
     assert "skipped_files" in text
     assert "`skipped_files`" in text or "skipped_files —" in text
 
 
 def test_extract_transfer_unseals_the_remaining_file_list() -> None:
-    """The container holds what the plugin packaged, so unseal must drop skips."""
+    """The container holds what the plugin packaged, so unseal must drop skips.
+
+    The two halves of the phase are separated by the orchestrator's own poll
+    (issue #58), so the list the unseal reconciles against no longer sits in the
+    unsealing role's own memory: `extract-submit` records the selection as
+    submitted, and `extract-transfer` reads it back from that record."""
 
     text = EXTRACT_TRANSFER.read_text(encoding="utf-8")
     assert "minus" in text and "skipped_files" in text, (
         "extract-transfer.md must unseal against the submitted files minus "
         "skipped_files — passing the original selection fails the container check"
+    )
+    assert "extract-job.json" in text, (
+        "extract-transfer.md must read the submitted selection back from the job "
+        "record extract-submit wrote, since it no longer submits the job itself"
     )
 
 

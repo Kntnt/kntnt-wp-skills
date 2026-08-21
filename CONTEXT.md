@@ -50,7 +50,7 @@ _Avoid_: profile, preset
 The run mode engaged when a saved plan exists: interactive collapses to one "Replay the saved plan?" gate; `--yes` runs it silently.
 
 **Anomaly**:
-A finding a phase reports in full without condemning the run — a step that could not run, one that ran with warnings, or one that exited non-zero for a reason that says nothing about the copy's fidelity. It rides in the evidence block's `anomalies` list beside a `DONE`, and is never a third verdict: a phase is still only ever `DONE` or `FAILED`, and `FAILED` requires evidence that the copy is defective ([ADR-0026](docs/adr/0026-a-phase-fails-on-a-defective-copy-never-on-a-non-zero-exit.md)).
+A finding a phase reports in full without condemning the run — a step that could not run, one that ran with warnings, or one that exited non-zero for a reason that says nothing about the copy's fidelity. It rides in the evidence block's `anomalies` list beside a `DONE`, and is never a third verdict: a phase is still only ever `DONE` or `FAILED`, and `FAILED` requires evidence that the copy is defective ([ADR-0028](docs/adr/0028-a-phase-fails-on-a-defective-copy-never-on-a-non-zero-exit.md)).
 _Avoid_: warning, soft failure, non-fatal error
 
 ### Files and sync
@@ -91,9 +91,12 @@ _Avoid_: duplicate file, encoding clash
 The Kntnt Extractor plugin's own background job that dumps, archives, seals, and publishes the selection outside the docroot. The skills submit it (`POST /extractions`) and poll it to a terminal state; they own none of its mechanics.
 _Avoid_: pack, pack job
 
+**Job record**:
+`<scratchpad>/extract-job.json` — what the `extract-submit` role writes the moment the main extraction is accepted and before anything begins to wait on it: the job id, the selection exactly as submitted (after any restricted-path drop), and any skipped or refused paths. Polling is read-only, so an id already on disk makes a lost poller a re-poll rather than a lost run; the record is also how the submitted lists reach the unseal without crossing an agent boundary inline.
+
 **Poll helper**:
-`skills/clone/scripts/poll_extraction.py` — the one blocking invocation that waits on an extraction job and exits with a terminal verdict plus the poll telemetry. Agents invoke it; they do not write the loop, and they give it `--log <path>` so hours of progress lines land in the run's scratchpad rather than in a context. The Application Password is `KNTNT_EXTRACTOR_APP_PASSWORD` in that process's environment, never argv. The main extraction omits the budget argv; the stall window is the stop.
-_Avoid_: poll loop (as something an agent writes)
+`skills/clone/scripts/poll_extraction.py` — the one blocking invocation that waits on an extraction job and exits with a terminal verdict plus the poll telemetry. Nobody writes the loop; whoever owns a wait invokes the helper and gives it `--log <path>` so hours of progress lines land in the run's scratchpad rather than in a context. Ownership differs by phase: the health check's preflight and `discovery-classify`'s bootstrap are bounded by their own budgets and stay with the surface that runs them, while the main extraction's poll is the orchestrating skill's own tracked background job — never a role's and never detached, because a subagent's process tree does not outlive its return. Its verdict is captured to `extract-poll.json` and its exit status to `extract-poll.exit` beside the log; the verdict prints only at the end, so the exit file is what separates a poll that answered from one that died. The Application Password is `KNTNT_EXTRACTOR_APP_PASSWORD` in that process's environment, never argv. The main extraction omits the budget argv; the stall window is the stop.
+_Avoid_: poll loop (as something an agent writes), poll agent (nothing owns the main extraction's wait but the orchestrator)
 
 **Selection**:
 The explicit lists submitted to an extraction — full-data `tables`, structure-only `tables_structure_only`, and `files` — all computed client-side, so only what survives every exclusion is ever named. The main extraction is submitted with `strict: false`, so a file that vanishes between the manifest walk and the POST is dropped by the plugin rather than failing the job.

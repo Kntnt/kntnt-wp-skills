@@ -38,7 +38,7 @@ SKILLS: dict[str, Path] = {
     "pull": REPO_ROOT / "skills" / "pull" / "SKILL.md",
 }
 SPEC: Path = REPO_ROOT / "docs" / "spec.md"
-ADR: Path = REPO_ROOT / "docs" / "adr" / "0026-a-phase-fails-on-a-defective-copy-never-on-a-non-zero-exit.md"
+ADR: Path = REPO_ROOT / "docs" / "adr" / "0028-a-phase-fails-on-a-defective-copy-never-on-a-non-zero-exit.md"
 IMPLEMENTATION_NOTES: Path = REPO_ROOT / "docs" / "implementation-notes.md"
 
 # The heading the classification lives under, and the only three values its

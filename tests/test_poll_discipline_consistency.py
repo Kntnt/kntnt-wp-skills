@@ -44,16 +44,18 @@ REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 CLONE_SKILL: Path = REPO_ROOT / "skills" / "clone" / "SKILL.md"
 PULL_SKILL: Path = REPO_ROOT / "skills" / "pull" / "SKILL.md"
 ROLES_DIR: Path = REPO_ROOT / "skills" / "clone" / "roles"
-EXTRACT_TRANSFER: Path = ROLES_DIR / "extract-transfer.md"
 DISCOVERY_CLASSIFY: Path = ROLES_DIR / "discovery-classify.md"
 
-# The three surfaces that state the main-extraction poll discipline in full.
-# Each must carry every pinned literal, so a subagent (or the orchestrator)
-# loading any one of them alone still gets the whole rule set.
+# The surfaces that state the main-extraction poll discipline in full. Each must
+# carry every pinned literal, so an orchestrator loading either one alone still
+# gets the whole rule set. The ``extract-transfer`` role used to be the third of
+# them; since issue #58 the main extraction's poll is the orchestrator's own
+# background job and no role owns it, so a role restating that discipline would
+# be an invitation to run it (see
+# ``tests/test_orchestrator_owns_the_long_poll.py``).
 FULL_DISCIPLINE_DOCS: tuple[tuple[str, Path], ...] = (
     ("clone SKILL.md", CLONE_SKILL),
     ("pull SKILL.md", PULL_SKILL),
-    ("extract-transfer role", EXTRACT_TRANSFER),
 )
 
 # The pinned literals of the discipline, read from the canonical document rather
