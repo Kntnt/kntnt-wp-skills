@@ -401,6 +401,30 @@ def _record(value: Any, context: str) -> dict[str, Any]:
     return value
 
 
+def _has_type(value: Any, expected: type) -> bool:
+    """Report whether ``value`` satisfies an ``expected`` boundary type.
+
+    This is ``isinstance`` with a single narrowing: ``bool`` subclasses ``int``
+    in Python, so a bare check accepts ``True`` wherever an integer is required
+    — a subdirectory's ``size_bytes`` of ``true`` would pass the very check
+    written to reject it, and be weighed as one byte against the blob floor and
+    the median it helps set. A field declared ``int`` therefore refuses both
+    booleans; a field declared ``bool`` is unaffected and every other type keeps
+    plain ``isinstance`` semantics.
+
+    The inner-record boundary check goes through here, so what counts as an
+    integer is decided in exactly one place rather than per call site.
+    Deliberately a copy of the discovery assembler's predicate rather than an
+    import of it: this helper is a self-contained PEP 723 script that the
+    portable ``mkwp`` skill ships inside its own directory and must never reach
+    into ``clone``'s (issue #51), and the rule lives in ADR-0026 rather than in
+    a shared module (issue #70)."""
+
+    if expected is int and isinstance(value, bool):
+        return False
+    return isinstance(value, expected)
+
+
 def _field(record: dict[str, Any], key: str, expected: type, context: str) -> Any:
     """Fetch a required field from an inner record, asserting its type and raising
     :class:`ClassifyError` when it is absent or mistyped — so a record missing the
@@ -411,7 +435,7 @@ def _field(record: dict[str, Any], key: str, expected: type, context: str) -> An
     if key not in record:
         raise ClassifyError(f"{context}: missing required field {key!r}")
     value = record[key]
-    if not isinstance(value, expected):
+    if not _has_type(value, expected):
         raise ClassifyError(
             f"{context}: field {key!r} must be {expected.__name__}, "
             f"got {type(value).__name__}"
