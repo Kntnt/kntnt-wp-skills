@@ -23,7 +23,7 @@ Be respectful and constructive in issues, pull requests, and discussions. Assume
 1. **Open an issue first** for anything in the *discussed* row above. For *welcomed* items, you can open a PR directly. Use the issue tracker at <https://github.com/Kntnt/kntnt-wp-skills/issues>.
 2. **One concern per PR.** Smaller PRs land faster.
 3. **Follow the project's coding standard.** It is materialised under [`agents.d/coding-standard/`](agents.d/coding-standard/) — read `general.md` plus the module(s) for the language or framework you touch before changing code.
-4. **Run the tests.** The Python helpers under `scripts/` are covered by a pytest suite under `tests/`. One command runs it, provisioning pytest through `uv`:
+4. **Run the tests.** The Python helpers — the transfer engine's under `skills/clone/scripts/`, the version guard and the classifier under `skills/mkwp/scripts/`, and the manual-page renderer under `scripts/` — are covered by a pytest suite under `tests/`. One command runs it, provisioning pytest through `uv`:
 
    ```
    uv run --with pytest pytest
