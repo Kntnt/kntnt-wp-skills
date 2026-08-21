@@ -522,7 +522,7 @@ def mail_valve_defeated(decisions: list[dict[str, Any]], context: Context) -> bo
         return False
 
     mail = next(entry for entry in decisions if entry["id"] == "mail")
-    return mail["source"] == "saved" and mail["value"] != "capture"
+    return bool(mail["source"] == "saved" and mail["value"] != "capture")
 
 
 def collect_pins(flags: list[str]) -> dict[str, Any]:

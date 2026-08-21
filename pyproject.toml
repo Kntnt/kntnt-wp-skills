@@ -1,0 +1,36 @@
+# Tool configuration only. The Python helpers in this repository are standalone
+# PEP 723 scripts provisioned by `uv` from their own inline metadata, not a
+# package — so this file deliberately carries no [project] table and no
+# [build-system]. Nothing here makes the repository installable, and nothing
+# here changes how a helper is run.
+
+[tool.mypy]
+# Strict type checking is a verification step this project actually runs,
+# beside the pytest suite, and it is enforced rather than merely advised
+# (ADR-0032). Pinning strict mode here — rather than passing `--strict` at the
+# terminal — is what lets the documented command reproduce the check with no
+# ad-hoc flags:
+#
+#     uv run --with mypy --with pynacl==1.5.0 mypy
+#
+# That pin mirrors `skills/clone/scripts/unseal.py`'s PEP 723 header, which
+# owns it. mypy cannot read a PEP 723 header, so the version is necessarily
+# named twice, and `tests/test_type_check_consistency.py` keeps the two copies
+# equal — the header wins. Resolving the dependency rather than blanket-ignoring
+# missing imports is the point: a blanket ignore invents a `no-any-return`
+# finding in the unseal helper, and blinds the check at the one boundary where
+# a real finding could hide.
+strict = true
+
+# What is checked: the deterministic helper seam, and only it — the same three
+# homes `pytest.ini` puts on the import path and `docs/spec.md` names as that
+# seam. A directory list cannot notice a home nobody added to it, so adding a
+# new helper home to the repository includes adding it here.
+#
+# `skills/build-ollie-site/scripts/` is outside this list deliberately, not by
+# oversight: that skill shares none of the transfer engine's machinery, and its
+# five helpers are written against a different baseline (a `>=3.10` floor, no
+# dependency metadata at all). Widening the check to cover them is optional
+# work, not a debt this list creates. `tests/` is outside it for the same kind
+# of reason — the standard's strict rule is written for the helper tree.
+files = ["scripts", "skills/clone/scripts", "skills/mkwp/scripts"]

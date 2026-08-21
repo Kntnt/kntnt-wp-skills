@@ -71,7 +71,10 @@ Plans 003 and 005 are not on this critical path and can land before or after it.
 Every plan verifies against the repository's own gates, run from the repository root:
 
 - `uvx pytest -q` — 942 passing at `947e28b`, about 12 seconds.
-- `uvx ruff check <the files you touched>` — never `ruff check .`, which reports pre-existing findings that are not yours.
+- `uv run --with mypy --with pynacl==1.5.0 mypy` — mypy's strict mode over the deterministic helper seam, configured in `pyproject.toml`. Since issue #74 this one is enforced: a type error is a plan that does not land, and "pre-existing" is no longer an argument, because the seam is clean.
+- `uvx ruff check <the files you touched>` — never `ruff check .`, which reports pre-existing findings that are not yours. This one is **not** enforced and never was: no ruleset is pinned, so what it reports is advice. Read it, fix what is yours and real, and do not fail a plan on it.
+
+The verification tables inside the plan files below are records of what was run when each plan was executed, not instructions being reissued; a completed plan's table is left as it stood.
 
 ## Findings considered and rejected
 

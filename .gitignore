@@ -26,3 +26,8 @@ build/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+
+# uv writes this whenever a pyproject.toml is present, and here it locks
+# nothing: the repository declares no dependencies of its own, and every
+# helper resolves its own from its PEP 723 metadata.
+uv.lock

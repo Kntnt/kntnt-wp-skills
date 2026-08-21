@@ -44,6 +44,12 @@ A script meant to run from the terminal uses the env-based shebang `#!/usr/bin/e
 ### Python tooling
 
 - **uv** as runtime, package manager, and virtualenv tool. `uv run` executes a PEP 723 script directly; for project work, `uv` manages the project venv and lockfile.
-- **ruff** as the single linter and formatter (replaces black, isort, flake8, pylint).
-- **mypy** or **pyright** for static type checking — pick one per project. Strict mode on new code.
+- **ruff** as the chosen linter and formatter (replaces black, isort, flake8, pylint) — but **unconfigured and advisory here**: no ruleset is pinned, so a bare run reports whatever the invocation happens to select, and its output is advice rather than a verdict on a change. Read a finding, fix it if it is yours and it is real, and never fail a change on it. This becomes a rule the day a ruleset is pinned.
+- **mypy** for static type checking, in strict mode, and **enforced**: a type error stops work from landing. One command runs it from the repository root, with strict mode and the checked directories coming from `pyproject.toml` rather than from flags:
+
+  ```
+  uv run --with mypy --with pynacl==1.5.0 mypy
+  ```
+
+  It covers the deterministic helper seam — `scripts/`, `skills/clone/scripts/`, `skills/mkwp/scripts/` — which is what `pyproject.toml`'s `files` key names and what that file explains. `pynacl` is provisioned rather than ignored because the checker inventing a finding it cannot see through is worse than the pin being written twice; the pin belongs to `skills/clone/scripts/unseal.py`'s inline metadata and is copied from there. A finding is repaired by making the types honest — never by widening a return type to `Any`, and never with a `type: ignore`. See [ADR-0032](../../docs/adr/0032-strict-type-checking-is-enforced-ruff-is-advisory.md).
 - **pytest** for tests.
