@@ -54,7 +54,7 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Any
+from typing import Any, cast
 
 # The document's shape version, bumped when a later reader would need to adapt.
 # Version 2 dropped the production-DB connection block, the binary probe, and the
@@ -130,6 +130,21 @@ def _has_type(value: Any, expected: type) -> bool:
     if expected is int and isinstance(value, bool):
         return False
     return isinstance(value, expected)
+
+
+def _boundary_int(value: Any, fallback: int) -> int:
+    """Read a tolerated boundary integer: ``value`` when :func:`_has_type` calls
+    it one, the ``fallback`` when it does not.
+
+    This exists for the static type checker, not for the runtime. The predicate
+    above is the single place that decides what an integer is at this boundary
+    (ADR-0026), and a function returning ``bool`` narrows nothing for a checker
+    the way the ``isinstance`` it replaced did — so a value the predicate has
+    just vouched for still arrives at its use site as ``Any``. The cast states
+    what the predicate has already established, and keeps the decision in one
+    place instead of restoring a second ``isinstance`` beside it."""
+
+    return cast(int, value) if _has_type(value, int) else fallback
 
 
 def _require(mapping: Any, key: str, expected: type, context: str) -> Any:
@@ -329,9 +344,7 @@ def _relative_children(
             continue
         segment = remainder.split("/", 1)[0]
         size = entry.get("size")
-        children.append(
-            (segment, size if _has_type(size, int) else 0, "/" in remainder)
-        )
+        children.append((segment, _boundary_int(size, 0), "/" in remainder))
     return children
 
 

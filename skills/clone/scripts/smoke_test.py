@@ -779,14 +779,14 @@ def derive_sample_urls(run: RunCommand) -> SampleUrlDerivation:
         ("archive", ("term", "list", "category", "--field=url", "--number=1", "--hide_empty=1")),
     )
     for shape, args in listings:
-        candidates, reason = _sample_url_candidates(run, *args)
+        candidates, sampling_reason = _sample_url_candidates(run, *args)
         distinct = [url for url in candidates if _url_key(url) != _url_key(home)]
         if distinct:
             resolved[shape] = coverage[shape] = distinct[0]
             continue
         # No reason means the site did answer — with nothing but the front
         # page, which the front-page shape already covers.
-        coverage[shape] = reason or "only the front page"
+        coverage[shape] = sampling_reason or "only the front page"
 
     # Shape order, de-duplicated: the report reads front page first, and no
     # URL earns two fetches however many shapes it happens to cover.
