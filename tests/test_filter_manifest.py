@@ -365,6 +365,66 @@ def test_the_wp_config_sample_file_survives_the_variant_glob() -> None:
     assert [row["path"] for row in result["entries"]] == ["wp-config-sample.php"]
 
 
+# --- The configuration family's anchoring (issue #75) --------------------------
+
+
+def test_a_nested_configuration_file_copy_is_dropped() -> None:
+    # Arrange & Act — the unambiguous shapes carry the "**/" marker, so a copy
+    # under wp-content/ — a backup plugin's staging copy, a developer's snapshot
+    # — is dropped exactly as the root one is. The Extractor matches this family
+    # by basename at any depth and refuses the whole create otherwise.
+    result = filter_on({
+        "entries": [
+            entry("wp-content/uploads/wp-config.php"),
+            entry("wp-content/backups/wp-config.php.bak"),
+            entry("backups/wp-config.php~"),
+            entry("wp-content/plugins/acme/.wp-config.php.swp"),
+            entry("wp-content/themes/acme/wp-config.old"),
+        ],
+        "exclusions": [
+            "**/wp-config.php",
+            "**/wp-config.php.*",
+            "**/wp-config.php~",
+            "**/.wp-config.php.*",
+            "**/wp-config.old",
+        ],
+    })
+
+    # Assert.
+    assert result["entries"] == []
+
+
+def test_a_nested_wp_config_sample_file_is_kept() -> None:
+    # Arrange & Act — the carve-out is an exact whole-path comparison, and it
+    # never has to defend a nested path: the variant catcher stays root-anchored,
+    # so no pattern in the family reaches a theme's bundled copy of WordPress'
+    # own template. The Extractor excepts it by basename and would have taken it.
+    result = filter_on({
+        "entries": [entry("wp-content/themes/acme/wp-config-sample.php")],
+        "exclusions": ["**/wp-config.php", "**/wp-config.php.*", "wp-config-*.php"],
+    })
+
+    # Assert.
+    assert [row["path"] for row in result["entries"]] == [
+        "wp-content/themes/acme/wp-config-sample.php"
+    ]
+
+
+def test_a_nested_variant_filename_is_kept() -> None:
+    # Arrange & Act — "wp-config-*.php" is the one entry whose basename can name
+    # something that is not a config copy at all, so it keeps the install-root
+    # anchoring #36 gave the whole family.
+    result = filter_on({
+        "entries": [entry("wp-content/plugins/acme/wp-config-local.php")],
+        "exclusions": ["wp-config-*.php"],
+    })
+
+    # Assert.
+    assert [row["path"] for row in result["entries"]] == [
+        "wp-content/plugins/acme/wp-config-local.php"
+    ]
+
+
 def test_a_root_env_file_is_dropped() -> None:
     result = filter_on({
         "entries": [entry(".env")],
