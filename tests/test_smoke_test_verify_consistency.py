@@ -203,3 +203,72 @@ def test_spec_testing_decisions_residual_paragraph_mentions_the_smoke_test_scrip
     assert "scripts/smoke_test.py" in match.group(0), (
         "docs/spec.md's 'Stated residual' paragraph never names scripts/smoke_test.py"
     )
+
+
+# --- Sample URLs are derived, not assembled (issue #60) ---------------------
+
+
+@pytest.mark.parametrize("skill", sorted(SKILLS))
+def test_verify_step_no_longer_assembles_the_sample_url_list(skill: str) -> None:
+    """The orchestration prose used to instruct the caller to assemble the
+    smoke-test URL list itself, which is the one expectation input a caller
+    can plausibly build wrongly — and a wrong one reads as a rewrite or flush
+    bug in the copy rather than as the bad expectation it is (issue #60). The
+    prose must now hand that job to the script, or the shipped instructions
+    put the defect back the code just removed."""
+
+    section = _verify_section(SKILLS[skill].read_text(encoding="utf-8"))
+    assert "`sampleUrls`" in section, f"{skill} SKILL.md's Verify step never names the sampleUrls key"
+    assert re.search(r"derives them from the copy", section, re.IGNORECASE), (
+        f"{skill} SKILL.md's Verify step never states that the script derives the sample URLs"
+    )
+    assert "drawn from the copy's own database" not in section, (
+        f"{skill} SKILL.md's Verify step still instructs the orchestrator to assemble the URL list"
+    )
+
+
+@pytest.mark.parametrize("skill", sorted(SKILLS))
+def test_verify_step_states_that_a_supplied_url_list_is_recorded_as_supplied(skill: str) -> None:
+    """The override survives — a genuinely odd site (a multilingual install's
+    localised subpage) would otherwise be untestable — but an unmarked
+    override reproduces the same defect one step further from the reader, so
+    the prose has to say the run's evidence records it."""
+
+    section = _verify_section(SKILLS[skill].read_text(encoding="utf-8"))
+    assert "recorded as `supplied`" in section, (
+        f"{skill} SKILL.md's Verify step never states that a supplied URL list is recorded as such"
+    )
+
+
+def test_spec_verify_section_states_that_the_sample_urls_are_derived() -> None:
+    """``docs/spec.md`` is the declared single source of truth: leaving it
+    describing a URL list the run assembles would have the spec contradict
+    both skills and the script itself."""
+
+    section = _spec_verify_section(SPEC.read_text(encoding="utf-8"))
+    assert re.search(r"derives them from the copy", section, re.IGNORECASE), (
+        "docs/spec.md's Verify section never states that the sample URLs are derived from the copy"
+    )
+
+
+def test_role_evidence_block_names_where_the_sample_urls_came_from() -> None:
+    """The run's evidence is where a later reader tells a derived expectation
+    from a supplied one, so the role that returns that evidence has to carry
+    the field — the script's report alone never reaches the run report."""
+
+    body = ROLE_FILE.read_text(encoding="utf-8")
+    assert "sample_urls_origin" in body, (
+        "the thumbnail-smoke-test role's evidence block never names sample_urls_origin"
+    )
+
+
+@pytest.mark.parametrize("skill", sorted(MANPAGES))
+def test_manpage_states_that_the_sample_urls_come_from_the_copy(skill: str) -> None:
+    """The manual pages are where an operator looks to learn what goes into a
+    hand-edited expectations file — and the answer for the sample URLs is now
+    "nothing, unless you mean to override them"."""
+
+    text = MANPAGES[skill].read_text(encoding="utf-8")
+    assert re.search(r"sample URLs[^.]*derived from the copy", text), (
+        f"{skill}.md never states that the sample URLs are derived from the copy"
+    )

@@ -21,7 +21,12 @@ run's lifecycle:
   segment decrypted (``crypto_secretbox_open``), and the whole reassembled — the
   table dumps concatenated into one importable ``.sql`` with a connection-safe
   preamble the plugin's per-table DDL lacks, and each file written to disk by its
-  installation-root-relative path.
+  installation-root-relative path. Its report counts the files that *landed*,
+  measured on disk, beside the ones it wrote, and names every group of paths a
+  normalising destination merged into one file — production is Linux, where two
+  spellings of the same name are two files, and the local copy usually lands on
+  APFS, where they are one. That is a property of the destination rather than a
+  fault in the transfer, so it is reported and never fatal (issue #57).
 - ``seal`` is a development/test aid that builds a container mirroring the
   plugin's PHP ``Sealed_Writer`` byte for byte, so the reader can be round-trip
   tested without the plugin. It is never used at run time.
@@ -63,6 +68,8 @@ import json
 import os
 import struct
 import sys
+import unicodedata
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -320,6 +327,41 @@ def _safe_destination(files_root: Path, name: str) -> Path:
     return destination
 
 
+def _normalisation_collisions(names: list[str]) -> list[list[str]]:
+    """Group the destination paths a normalising filesystem cannot keep apart.
+
+    Linux stores a filename's bytes verbatim, so an 'ö' written as one code
+    point and one written as 'o' plus a combining diaeresis are two files there;
+    APFS normalises, so writing both into one directory leaves the second
+    silently standing where the first was. Grouping by the NFC form of the whole
+    path is what isolates that — comparing the raw path bytes instead reports
+    every non-NFC name as a difference and buries the real collisions in it.
+
+    Pure in its input, needing no filesystem access: it says which paths *would*
+    merge on a normalising destination, never what did. What actually landed is
+    counted from the disk itself, by ``_distinct_files_landed``.
+    """
+
+    groups: dict[str, list[str]] = {}
+    for name in names:
+        groups.setdefault(unicodedata.normalize("NFC", name), []).append(name)
+
+    return [group for group in groups.values() if len(group) > 1]
+
+
+def _distinct_files_landed(destinations: Iterable[Path]) -> int:
+    """Count the distinct files ``destinations`` actually resolve to on disk.
+
+    Identity is the filesystem's own — the (device, inode) pair — rather than
+    the path string, because a destination that normalises Unicode or folds case
+    keeps a single file for two names the source kept apart. Counting the
+    entities written instead is what let a run report a complete transfer while
+    quietly holding fewer files than it wrote (issue #57).
+    """
+
+    return len({(status.st_dev, status.st_ino) for status in (path.stat() for path in destinations)})
+
+
 def run_unseal(config: dict[str, Any]) -> dict[str, Any]:
     """Open a downloaded container into the reassembled dump and its files.
 
@@ -370,6 +412,10 @@ def run_unseal(config: dict[str, Any]) -> dict[str, Any]:
     # Resolve every destination up front so a hostile path aborts before any write.
     destinations = {name: _safe_destination(files_root, name) for name in file_order}
 
+    # Establish which paths the destination cannot keep apart before writing any
+    # of them, so the report names both spellings and not merely the survivor.
+    collisions = _normalisation_collisions(file_order)
+
     sql_path.parent.mkdir(parents=True, exist_ok=True)
     sql_path.write_text("".join(sql_parts), encoding="utf-8")
 
@@ -383,6 +429,8 @@ def run_unseal(config: dict[str, Any]) -> dict[str, Any]:
         "tables_written": len(tables),
         "structure_only_written": len(structure_only),
         "files_written": len(file_order),
+        "files_landed": _distinct_files_landed(destinations.values()),
+        "normalisation_collisions": collisions,
         "bytes_sql": sql_path.stat().st_size,
     }
 
