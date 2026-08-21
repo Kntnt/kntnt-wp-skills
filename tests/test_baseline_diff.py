@@ -13,7 +13,13 @@ stdout, never a half-built document.
 
 Every test exercises that seam through the real command — fixtures or in-memory
 payloads in, observable output out — and never reaches into the helper's
-internals. No test touches a real site or the local filesystem tree: the
+internals, with one deliberate exception: the two halves of the boundary type
+check's ``bool`` case that no input can reach — a ``bool``-declared field, of
+which the module declares none, and an integer optional field, of which it has
+no call site — which are therefore driven by importing the helper, as
+``tests/test_discovery.py`` does for the same reason (ADR-0026). The three
+refusals a manifest entry can carry are driven through the command like
+everything else. No test touches a real site or the local filesystem tree: the
 manifests are exactly what the production-side emission would report, supplied as
 data. The load-bearing case is the scope-intersection rule — a directory
 excluded this run but still present on production must never look deleted — so it
@@ -34,6 +40,8 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+import baseline_diff
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 SCRIPT = Path(__file__).resolve().parent.parent / "skills" / "clone" / "scripts" / "baseline_diff.py"
@@ -557,3 +565,80 @@ def test_a_baseline_section_missing_scope_still_defaults_to_empty() -> None:
     # rejecting it for the missing key.
     assert result["new_or_changed"] == ["wp-content/plugins/acme/acme.php"]
     assert result["production_deleted"] == []
+
+
+def test_a_manifest_entry_with_a_boolean_size_fails_loudly() -> None:
+    # Arrange — `bool` subclasses `int` in Python, so a bare isinstance check
+    # accepts `true` for a size and weighs it as a one-byte file. Size is half
+    # the quick-check, so the entry would compare unequal to its baseline and be
+    # pulled, or equal to a genuine one-byte baseline and be skipped (ADR-0026).
+    payload = {
+        "baseline": {"scope": {"exclusions": []}, "entries": []},
+        "current": {
+            "scope": {"exclusions": []},
+            "entries": [{"path": "a.php", "size": True, "mtime": 1700000000}],
+        },
+    }
+
+    # Act.
+    result = run_diff(json.dumps(payload).encode())
+
+    # Assert — the same branded refusal every other type mismatch produces,
+    # naming the type that arrived.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"baseline-diff:")
+    assert b"must be int, got bool" in result.stderr
+
+
+def test_a_manifest_entry_with_a_boolean_mtime_fails_loudly() -> None:
+    # Arrange — the one live consequence in the set. The numeric reader accepts
+    # `(int, float)` and `float(True)` is `1.0`, so a boolean mtime reads as
+    # epoch+1s: the other half of the quick-check, able to call a file changed
+    # when it is not or unchanged when it is.
+    payload = {
+        "baseline": {"scope": {"exclusions": []}, "entries": []},
+        "current": {
+            "scope": {"exclusions": []},
+            "entries": [{"path": "a.php", "size": 1000, "mtime": True}],
+        },
+    }
+
+    # Act.
+    result = run_diff(json.dumps(payload).encode())
+
+    # Assert — refused in the numeric reader's own wording, not read as 1.0.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"baseline-diff:")
+    assert b"must be a number, got bool" in result.stderr
+
+
+def test_the_optional_check_refuses_a_boolean_for_an_int_field() -> None:
+    # Arrange — the paired sibling of the required check. Its three call sites
+    # today are all `dict` or `list`, so no fixture can reach it with an `int`
+    # and this is the only guard on the half of the contract the first integer
+    # optional field would depend on. #64 tightened both halves of the pair in
+    # the assembler together; this is the same, and driven the same way.
+
+    # Act & Assert — the narrowing reaches the optional half too, so the first
+    # integer call site added to it starts tight.
+    try:
+        baseline_diff._optional({"size": True}, "size", int, 0, "input")
+    except baseline_diff.DiffError as error:
+        assert "must be int, got bool" in str(error)
+    else:
+        raise AssertionError("a boolean was accepted for an int-declared optional field")
+
+
+def test_a_field_declared_bool_still_accepts_a_boolean() -> None:
+    # Arrange — the narrowing is "an int field rejects a bool", never "a bool is
+    # never a valid value". The module declares no bool field today, so no
+    # fixture reaches this half of the contract; the guard exists so the first
+    # bool field added is not broken by ADR-0026's narrowing.
+    payload = {"strict": True, "verbose": False}
+
+    # Act & Assert — required and optional alike take both booleans. The
+    # rejection half is pinned through the CLI by the two entry fields above.
+    assert baseline_diff._require(payload, "strict", bool, "input") is True
+    assert baseline_diff._optional(payload, "verbose", bool, True, "input") is False

@@ -10,7 +10,11 @@ full/empty classification, the deterministic blob heuristic, the thumbnail
 exclude-set, and the local project-name derivation. Every test exercises that
 seam through the real command — a canonical discovery document in as JSON on
 stdin, the classifications out as JSON on stdout — and never reaches into the
-helper's internals.
+helper's internals, with one deliberate exception: the boundary type check's
+``bool``-declared half, which the module declares no field of for a document to
+reach through and which is therefore driven by importing the helper, as
+``tests/test_discovery.py`` does for the same reason (ADR-0026). Its rejecting
+half is driven through the command like everything else.
 
 The canonical fixtures under ``fixtures/classify-*.json`` are shaped like
 ``scripts/discovery.py``'s output for the sections each exercises (tables, blobs,
@@ -29,6 +33,8 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+import classify
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 # ``classify.py`` is shipped by the portable ``mkwp`` skill, not the shared
@@ -1915,3 +1921,74 @@ def test_a_non_string_thumbnail_size_fails_loudly() -> None:
     assert result.returncode != 0
     assert result.stdout == b""
     assert result.stderr.startswith(b"classify:")
+
+
+def test_an_uploads_subdirectory_with_a_boolean_size_fails_loudly() -> None:
+    # Arrange — `bool` subclasses `int` in Python, so a bare isinstance check
+    # accepts `true` for a size. The uploads scan feeds every size into a median
+    # and an outlier comparison, where a boolean weighs one byte and drags the
+    # median it is measured against (ADR-0026).
+    document = {"uploads": {"subdirectories": [{"path": "galleries", "size_bytes": True}]}}
+
+    # Act.
+    result = run_classify(json.dumps(document).encode())
+
+    # Assert — the same branded refusal every other type mismatch produces,
+    # naming the type that arrived.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"classify:")
+    assert b"must be int, got bool" in result.stderr
+
+
+def test_a_root_subdirectory_with_a_boolean_size_fails_loudly() -> None:
+    # Arrange — the classifier's second `size_bytes` call site, the
+    # non-standard-directory scan (issue #38's stray root directory). It reads
+    # the same field through the same helper, and is reached under `root` and
+    # `content` rather than under `uploads`.
+    document = {
+        "site": {"content_path": "wp-content"},
+        "root": {"subdirectories": [{"path": "2026", "size_bytes": True}]},
+    }
+
+    # Act.
+    result = run_classify(json.dumps(document).encode())
+
+    # Assert.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"classify:")
+    assert b"must be int, got bool" in result.stderr
+
+
+def test_a_content_subdirectory_with_a_boolean_size_fails_loudly() -> None:
+    # Arrange — the other dispatch of that same scan. Both levels are reached
+    # from one `flag_all_blobs` call, so a fixture proving one does not prove
+    # the other actually runs the tightened check.
+    document = {
+        "site": {"content_path": "wp-content"},
+        "content": {"subdirectories": [{"path": "ai1wm-backups", "size_bytes": False}]},
+    }
+
+    # Act.
+    result = run_classify(json.dumps(document).encode())
+
+    # Assert.
+    assert result.returncode != 0
+    assert result.stdout == b""
+    assert result.stderr.startswith(b"classify:")
+    assert b"must be int, got bool" in result.stderr
+
+
+def test_a_field_declared_bool_still_accepts_a_boolean() -> None:
+    # Arrange — the narrowing is "an int field rejects a bool", never "a bool is
+    # never a valid value". The module declares no bool field today, so no
+    # document reaches this half of the contract through the command; the guard
+    # exists so the first bool field added is not broken by ADR-0026's
+    # narrowing. This is the suite's one reach into the helper's internals, for
+    # the same reason `tests/test_discovery.py` makes its own.
+    record = {"strict": True}
+
+    # Act & Assert — a bool-declared field takes a boolean. The rejection half
+    # is pinned through the command by the three size fields above.
+    assert classify._field(record, "strict", bool, "input") is True

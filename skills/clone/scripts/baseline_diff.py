@@ -75,6 +75,27 @@ class Manifest:
     entries: dict[str, Entry]
 
 
+def _has_type(value: Any, expected: type) -> bool:
+    """Report whether ``value`` satisfies an ``expected`` boundary type.
+
+    This is ``isinstance`` with a single narrowing: ``bool`` subclasses ``int``
+    in Python, so a bare check accepts ``True`` wherever an integer is required
+    — a manifest entry's ``size`` of ``true`` would pass the very check written
+    to reject it, and be compared against the baseline size as a 1. A field
+    declared ``int`` therefore refuses both booleans; a field declared ``bool``
+    is unaffected and every other type keeps plain ``isinstance`` semantics.
+
+    Both boundary helpers go through here, so what counts as an integer is
+    decided in exactly one place rather than per call site. Deliberately a copy
+    of the discovery assembler's predicate rather than an import of it: every
+    helper is a self-contained PEP 723 script with an empty dependency list, and
+    the rule lives in ADR-0026 rather than in a shared module (issue #70)."""
+
+    if expected is int and isinstance(value, bool):
+        return False
+    return isinstance(value, expected)
+
+
 def _require(mapping: Any, key: str, expected: type, context: str) -> Any:
     """Fetch ``mapping[key]``, asserting the mapping is an object and the value
     has the expected type; raise :class:`DiffError` with a precise message
@@ -85,7 +106,7 @@ def _require(mapping: Any, key: str, expected: type, context: str) -> Any:
     if key not in mapping:
         raise DiffError(f"{context}: missing required field {key!r}")
     value = mapping[key]
-    if not isinstance(value, expected):
+    if not _has_type(value, expected):
         raise DiffError(
             f"{context}: field {key!r} must be {expected.__name__}, "
             f"got {type(value).__name__}"
@@ -103,7 +124,7 @@ def _optional(
     if key not in mapping:
         return default
     value = mapping[key]
-    if not isinstance(value, expected):
+    if not _has_type(value, expected):
         raise DiffError(
             f"{context}: field {key!r} must be {expected.__name__}, "
             f"got {type(value).__name__}"
@@ -115,12 +136,19 @@ def _number(mapping: dict[str, Any], key: str, context: str) -> float:
     """Fetch a required numeric ``mapping[key]`` as a float, accepting an integer
     or fractional mtime alike and rejecting anything else loudly. mtime is the
     half of the quick-check that a string or object would silently poison, so it
-    is validated at the boundary rather than trusted."""
+    is validated at the boundary rather than trusted.
+
+    The ``bool`` refusal is spelled out here rather than delegated to
+    :func:`_has_type`, whose narrowing keys on ``expected is int`` and cannot
+    speak for a tuple of accepted types. It is ordered ahead of the numeric
+    check for the same reason ``wpconfig_block.py``'s define writer orders its
+    own: ``float(True)`` is ``1.0``, so a boolean mtime would be read as one
+    second past the epoch and quietly decide the quick-check either way."""
 
     if key not in mapping:
         raise DiffError(f"{context}: missing required field {key!r}")
     value = mapping[key]
-    if not isinstance(value, (int, float)):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise DiffError(
             f"{context}: field {key!r} must be a number, got {type(value).__name__}"
         )
