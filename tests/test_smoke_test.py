@@ -2307,3 +2307,36 @@ def test_verify_mode_exits_could_not_run_when_a_check_raises(
 
     assert status == smoke_test.EXIT_COULD_NOT_RUN
     assert capsys.readouterr().err.strip()
+
+
+def test_verify_mode_exits_could_not_run_when_the_report_cannot_be_emitted(
+    clone_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    """A report that cannot be written is a step that could not finish, not a
+    copy that is wrong. The realistic cause is ENOSPC — the engine has just
+    written a multi-gigabyte unsealed tree into this same scratchpad — and an
+    unguarded write would exit 1, the one code reserved for a defective copy
+    and the one the phase turns into a destructive close-out. Every check here
+    passed, so 1 would condemn a healthy clone over a full disk."""
+
+    expectations_path = tmp_path / "expectations.json"
+    expectations_path.write_text(json.dumps({"savedPlan": True}), encoding="utf-8")
+    monkeypatch.setattr(
+        smoke_test,
+        "run_checks",
+        lambda *args, **kwargs: {"ok": True, "summary": {"pass": 1, "fail": 0, "attention": 0, "skip": 0}, "checks": []},
+    )
+
+    # A regular file where the log path needs a directory: the mkdir raises
+    # exactly as a full or read-only filesystem would, without depending on
+    # permissions the test runner may be able to ignore.
+    blocked = tmp_path / "not-a-directory"
+    blocked.write_text("", encoding="utf-8")
+
+    status = smoke_test._main_verify(
+        [str(clone_dir), str(expectations_path), "--log", str(blocked / "report.json")]
+    )
+
+    assert status == smoke_test.EXIT_COULD_NOT_RUN
+    assert status != smoke_test.EXIT_COPY_DEFECTIVE
+    assert capsys.readouterr().err.strip()

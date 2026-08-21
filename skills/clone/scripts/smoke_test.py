@@ -1590,17 +1590,29 @@ def _main_verify(args: list[str]) -> int:
         return EXIT_COULD_NOT_RUN
 
     # Quiet mode routes the whole report to disk; the default keeps the
-    # long-standing contract of emitting it on stdout.
-    if report_path is not None:
-        report_path.parent.mkdir(parents=True, exist_ok=True)
-        report_path.write_text(
-            json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-        )
-        json.dump(_quiet_summary(report, report_path), sys.stdout, sort_keys=True)
-    else:
-        json.dump(report, sys.stdout, indent=2, sort_keys=True)
+    # long-standing contract of emitting it on stdout. Emitting it is guarded
+    # for the same reason running the checks is: a report that cannot be
+    # written says nothing about the copy, and the realistic cause is ENOSPC —
+    # the engine has just written a multi-gigabyte unsealed tree into this same
+    # scratchpad — or a --log path the caller cannot write to. Left unguarded,
+    # either would raise past `main()` and exit 1, which is the one code this
+    # script reserves for a defective copy and the one the phase turns into a
+    # destructive close-out, so a healthy clone would be condemned by a full
+    # disk (issue #59).
+    try:
+        if report_path is not None:
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(
+                json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
+            json.dump(_quiet_summary(report, report_path), sys.stdout, sort_keys=True)
+        else:
+            json.dump(report, sys.stdout, indent=2, sort_keys=True)
+        sys.stdout.write("\n")
+    except Exception as error:
+        print(f"smoke_test: the report could not be emitted: {error!r}", file=sys.stderr)
+        return EXIT_COULD_NOT_RUN
 
-    sys.stdout.write("\n")
     return EXIT_OK if report["ok"] else EXIT_COPY_DEFECTIVE
 
 
