@@ -24,6 +24,15 @@ still resolve — so a later edit that reaches out of the skill tree, that
 re-hides a skill from the channel it was made portable for, or that points a
 plugin-only surface at a helper's old home reddens here rather than shipping a
 skill that cannot run in the channel it was offered to (issues #50, #51, #52).
+
+What a copied directory can resolve is read from **every** Markdown document
+the skill ships, not merely the ones a run executes: narrowing that set to
+SKILL.md and the role files was how a design rationale's `../../docs/adr/…`
+citation reached out of the skill tree unseen (issues #69, #76). The two
+repository-wide link invariants that sit beside this one — that a relative link
+resolves from its own file's directory, and that a `blob/main` URL into this
+repository names a path that exists — live in
+``test_documentation_links.py``.
 """
 
 from __future__ import annotations
@@ -153,11 +162,20 @@ def _is_shipped_source(path: Path) -> bool:
 
 
 def _documents(skill_dir: Path) -> list[Path]:
-    """Every Markdown document a skill ships that names paths to be resolved:
-    its SKILL.md and, where it has them, its role files — the instructions a
-    delegated or inline executor follows step by step."""
+    """Every Markdown document a skill ships — its SKILL.md, its role files, its
+    reference documents, its design rationale, the README beside its templates.
 
-    return [skill_dir / "SKILL.md", *sorted((skill_dir / "roles").glob("*.md"))]
+    The set used to be SKILL.md plus the role files, on the reasoning that those
+    are the instructions an executor follows step by step. The mechanism was
+    right and the document set was the blind spot: a design rationale a SKILL.md
+    sends readers to by name is read by whoever installed the skill alone, and
+    the path it cites has to resolve there too. Narrowing to the documents that
+    drive a run let exactly that link dangle unseen (issues #69, #76), so the
+    set is now every Markdown file under the skill directory — the interpreter's
+    bytecode cache excluded for the reason `_is_shipped_source` gives.
+    """
+
+    return [path for path in sorted(skill_dir.rglob("*.md")) if _is_shipped_source(path)]
 
 
 def _mentioned_paths(document: Path) -> list[str]:
@@ -291,6 +309,42 @@ def test_the_portable_skill_names_no_plugin_root(skill: str) -> None:
     assert not offenders, (
         "a portable skill names CLAUDE_PLUGIN_ROOT, which resolves only "
         f"inside a plugin install: {offenders}"
+    )
+
+
+# The documents that ship inside a skill but drive no step of a run, and were
+# therefore never read by the standalone check until issue #76 widened it. Named
+# one by one rather than derived, so re-narrowing the document set reddens here
+# with the documents it dropped instead of silently checking fewer of them.
+DOCUMENTS_BEYOND_THE_SKILL_AND_ITS_ROLES: dict[str, tuple[str, ...]] = {
+    "build-ollie-site": (
+        "DESIGN-RATIONALE.md",
+        "references/cartography.md",
+        "references/components.md",
+        "references/foundation.md",
+        "references/markup.md",
+        "references/ollie-errata.md",
+        "references/pages.md",
+        "references/sections.md",
+    ),
+    "clone": ("templates/README.md",),
+}
+
+
+@pytest.mark.parametrize("skill", sorted(DOCUMENTS_BEYOND_THE_SKILL_AND_ITS_ROLES))
+def test_the_standalone_check_reads_every_document_the_skill_ships(skill: str) -> None:
+    """The standalone reach is checked over every Markdown document a skill
+    ships, not merely the ones a run executes: a reference file, an errata
+    catalogue, a design rationale and a templates README are read by whoever
+    installed the skill on its own, and a path any of them names has to resolve
+    there."""
+
+    directory = SKILLS_DIR / skill
+    read = {path.relative_to(directory).as_posix() for path in _documents(directory)}
+    missing = set(DOCUMENTS_BEYOND_THE_SKILL_AND_ITS_ROLES[skill]) - read
+    assert not missing, (
+        f"the standalone check never reads {skill}'s {sorted(missing)}, so a "
+        "path they name could dangle for a standalone reader unseen"
     )
 
 
