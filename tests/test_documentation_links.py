@@ -129,10 +129,28 @@ def _text(path: str) -> str:
     return (REPO_ROOT / path).read_text(encoding="utf-8", errors="ignore")
 
 
+# The one directory whose Markdown is not read where it sits. An unattended
+# run stages the lines a ticket owes a shared file — `CHANGELOG.md` above all —
+# as a note under `.kntnt-orchestrate/`, and applies them to the real file after
+# the wave merges, so that appends made one after another cannot collide. A note
+# therefore carries the entry's text *as it is to read at its destination*,
+# which puts its relative links on the destination's directory rather than on
+# the note's. Reading them against the note's own directory asks the wrong
+# question, and the answer would be a builder rewriting the staged text into
+# something that no longer matches what lands. The absolute-URL sweep below
+# still covers these files: its question — does this repository hold the file
+# this path names? — is the same wherever the document sits.
+STAGED_ENTRY_DIRECTORY: str = ".kntnt-orchestrate/"
+
 # Values fixed at collection time so each document reports as its own case. The
 # absolute-URL corpus is keyed by file so a failure names the file that carries
 # the dead citation, and only the files that carry one become cases.
 TRACKED_MARKDOWN: list[str] = _tracked("*.md")
+RELATIVE_LINK_CORPUS: list[str] = [
+    document
+    for document in TRACKED_MARKDOWN
+    if not document.startswith(STAGED_ENTRY_DIRECTORY)
+]
 REPOSITORY_BLOB_PATHS: dict[str, list[str]] = {
     path: paths
     for path in _tracked("*")
@@ -140,7 +158,7 @@ REPOSITORY_BLOB_PATHS: dict[str, list[str]] = {
 }
 
 
-@pytest.mark.parametrize("document", TRACKED_MARKDOWN)
+@pytest.mark.parametrize("document", RELATIVE_LINK_CORPUS)
 def test_every_relative_markdown_link_resolves_from_its_own_directory(
     document: str,
 ) -> None:
@@ -164,10 +182,10 @@ def test_the_relative_link_sweep_examines_a_non_empty_set() -> None:
     and they do carry relative links. A link pattern that stopped matching would
     otherwise leave every one of those cases passing vacuously."""
 
-    assert TRACKED_MARKDOWN, "git reports no tracked Markdown files"
+    assert RELATIVE_LINK_CORPUS, "git reports no tracked Markdown files to sweep"
     targets = [
         target
-        for document in TRACKED_MARKDOWN
+        for document in RELATIVE_LINK_CORPUS
         for target in _linked_paths(_text(document))
     ]
     assert targets, (

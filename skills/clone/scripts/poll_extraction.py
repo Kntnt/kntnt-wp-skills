@@ -16,6 +16,13 @@ process's environment. It is never accepted on argv, never printed, and never
 logged. Invoke the process with the variable in that one environment — prefix
 form, not ``export`` — so the secret exists only inside the call that uses it.
 
+Given ``--job-record``, a terminal verdict also folds the skip list the job
+reported into that record, so the unseal reconciles against every path the
+plugin dropped rather than only those it knew about at create (issue #78,
+Extractor ADR-0026). The argument is optional and absent by default: the
+preflight polls a throwaway job that has no record, and passing none merges
+nothing.
+
 Stdout is one JSON object with ``verdict``, ``observed``, and ``inferred``
 separated. The progress log — including ``gave up after N minutes`` when a
 stall window or a bounded loop's budget expires — goes to stderr, or to the
@@ -69,6 +76,18 @@ PASSWORD_ENV = "KNTNT_EXTRACTOR_APP_PASSWORD"
 
 # Existing cache-buster query name — not a new discipline literal.
 CACHE_BUSTER_PARAM = "_cb"
+
+# The job record's two skip lists. The create-time one keeps the name and the
+# meaning ``extract-submit`` already writes it under, so a record written
+# before this helper learned to merge stays readable; the packaging-time one is
+# its sibling, holding the paths a poll reported that the create did not.
+CREATE_TIME_SKIPS_KEY = "skipped_files"
+PACKAGING_TIME_SKIPS_KEY = "packaging_skipped_files"
+
+# The verdicts whose observed payload came from the job's own body, and which
+# therefore carry a skip list worth recording. Every other verdict — a stall, a
+# spent budget, a cache hit, a vanished job — observed nothing about packaging.
+_MERGING_VERDICTS: frozenset[str] = frozenset({"ready", "failed"})
 
 # Cache-hit headers an authenticated Extractor call must never accept.
 _CACHE_HIT_HEADERS: tuple[tuple[str, str], ...] = (
@@ -292,6 +311,88 @@ def _result(
             "gave_up_after_minutes": gave_up_after_minutes,
         },
     )
+
+
+def _path_list(value: Any) -> list[str]:
+    """The string members of a value that may not be a list of strings at all.
+
+    Both inputs to the merge cross a boundary — one a REST payload, the other a
+    file an agent wrote — so neither is trusted to be the shape it should be.
+    """
+
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
+
+
+def merge_skipped_files(record: Mapping[str, Any], observed: Any) -> dict[str, Any]:
+    """Fold a poll's skip list into a job record, returning the merged record.
+
+    ``strict: false`` no longer settles at create: a file that vanishes during
+    packaging is skipped hours after the ``201`` was answered, so the create's
+    list is a lower bound and the poll's is the whole of it (Extractor
+    ADR-0026). The two causes stay distinguishable because they mean different
+    things — a file deleted while the client was looking at it, and production
+    mutating mid-extraction — and are unioned only where the unseal needs one
+    list.
+
+    The union never shrinks: a path the record holds and the poll omits stays,
+    because the client must not depend on the plugin appending rather than
+    rewriting. It is also idempotent, since a lost poller is a re-poll against
+    the same job and the same record.
+
+    Args:
+        record: The job record as it stands on disk.
+        observed: The ``skipped_files`` the terminal poll reported.
+
+    Returns:
+        A new record whose create-time list is untouched and whose
+        packaging-time list holds every observed path the create did not name.
+    """
+
+    created = _path_list(record.get(CREATE_TIME_SKIPS_KEY))
+    known = _path_list(record.get(PACKAGING_TIME_SKIPS_KEY))
+
+    # Everything skipped after create, in the order it was first seen, with the
+    # create-time paths held out so the two sets stay separately recoverable.
+    packaging: list[str] = []
+    for path in [*known, *_path_list(observed)]:
+        if path not in created and path not in packaging:
+            packaging.append(path)
+
+    return {**record, PACKAGING_TIME_SKIPS_KEY: packaging}
+
+
+def _merge_into_job_record(path: Path, observed: Any, stream: TextIO) -> None:
+    """Rewrite the job record with the poll's skips folded in, or say why not.
+
+    A record that cannot be read or written is logged rather than raised: the
+    verdict this poll reached is about the job, the exit code is what the
+    orchestrator acts on, and losing a ``ready`` over a local file would leave a
+    finished extraction published on production with nobody closing it out. The
+    unseal fails loudly on the frozen list afterwards, which is the status quo
+    this merge improves on rather than a new failure it introduces.
+    """
+
+    # Read the record. A file that is unreadable, undecodable, not JSON, or not
+    # a JSON object is one this poll cannot merge into and says so.
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        _log(stream, f"could not read the job record at {path}: {error!s}")
+        return
+    if not isinstance(record, dict):
+        _log(stream, f"the job record at {path} is not a JSON object; not merged")
+        return
+
+    # Write the merged record back over the one that was read.
+    try:
+        path.write_text(
+            json.dumps(merge_skipped_files(record, observed), indent=2) + "\n",
+            encoding="utf-8",
+        )
+    except OSError as error:
+        _log(stream, f"could not write the job record at {path}: {error!s}")
 
 
 def _backoff_seconds(consecutive_failures: int) -> int:
@@ -600,6 +701,15 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Write the progress log to this file instead of stderr",
     )
+    parser.add_argument(
+        "--job-record",
+        type=Path,
+        default=None,
+        help=(
+            "Job record to fold this poll's skipped_files into on a terminal "
+            "verdict; omit it and nothing is merged"
+        ),
+    )
     return parser
 
 
@@ -625,7 +735,9 @@ def main(
     clock: Clock | None = None,
     cache_buster: Callable[[], str] | None = None,
 ) -> int:
-    """CLI entry: parse argv, read the secret from the environment, poll, emit JSON."""
+    """CLI entry: parse argv, read the secret from the environment, poll, merge,
+    emit JSON. The merge happens only when ``--job-record`` names one and the
+    verdict is terminal."""
 
     env = os.environ if environ is None else environ
     parser = _build_parser()
@@ -657,6 +769,17 @@ def main(
             clock=clock if clock is not None else _RealClock(),
             cache_buster=cache_buster if cache_buster is not None else _new_cache_buster,
             log=log,
+        )
+
+    # Carry the skips this poll observed to the record the unseal reconciles
+    # against. Only a verdict read off the job's own body has seen any, and the
+    # record's digest is checked before the poll rather than after it, so a
+    # record this rewrites breaks nothing downstream. A merge that could not
+    # happen is reported on stderr rather than into --log: the progress file is
+    # closed by now, and this is the one line whose reader is the orchestrator.
+    if args.job_record is not None and result.verdict in _MERGING_VERDICTS:
+        _merge_into_job_record(
+            args.job_record, result.observed.get("skipped_files"), sys.stderr
         )
 
     print(json.dumps(result.to_json(), separators=(",", ":")))

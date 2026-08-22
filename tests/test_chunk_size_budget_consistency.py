@@ -233,7 +233,11 @@ def test_the_degraded_report_gains_the_ignored_member_bullet(
 
     text = read(path)
     bullet = next(
-        (line for line in text.splitlines() if line.startswith("- **`honours`")),
+        (
+            line
+            for line in text.splitlines()
+            if line.startswith("- **`honours`") and "chunk_size" in line
+        ),
         None,
     )
     assert bullet is not None, (
@@ -265,8 +269,8 @@ def test_the_degraded_lead_in_does_not_suppress_the_new_bullet(
         "the API version, suppressing the honours-keyed bullet on a host at the "
         "ceiling"
     )
-    assert "there are four" in lead_in, (
-        f"the {skill} lead-in still counts the old three degraded behaviours"
+    assert "there are five" in lead_in, (
+        f"the {skill} lead-in miscounts the degraded behaviours the list holds"
     )
 
 
