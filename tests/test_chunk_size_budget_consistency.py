@@ -269,7 +269,7 @@ def test_the_degraded_lead_in_does_not_suppress_the_new_bullet(
         "the API version, suppressing the honours-keyed bullet on a host at the "
         "ceiling"
     )
-    assert "there are five" in lead_in, (
+    assert "there are four" in lead_in, (
         f"the {skill} lead-in miscounts the degraded behaviours the list holds"
     )
 

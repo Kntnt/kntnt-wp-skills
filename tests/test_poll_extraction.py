@@ -439,6 +439,31 @@ def test_chunks_done_absent_flag_matches_which_window_fired() -> None:
     assert wide_result.inferred["chunks_done_absent"] is True
 
 
+def test_the_widened_window_survives_the_raised_api_version_floor() -> None:
+    """Raising the floor to the ceiling (ADR-0037) does not make this fallback
+    dead, and the guard is why: the widening keys on the counter being *observed*
+    absent, not on a version comparison. ``chunks_done`` is an honours name, so a
+    build reporting ``api_version: 7`` may still not send it — the one question
+    the version number provably cannot answer (Extractor ADR-0017, issue #79)."""
+
+    clock = FakeClock()
+    # A host at the floor, and at the ceiling, that does not honour the member:
+    # the body carries the coarse counters and no ``chunks_done``.
+    stuck = _job(
+        "running",
+        progress={"tables_done": 3, "tables_total": 186, "files_done": 0, "files_total": 0},
+    )
+    polls_past_narrow_window = (pe.STALL_WINDOW_SECONDS // pe.POLL_CADENCE_SECONDS) + 2
+    ready = _job("ready", download_url="https://example.com/dl")
+    result = _poll(
+        {_job_path(): [stuck] * polls_past_narrow_window + [ready]}, clock=clock
+    )
+
+    assert result.verdict == "ready"
+    assert result.inferred["chunks_done_absent"] is True
+    assert clock.t > pe.STALL_WINDOW_SECONDS
+
+
 def test_unbounded_advancing_job_is_not_budget_killed() -> None:
     """Main extraction has no overall budget: a slow-but-advancing job reaches ready."""
 

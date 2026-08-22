@@ -379,6 +379,26 @@ def test_a_pre_protocol_null_keeps_the_value_based_verdict() -> None:
     assert excluded_reasons(classifications).get("SOME_API_KEY") == "value_withheld_pre_protocol"
 
 
+def test_the_value_based_fallback_survives_the_raised_api_version_floor() -> None:
+    # Arrange — a host at the raised floor, and at the ceiling, whose `honours`
+    # list does not name `disclosure`. `disclosure` is an honours name, so the
+    # version number never guaranteed the discriminator would be there and the
+    # raised floor does not either (ADR-0037, issue #79). The record carries no
+    # discriminator, and that omission is the whole of the signal.
+    document = {
+        "api_version": 7,
+        "honours": ["chunk_size", "strict"],
+        "defines": [{"name": "SOME_API_KEY", "value": None}],
+    }
+
+    # Act.
+    classifications = classify_document(document)
+
+    # Assert — the fallback is still reached, so the define is still not ported.
+    assert excluded_classes(classifications).get("SOME_API_KEY") == "withheld"
+    assert excluded_reasons(classifications).get("SOME_API_KEY") == "value_withheld_pre_protocol"
+
+
 def test_a_name_classified_define_ignores_its_disclosure() -> None:
     # Arrange — a credential the server chose to disclose. The client's own
     # name-based class must win before the discriminator is consulted at all.

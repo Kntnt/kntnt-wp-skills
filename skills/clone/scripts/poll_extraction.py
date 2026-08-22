@@ -56,12 +56,14 @@ from typing import Any, Protocol, TextIO
 # The eight pinned poll-discipline literals (ADR-0018). Move them; do not
 # invent new ones. Preflight and bootstrap pass their budget as argv; the
 # main extraction omits it. COARSE_STALL_WINDOW_SECONDS is the wider window
-# that applies once chunks_done is observed absent: below API version 6 the
-# remaining counters, tables_done and files_done, move only when a whole
-# table or file finishes, so they stand still for minutes at a time on a
-# completely healthy job slicing one large table. 2400 is not a guess — it
-# is the value a live production run against an API-version-5 Extractor was
-# manually widened to before it completed.
+# that applies once chunks_done is observed absent — the guard is the
+# counter's absence from the body, never a version comparison, because
+# chunks_done is an honours name and no version number says whether a build
+# reports it. Without it the remaining counters, tables_done and files_done,
+# move only when a whole table or file finishes, so they stand still for
+# minutes at a time on a completely healthy job slicing one large table.
+# 2400 is not a guess — it is the value a live production run against a host
+# reporting no chunks_done was manually widened to before it completed.
 POLL_CADENCE_SECONDS = 15
 PER_REQUEST_TIMEOUT_SECONDS = 120
 BACKOFF_FIRST_SECONDS = 30

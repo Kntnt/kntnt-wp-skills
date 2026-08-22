@@ -28,7 +28,7 @@ The shared machinery `clone` and `pull` run — discovery, extraction on product
 The [Kntnt Extractor](https://github.com/Kntnt/kntnt-extractor) plugin's REST API on the production site — the sole way the skills reach production. There is no SSH ([ADR-0016](docs/adr/0016-kntnt-extractor-replaces-novamira-as-control-channel.md), superseding [ADR-0001](docs/adr/0001-novamira-mcp-sole-control-channel.md)).
 
 **Health check**:
-Mandatory step 0 of every run: verify every local and production dependency the run needs, that the Extractor endpoint is live and at API ≥ 2 (`status` handshake), authorised and targeting production (its `environment` `home_url`), that any stranded earlier job is swept, and that the download path serves — before any heavy work, with guided remediation on anything missing.
+Mandatory step 0 of every run: verify every local and production dependency the run needs, that the Extractor endpoint is live and at API ≥ 7 and ≤ 7 (`status` handshake), authorised and targeting production (its `environment` `home_url`), that any stranded earlier job is swept, and that the download path serves — before any heavy work, with guided remediation on anything missing.
 
 **Discovery**:
 The read-only, two-phase production scan — reconstructed client-side from Kntnt Extractor's `environment`, `tables`, and `files` calls plus a bootstrap extraction parsed locally (small only where `wp_postmeta` is small — a premise, [ADR-0017](docs/adr/0017-discovery-over-extractor-rest-two-phase.md)) — that feeds every live-derived recommendation: sizes, versions, prefix, drop-ins, the mass-send risk scan, the thumbnail exclude-list.
@@ -115,7 +115,7 @@ The number of bytes the Extractor packages each file part to, sent on the main e
 _Avoid_: chunk size (as the operator-facing term), slice budget (that is the table-side knob, which nothing here moves)
 
 **Honours list**:
-The `honours` member the **authenticated** `GET /status` reports: the additive request members this host actually acts on. Read once in the health check's identity step and carried through the run the way the API version is — passed through, never re-fetched. It never decides what a run sends; it decides only what the run's report can tell the operator was ignored.
+The `honours` member the **authenticated** `GET /status` reports: the additive request members this host actually acts on. Read once in the health check's identity step and carried through the run the way the API version is — passed through, never re-fetched. It never decides what a run sends; it decides what the run's report can tell the operator was ignored, and it is the only discriminator there is for a behaviour-level member — the Extractor ships those additively, without moving `api_version`, so no version number and no API-version floor answers whether a build honours a name.
 _Avoid_: capability list, feature flags
 
 **Skipped file**:
@@ -192,7 +192,7 @@ _Avoid_: project root, working directory, cwd (as a synonym — the root is a sp
 The clearly delimited section the skills own in the local `wp-config.php` — ported production defines and the table prefix — separate from mkwp's DDEV block.
 
 **Withheld define**:
-A production define the auto-excluded class claims per record rather than by name, never ported and always reported with its reason. The Extractor's `disclosure` discriminator decides — `secret`, `not_allow_listed`, or any verdict this client does not recognise — never the value, which the protocol forbids reading it from; a value-based verdict survives only against an Extractor predating the discriminator. A define the server disclosed whose live value is `null` is not withheld, and is reported as its own case, but is not ported either.
+A production define the auto-excluded class claims per record rather than by name, never ported and always reported with its reason. The Extractor's `disclosure` discriminator decides — `secret`, `not_allow_listed`, or any verdict this client does not recognise — never the value, which the protocol forbids reading it from; a value-based verdict survives only for a record carrying no discriminator at all, which the raised API-version floor does not make unreachable, because `disclosure` is a name on the `honours` list rather than a promise of any API version. A define the server disclosed whose live value is `null` is not withheld, and is reported as its own case, but is not ported either.
 
 **Preserved inactive set**:
 The locally deactivated plugins, derived from live local state each `pull` and re-applied after import.

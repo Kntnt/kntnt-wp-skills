@@ -2,7 +2,7 @@
 # requires-python = ">=3.12"
 # dependencies = ["pytest==8.3.4"]
 # ///
-"""API-version ceiling consistency test — the cross-repo tripwire.
+"""API-version pin consistency test — the cross-repo tripwire.
 
 The Extractor's API version governs the *artifact's* shape, not only its REST
 surface. Version 5 changed a table from exactly one sealed segment into one or
@@ -18,11 +18,21 @@ Extractor API version this client has actually been checked against. A
 `GET /status` reporting more than that stops for the operator rather than
 proceeding on an unverified artifact contract.
 
+Floor and ceiling are now the same number (ADR-0037). ``api_version`` moves only
+when the container shape moves, which is exactly when this client must stop and
+be re-verified, so accepting one version is the honest statement of what has
+been checked rather than a brittle pin. It also means a version-conditioned
+back-compat path below the ceiling is unreachable, and that no version number
+answers a *behaviour*-level question at all: the Extractor ships caller-visible
+behaviour additively, on its ``honours`` list, without moving ``api_version``
+(Extractor ADR-0017).
+
 This suite is the anti-drift binding. Every surface that states the floor must
-state the ceiling, at the same number, and no surface may revert to a
-floor-only pin. Raising the ceiling is therefore a deliberate edit here plus a
-matching edit in every surface — which is the point: it makes verifying against
-a new Extractor release a conscious act rather than an omission.
+state the ceiling, at the same number, no surface may revert to a floor-only
+pin, and no surface may keep a floor this suite has moved past. Moving either
+bound is therefore a deliberate edit here plus a matching edit in every surface
+— which is the point: it makes verifying against a new Extractor release a
+conscious act rather than an omission.
 """
 
 from __future__ import annotations
@@ -45,9 +55,13 @@ REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 # for the artifact question directly.
 VERIFIED_CEILING: int = 7
 
-# The floor, unchanged since it was set: the version that ships the environment
-# endpoint, structure-only extraction, and caller job listing together.
-FLOOR: int = 2
+# The floor: the version production actually runs, raised from 2 to meet the
+# ceiling (ADR-0037). Below it the client refuses, so every version-conditioned
+# back-compat path under the ceiling is unreachable and none may be re-added.
+# The floor is not a behaviour guarantee — a build at this version may still
+# not honour any given ``honours`` name — only a statement about the container
+# contract this client has been verified against.
+FLOOR: int = 7
 
 # Every surface that states the version pin. Each must carry both bounds, so a
 # reader who loads only one of them still learns the whole rule.
@@ -68,6 +82,27 @@ LIVE_SURFACES: tuple[Path, ...] = (
     REPO_ROOT / "docs" / "spec.md",
     REPO_ROOT / "docs" / "implementation-notes.md",
 )
+
+# Every surface a reader could take the floor from — the live ones an agent
+# loads, plus the two front doors an operator reads before ever running the
+# skill. A stale floor left standing on any of them is a compatibility promise
+# nothing behind it keeps.
+FLOOR_STATING_SURFACES: tuple[Path, ...] = tuple(
+    dict.fromkeys(
+        (
+            *LIVE_SURFACES,
+            *PINNING_SURFACES,
+            REPO_ROOT / "CONTEXT.md",
+            REPO_ROOT / "README.md",
+        )
+    )
+)
+
+# Every way a surface writes the floor in prose: "API version ≥ N", "API ≥ N".
+# The ADRs and CHANGELOG.md are deliberately outside the scan — both are dated
+# records of what was true when they were written, not live statements of the
+# pin, and rewriting history to match a raise is the opposite of the point.
+FLOOR_PATTERN: re.Pattern[str] = re.compile(r"API(?: version)? ≥ (\d+)")
 
 
 @pytest.mark.parametrize(
@@ -108,10 +143,27 @@ def test_no_live_surface_carries_a_floor_only_pin(path: Path) -> None:
     That sentence is what let an unverified artifact shape through unremarked."""
 
     text = path.read_text(encoding="utf-8")
-    assert "pin Extractor to API version ≥ 2**" not in text, (
+    assert f"pin Extractor to API version ≥ {FLOOR}**" not in text, (
         f"{path.relative_to(REPO_ROOT)} carries the floor-only pin sentence — "
         "the pin is a range, and the ceiling is the half that catches an "
         "artifact contract this client has not been verified against"
+    )
+
+
+@pytest.mark.parametrize(
+    "path", FLOOR_STATING_SURFACES, ids=lambda p: str(p.relative_to(REPO_ROOT))
+)
+def test_no_surface_states_a_stale_floor(path: Path) -> None:
+    """No surface still tells a reader the client accepts a version it now
+    refuses. A stale floor is worse than a missing one: it promises support for
+    hosts nothing behind it has been checked against, and it authorises
+    back-compat prose for Extractors no run can reach."""
+
+    text = path.read_text(encoding="utf-8")
+    stale = sorted({int(m.group(1)) for m in FLOOR_PATTERN.finditer(text)} - {FLOOR})
+    assert not stale, (
+        f"{path.relative_to(REPO_ROOT)} states an API-version floor of "
+        f"{stale} where the floor is {FLOOR}"
     )
 
 
