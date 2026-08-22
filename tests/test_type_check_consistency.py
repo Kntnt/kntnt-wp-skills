@@ -22,9 +22,13 @@ from one another:
   reader to notice an omission.
 - **What the command provisions.** ``mypy`` cannot read a PEP 723 header, so
   the one third-party dependency any checked helper declares has to be named a
-  second time in the documented command. A second copy of a pinned version is
-  a drift hazard, so the helper's own header is the source of truth and the
-  three verification surfaces that quote the command are checked against it.
+  second time in the documented command. Every further copy of a pinned version
+  is a drift hazard, so the helper's own header is the source of truth and every
+  surface that quotes the command is checked against it — the four that instruct
+  a reader how to run it, and
+  [ADR-0032](../docs/adr/0032-strict-type-checking-is-enforced-ruff-is-advisory.md)
+  itself, which quotes it in a code fence and would otherwise go quietly stale
+  while the surfaces around it reddened.
 - **What the standard claims.** Strict type checking is enforced; ruff is the
   chosen linter but is unconfigured and advisory until a ruleset is pinned, so
   the result of a bare ruff run is not a verdict on a change. The standard has
@@ -63,13 +67,24 @@ EXCLUDED_HELPER_HOME: str = "skills/build-ollie-site/scripts"
 PYTHON_FLOOR: str = ">=3.12"
 DEPENDENT_HELPER: str = "skills/clone/scripts/unseal.py"
 
-# The three verification surfaces that quote the type-check command, and so
-# have to quote it at the pin the dependent helper's own header declares.
-COMMAND_SURFACES: tuple[str, ...] = (
+# The surfaces that tell a reader how to run the check. Every one of them
+# quotes the command, so every one of them has to quote it at the pin the
+# dependent helper's own header declares.
+PRESCRIPTIVE_SURFACES: tuple[str, ...] = (
     "CONTRIBUTING.md",
     "agents.d/coding-standard/python.md",
     "plans/README.md",
+    "pyproject.toml",
 )
+
+# The decision's own record. It quotes the command too, and is held to the pin
+# for the same reason — but it is deliberately kept out of the prescriptive
+# list, because it names `--ignore-missing-imports` in order to *refuse* it,
+# which is exactly what an instruction is forbidden from doing below.
+TYPE_CHECK_ADR: str = "docs/adr/0032-strict-type-checking-is-enforced-ruff-is-advisory.md"
+
+# Everything that carries a second copy of the pin, and so can drift from it.
+COMMAND_SURFACES: tuple[str, ...] = (*PRESCRIPTIVE_SURFACES, TYPE_CHECK_ADR)
 
 # The suppressions that predate the enforced check, by the file that carries
 # them. Pinned as counts rather than lines so an edit above them does not
@@ -213,7 +228,7 @@ def test_only_the_unseal_helper_declares_a_dependency(helper: Path) -> None:
 
 @pytest.mark.parametrize("surface", COMMAND_SURFACES)
 def test_every_verification_surface_names_the_type_check_command(surface: str) -> None:
-    """A verification step three documents describe differently is one nobody
+    """A verification step its documents describe differently is one nobody
     runs the same way twice."""
 
     command = documented_command()
@@ -223,11 +238,14 @@ def test_every_verification_surface_names_the_type_check_command(surface: str) -
     )
 
 
-def test_no_surface_tells_a_reader_to_ignore_missing_imports() -> None:
+def test_no_instruction_tells_a_reader_to_ignore_missing_imports() -> None:
     """Suppressing the missing import manufactures a finding that does not
-    exist and blinds the check where a real one could hide."""
+    exist and blinds the check where a real one could hide. Only the
+    prescriptive surfaces are swept: ADR-0032 names the flag in order to
+    refuse it, and a record of why something is rejected must be free to
+    spell it."""
 
-    for surface in (*COMMAND_SURFACES, "pyproject.toml"):
+    for surface in PRESCRIPTIVE_SURFACES:
         text = (REPO_ROOT / surface).read_text(encoding="utf-8")
         assert "ignore_missing_imports" not in text and "--ignore-missing-imports" not in text, (
             f"{surface} must not suppress missing imports: doing so manufactures a "

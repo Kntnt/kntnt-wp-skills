@@ -55,6 +55,21 @@ FLOOR_DOCUMENTS: tuple[tuple[str, Path], ...] = (
 # docs used for the known-defect warning.
 STALE_FLOOR_REFERENCES: tuple[str, ...] = ("1.5.0", "≤ 1.7.0", "<= 1.7.0")
 
+# A package pin is not an `mkwp` version. Since issue #74 this repository
+# legitimately carries `pynacl==1.5.0` in the enforced type-check command, and
+# the stale `mkwp` floor happens to be the same number — so a bare substring
+# scan would redden these documents for a version that has nothing to do with
+# `mkwp` the moment any of them names the pin. Pins are therefore removed
+# before the scan, and only free-standing version references are judged.
+PACKAGE_PIN: re.Pattern[str] = re.compile(r"\b[A-Za-z0-9_.-]+==\d[\w.+-]*")
+
+
+def mkwp_version_prose(text: str) -> str:
+    """A document's prose with every ``name==version`` package pin removed, so
+    what remains is only versions stated in their own right."""
+
+    return PACKAGE_PIN.sub("", text)
+
 
 def test_floor_version_constant_is_1_8_1() -> None:
     """The guard's own floor constant is the single source of truth every
@@ -79,13 +94,25 @@ def test_document_states_the_raised_floor(doc_name: str, path: Path) -> None:
 def test_document_drops_the_stale_pre_fix_floor(doc_name: str, path: Path) -> None:
     """No document still tells an operator the pre-fix floor (1.5.0) or a
     still-broken version (<= 1.7.0) is the requirement — that would recommend
-    installing a version the guard itself now rejects."""
+    installing a version the guard itself now rejects. A package pin that
+    shares the number is not such a reference and is discounted."""
 
-    text = path.read_text(encoding="utf-8")
+    text = mkwp_version_prose(path.read_text(encoding="utf-8"))
     for stale in STALE_FLOOR_REFERENCES:
         assert stale not in text, (
             f"{doc_name} still references the stale floor {stale!r}"
         )
+
+
+def test_a_package_pin_sharing_the_number_is_not_a_stale_floor_reference() -> None:
+    """The discount above is the whole reason this suite can still be trusted
+    once a document names `pynacl==1.5.0`: a pin is not an `mkwp` floor, while
+    the same number stated in its own right still is."""
+
+    assert "1.5.0" not in mkwp_version_prose(
+        "Run `uv run --with mypy --with pynacl==1.5.0 mypy` from the repository root."
+    )
+    assert "1.5.0" in mkwp_version_prose("`mkwp` 1.5.0 or later is required.")
 
 
 def test_mkwp_skill_no_longer_prescribes_the_failure_diagnosis_workaround() -> None:

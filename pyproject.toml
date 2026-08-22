@@ -15,11 +15,12 @@
 #
 # That pin mirrors `skills/clone/scripts/unseal.py`'s PEP 723 header, which
 # owns it. mypy cannot read a PEP 723 header, so the version is necessarily
-# named twice, and `tests/test_type_check_consistency.py` keeps the two copies
-# equal — the header wins. Resolving the dependency rather than blanket-ignoring
-# missing imports is the point: a blanket ignore invents a `no-any-return`
-# finding in the unseal helper, and blinds the check at the one boundary where
-# a real finding could hide.
+# named again here and on every other surface that quotes the command, and
+# `tests/test_type_check_consistency.py` keeps every copy equal — the header
+# wins. Resolving the dependency rather than blanket-ignoring missing imports
+# is the point: a blanket ignore invents a `no-any-return` finding in the
+# unseal helper, and blinds the check at the one boundary where a real finding
+# could hide.
 strict = true
 
 # What is checked: the deterministic helper seam, and only it — the same three
