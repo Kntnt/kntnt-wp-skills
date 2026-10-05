@@ -3,7 +3,7 @@
 Until issue #76 nothing checked that a Markdown link goes anywhere. Two defects
 in two days were found by a person reading rather than by the suite: the
 glossary's three ADR citations, dead since the day they were written because
-`CONTEXT.md` sits at the repository root and reached them as `./adr/…` (#73);
+`GLOSSARY.md` sits at the repository root and reached them as `./adr/…` (#73);
 and a `../../docs/adr/…` citation inside a shipped skill document, which
 resolves in a clone and dangles for every reader who installed that skill on
 its own (#69).

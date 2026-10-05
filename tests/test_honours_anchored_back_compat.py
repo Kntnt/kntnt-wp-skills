@@ -201,7 +201,7 @@ def test_the_disclosure_fallback_is_guarded_on_presence_not_on_a_version() -> No
     (
         REPO_ROOT / "docs" / "spec.md",
         REPO_ROOT / "docs" / "adr" / "0023-a-defines-disclosure-is-read-from-the-protocol-member.md",
-        REPO_ROOT / "CONTEXT.md",
+        REPO_ROOT / "GLOSSARY.md",
     ),
     ids=lambda p: p.name,
 )

@@ -10,7 +10,7 @@ re-simulate the transfer. It is instead the anti-drift binding, the exact kind o
 consistency test already establishes: it holds ``skills/clone/SKILL.md`` to the
 acceptance criteria and the safety rails that converge in the clone flow.
 
-Anchors are stable domain terms (``CONTEXT.md``), real helper/template paths, and
+Anchors are stable domain terms (``GLOSSARY.md``), real helper/template paths, and
 the exact ``ddev`` invocation literals pinned in ``docs/implementation-notes.md``
 — never a snippet of this suite's own prose — so a faithful rewrite stays green
 while a regression (a returned stub, unwired hand-computation, a re-ordered

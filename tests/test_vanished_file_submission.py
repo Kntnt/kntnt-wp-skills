@@ -400,6 +400,6 @@ def test_the_glossary_defines_both_skip_terms() -> None:
     """Both terms enter the project glossary, since the rest of the code and
     docs are then written in them."""
 
-    text = (REPO_ROOT / "CONTEXT.md").read_text(encoding="utf-8")
+    text = (REPO_ROOT / "GLOSSARY.md").read_text(encoding="utf-8")
     assert "**Create-time skip**" in text
     assert "**Packaging-time skip**" in text

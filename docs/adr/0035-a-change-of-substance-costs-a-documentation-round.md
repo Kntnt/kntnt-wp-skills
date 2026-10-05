@@ -12,7 +12,7 @@ They are one question asked from both ends — what a change owes the documentat
 
 **Both rules live in [`AGENTS.md`](../../AGENTS.md), and R3's definition comes into this repository with them.**
 
-- **A change of substance costs a documentation round:** [`CHANGELOG.md`](../../CHANGELOG.md), [`CONTEXT.md`](../../CONTEXT.md), an ADR, and on the skills side [`docs/spec.md`](../spec.md) and every `SKILL.md` it touches. That tax is what lets a cold agent work here at all, and it is real. An item not worth paying it for is not worth doing — say so and strike it rather than carrying it.
+- **A change of substance costs a documentation round:** [`CHANGELOG.md`](../../CHANGELOG.md), [`CONTEXT.md`](../../GLOSSARY.md), an ADR, and on the skills side [`docs/spec.md`](../spec.md) and every `SKILL.md` it touches. That tax is what lets a cold agent work here at all, and it is real. An item not worth paying it for is not worth doing — say so and strike it rather than carrying it.
 - **A test-only change is not a change of substance** and carries no `CHANGELOG.md` entry.
 
 **The boundary is the files touched, not the size of the effect.** A change confined to `tests/` carries no entry. A change that touches a helper, a skill document, an operator-facing document, or the tool configuration carries one however small it is — the entry is what tells a reader of the release that something they run behaved differently, and a test does not qualify no matter how much work it was.

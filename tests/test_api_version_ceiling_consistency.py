@@ -92,7 +92,7 @@ FLOOR_STATING_SURFACES: tuple[Path, ...] = tuple(
         (
             *LIVE_SURFACES,
             *PINNING_SURFACES,
-            REPO_ROOT / "CONTEXT.md",
+            REPO_ROOT / "GLOSSARY.md",
             REPO_ROOT / "README.md",
         )
     )

@@ -47,7 +47,7 @@ REPO_ROOT: Path = Path(__file__).resolve().parents[1]
 CLONE_SKILL: Path = REPO_ROOT / "skills" / "clone" / "SKILL.md"
 PULL_SKILL: Path = REPO_ROOT / "skills" / "pull" / "SKILL.md"
 SPEC: Path = REPO_ROOT / "docs" / "spec.md"
-CONTEXT: Path = REPO_ROOT / "CONTEXT.md"
+GLOSSARY: Path = REPO_ROOT / "GLOSSARY.md"
 ADR: Path = (
     REPO_ROOT
     / "docs"
@@ -340,19 +340,19 @@ def test_the_spec_states_the_cancel_is_retried() -> None:
 
 
 def test_the_glossary_carries_the_locked_cancel_term() -> None:
-    """`CONTEXT.md` is the project's ubiquitous language, and it already names
+    """`GLOSSARY.md` is the project's ubiquitous language, and it already names
     **Locked consume**. The sibling condition gets a sibling term, so the two
     are told apart in prose instead of both being called "a 409"."""
 
-    text = _text(CONTEXT)
+    text = _text(GLOSSARY)
     assert "**Locked cancel**" in text, (
-        "CONTEXT.md has no **Locked cancel** term beside **Locked consume**"
+        "GLOSSARY.md has no **Locked cancel** term beside **Locked consume**"
     )
     _, _, after = text.partition("**Locked cancel**")
     entry, _, _ = after.partition("\n\n")
     assert REFUSAL_CODE in entry, (
-        "CONTEXT.md's **Locked cancel** term does not name the refusal code"
+        "GLOSSARY.md's **Locked cancel** term does not name the refusal code"
     )
     assert re.search(r"five (?:retries|times)", entry), (
-        "CONTEXT.md's **Locked cancel** term does not state the bounded schedule"
+        "GLOSSARY.md's **Locked cancel** term does not state the bounded schedule"
     )

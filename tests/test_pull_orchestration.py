@@ -10,7 +10,7 @@ transfer. It is instead the anti-drift binding (the sibling of
 ``test_clone_orchestration.py``): it holds ``skills/pull/SKILL.md`` to issue #9's
 acceptance criteria and the pull bookends the spec converges into the pull flow.
 
-Anchors are stable domain terms (``CONTEXT.md``), real helper/template paths, and
+Anchors are stable domain terms (``GLOSSARY.md``), real helper/template paths, and
 the exact ``ddev`` / ``wp`` invocation literals pinned in
 ``docs/implementation-notes.md`` — never a snippet of this suite's own prose — so
 a faithful rewrite stays green while a regression (a returned stub, an unwired

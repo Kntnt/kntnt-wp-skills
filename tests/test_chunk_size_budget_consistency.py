@@ -40,7 +40,7 @@ DISCOVERY_CLASSIFY: Path = (
 )
 SPEC: Path = REPO_ROOT / "docs" / "spec.md"
 IMPLEMENTATION_NOTES: Path = REPO_ROOT / "docs" / "implementation-notes.md"
-CONTEXT: Path = REPO_ROOT / "CONTEXT.md"
+GLOSSARY: Path = REPO_ROOT / "GLOSSARY.md"
 
 SKILLS: tuple[tuple[str, Path], ...] = (("clone", CLONE), ("pull", PULL))
 
@@ -337,9 +337,9 @@ def test_the_illustrative_saved_plan_shows_the_budget() -> None:
 
 
 def test_the_glossary_defines_the_file_part_budget() -> None:
-    """CONTEXT.md is the project glossary and its terms are used verbatim in code
+    """GLOSSARY.md is the project glossary and its terms are used verbatim in code
     and prose, so a new term lands there rather than being coined per surface."""
 
-    text = read(CONTEXT)
+    text = read(GLOSSARY)
     assert "**File-part budget**" in text
     assert "chunk_size" in text

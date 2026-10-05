@@ -17,7 +17,7 @@ All relative paths in this document are relative to the directory containing thi
 
 Create a fresh local WordPress site by driving the `mkwp` command. `mkwp` is **not** part of the shared transfer engine `clone` and `pull` run — there is no production site, no control channel, no baseline, nothing to import. It starts from nothing: gather the flags `mkwp` itself needs, confirm the ones context cannot settle, and run `mkwp` once. `--yes` accepts every recommendation, never pauses, and prints a full decided-and-done record.
 
-Read the [specification](https://github.com/Kntnt/kntnt-wp-skills/blob/main/docs/spec.md) (the `mkwp` section) and the [glossary](https://github.com/Kntnt/kntnt-wp-skills/blob/main/CONTEXT.md) alongside this file whenever you can reach them — inside a plugin install they sit at the plugin root, two levels above this file. Where a literal here and the spec diverge, the spec wins. Nothing below depends on having read them: this document carries every value and rule the run needs.
+Read the [specification](https://github.com/Kntnt/kntnt-wp-skills/blob/main/docs/spec.md) (the `mkwp` section) and the [glossary](https://github.com/Kntnt/kntnt-wp-skills/blob/main/GLOSSARY.md) alongside this file whenever you can reach them — inside a plugin install they sit at the plugin root, two levels above this file. Where a literal here and the spec diverge, the spec wins. Nothing below depends on having read them: this document carries every value and rule the run needs.
 
 ## 0. Help gate
 
